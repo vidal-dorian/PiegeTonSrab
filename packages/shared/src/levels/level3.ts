@@ -6,10 +6,12 @@ import type { LevelDefinition } from "../level";
  *   (upper lane, stalactites just above the blocks so jumps stay flat) or run the floor
  *   underneath, crouching under the blocks and jumping two small pits in the gaps.
  * - Second half: a long shelf splits the cave into an upper and a lower passage.
- *   Upper: hop a rock, then walk under stalactites (no room to jump); a hole drops to the
- *   lower passage. Lower: two pits, a rock to hop with the shelf just above your head, and
- *   a built-in saw hanging under the shelf (walk under it, do not jump).
- * - Both passages meet again in a small chamber before F.
+ *   Upper: hop a rock, then cross a taller gallery (open up to row 5) between stalactite
+ *   columns hanging to rows 7-8; a hole drops to the lower passage. Lower: two pits under
+ *   a low ceiling (the shelf sits just above your head, so jumps are short), wide enough
+ *   to stay two-lane, and a built-in saw hanging under the shelf a few cells past the
+ *   second pit (walk under it, do not jump).
+ * - Both passages meet again in a tall chamber before F.
  * One built-in object (the saw, with the upper passage as the way around it).
  */
 export const level3: LevelDefinition = {
@@ -20,17 +22,17 @@ export const level3: LevelDefinition = {
     "################################################################",
     "################################################################",
     "################################################################",
-    "################################################################",
-    "################################################################",
+    "##############################...##......##....##..#......##...#",
+    "##############################...##......##....##..#......##...#",
     "##############################...##......##....##..#......##...#",
     "########....#......##..##................##........#......##...#",
     "########....#......##..##......................................#",
     "########....#......##..................#.......................#",
     "#..................................##########..##########......#",
-    "#...................................#...............*..........#",
+    "#...................................#..................*.......#",
     "#.........####....####....####.................................#",
-    "#...........................................#..................#",
-    "#.S.....#.......................#...........#................F.#",
+    "#..............................................................#",
+    "#...S...#.......................#..........................F...#",
     "###############..######..##############...######..##############",
     "###############..######..##############...######..##############",
   ],

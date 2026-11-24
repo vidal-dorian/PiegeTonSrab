@@ -92,7 +92,7 @@ Decided (2026-11-24, build step 5):
 
 - Objects are no longer chosen: each player gets exactly the objects they must place this round, drawn at random (`extraOffered` is 0 in the game config). The player still chooses where to put them, in which order, and which way a cannon points. A hand never holds the same object three times.
 - Players collide. This replaces "Players do not collide with each other" in the network model. Landing on another player's head bounces you higher than a jump (holding jump gives the full bounce) and slams the other player down with a short stun (no jump, slow run). Touching sideways pushes both players apart.
-- The game has 10 maps.
+- The game has 10 maps: Le Parc, La Tour, La Grotte, Les Toits, L'Usine, Le Puits (one screen, 32 wide), Le Grand Huit, Le Labyrinthe, La Jungle, Le Pont. Each was checked with `packages/shared/scripts/check-level.ts`: finishable with its own objects, at most 1.3 % of free cells where a single saw would be refused, reach graph built in under 400 ms. Known weak spot (from the map critique): four maps share the same "ground lane + floating upper lane, left to right" skeleton (Parc, Toits, Jungle, Pont), no map reads right to left, and cannons, spikes and `=` platforms each appear in only one map.
 
 Defaults added while building step 5 (2026-11-24), not yet discussed with Dorian:
 
