@@ -16,7 +16,10 @@ export interface GameConfig {
   objectsLate: number;
   /** Rounds 1..switchAfterRound use objectsEarly; later rounds use objectsLate. */
   switchAfterRound: number;
-  /** How many more objects are offered than kept. */
+  /**
+   * How many more objects are drawn than placed. 0 (decided 2026-11-24): every player gets
+   * exactly the objects they must place, drawn at random, so nobody picks their favourite.
+   */
   extraOffered: number;
   /** Maximum points from kills per player per round. */
   killCap: number;
@@ -33,7 +36,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   objectsEarly: 3,
   objectsLate: 2,
   switchAfterRound: 3,
-  extraOffered: 2,
+  extraOffered: 0,
   killCap: 2,
 };
 
@@ -58,17 +61,25 @@ export function createRng(seed: number): () => number {
 export const DRAW_WEIGHTS: Record<ObjectKind, number> = {
   saw: 1,
   spikes: 1,
-  platform: 1,
+  cannon: 0.8,
+  spring: 0.8,
+  vine: 0.6,
+  platform: 0.8,
 };
 
-/** Random objects offered to one player for one round. */
+/**
+ * Random objects drawn for one player for one round. The same object is never drawn more
+ * than twice in one hand, so a hand of three is never three platforms.
+ */
 export function drawOffer(rng: () => number, count: number): ObjectKind[] {
-  const total = OBJECT_KINDS.reduce((s, k) => s + DRAW_WEIGHTS[k], 0);
   const offer: ObjectKind[] = [];
   for (let i = 0; i < count; i++) {
+    const allowed = OBJECT_KINDS.filter((k) => offer.filter((o) => o === k).length < 2);
+    const pool = allowed.length > 0 ? allowed : OBJECT_KINDS;
+    const total = pool.reduce((s, k) => s + DRAW_WEIGHTS[k], 0);
     let r = rng() * total;
-    let picked: ObjectKind = OBJECT_KINDS[0]!;
-    for (const k of OBJECT_KINDS) {
+    let picked: ObjectKind = pool[0]!;
+    for (const k of pool) {
       r -= DRAW_WEIGHTS[k];
       if (r < 0) {
         picked = k;

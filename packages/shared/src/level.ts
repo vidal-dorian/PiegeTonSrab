@@ -1,4 +1,4 @@
-import type { ObjectKind, PlacedObject } from "./objects";
+import type { Dir, ObjectKind, PlacedObject } from "./objects";
 
 /**
  * Level format and grid queries.
@@ -16,6 +16,22 @@ export const CellChar = {
   Finish: "F",
 } as const;
 
+/**
+ * Characters for objects that are part of a hand-made level. They are not player objects:
+ * nobody owns them, so they never earn kill points. The cell itself is empty terrain.
+ */
+export const OBJECT_CHARS: Record<string, { kind: ObjectKind; dir?: Dir }> = {
+  "*": { kind: "saw" },
+  "^": { kind: "spikes" },
+  "=": { kind: "platform" },
+  T: { kind: "spring" },
+  V: { kind: "vine" },
+  "<": { kind: "cannon", dir: 2 },
+  ">": { kind: "cannon", dir: 0 },
+  A: { kind: "cannon", dir: 3 },
+  U: { kind: "cannon", dir: 1 },
+};
+
 export interface LevelLabel {
   /** Cell coordinates of the label's centre. */
   x: number;
@@ -30,7 +46,7 @@ export interface LevelDefinition {
   /** Optional notes drawn in the level, used by test levels. */
   labels?: LevelLabel[];
   /** Objects already in the level before players place anything (mainly for testing). */
-  objects?: Array<{ kind: ObjectKind; x: number; y: number }>;
+  objects?: Array<{ kind: ObjectKind; x: number; y: number; dir?: Dir }>;
 }
 
 export interface Level {
@@ -39,6 +55,8 @@ export interface Level {
   height: number;
   /** Row-major solidity grid: solid[y * width + x]. */
   solid: boolean[];
+  /** Cells that bounce a character landing on them (springs). Absent means none. */
+  bounce?: boolean[];
   /** Top-left cell of the start marker. */
   start: { x: number; y: number };
   finish: { x: number; y: number } | null;
@@ -55,6 +73,7 @@ export function parseLevel(def: LevelDefinition): Level {
   const solid: boolean[] = new Array(width * height).fill(false);
   let start: Level["start"] | null = null;
   let finish: Level["finish"] = null;
+  const charObjects: Array<{ kind: ObjectKind; x: number; y: number; dir?: Dir }> = [];
 
   def.rows.forEach((row, y) => {
     if (row.length !== width) {
@@ -65,6 +84,7 @@ export function parseLevel(def: LevelDefinition): Level {
       if (c === CellChar.Solid) solid[y * width + x] = true;
       else if (c === CellChar.Start) start = { x, y };
       else if (c === CellChar.Finish) finish = { x, y };
+      else if (c !== undefined && OBJECT_CHARS[c]) charObjects.push({ ...OBJECT_CHARS[c]!, x, y });
       else if (c !== CellChar.Empty) {
         throw new Error(`Level "${def.name}": unknown cell "${c}" at (${x}, ${y})`);
       }
@@ -72,7 +92,11 @@ export function parseLevel(def: LevelDefinition): Level {
   });
 
   if (!start) throw new Error(`Level "${def.name}" has no start cell "S"`);
-  const initialObjects = (def.objects ?? []).map((o, i) => ({ id: -(i + 1), kind: o.kind, x: o.x, y: o.y }));
+  const initialObjects: PlacedObject[] = [...charObjects, ...(def.objects ?? [])].map((o, i) => {
+    const obj: PlacedObject = { id: -(i + 1), kind: o.kind, x: o.x, y: o.y };
+    if (o.dir !== undefined) obj.dir = o.dir;
+    return obj;
+  });
   return { name: def.name, width, height, solid, start, finish, labels: def.labels ?? [], initialObjects };
 }
 
@@ -81,6 +105,12 @@ export function parseLevel(def: LevelDefinition): Level {
  * Outside the level: the left and right edges are walls, above the level is open sky,
  * below the level is an open pit (falling out of the level kills).
  */
+/** Whether landing on the cell at (cx, cy) bounces (a spring). */
+export function isBouncyCell(level: Level, cx: number, cy: number): boolean {
+  if (!level.bounce || cx < 0 || cx >= level.width || cy < 0 || cy >= level.height) return false;
+  return level.bounce[cy * level.width + cx] === true;
+}
+
 export function isSolidCell(level: Level, cx: number, cy: number): boolean {
   if (cx < 0 || cx >= level.width) return true;
   if (cy < 0 || cy >= level.height) return false;

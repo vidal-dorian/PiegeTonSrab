@@ -9,7 +9,7 @@
  */
 import { parseLevel, type Level, type LevelDefinition } from "./level";
 import { DEFAULT_MOVEMENT } from "./movement/tuning";
-import { canPlaceAt, type ObjectKind, type PlacedObject } from "./objects";
+import { canPlaceAt, OBJECT_DEFS, prepareObjects, type Dir, type ObjectKind, type PlacedObject } from "./objects";
 import { PathGuard } from "./reachability";
 import {
   createRng,
@@ -24,6 +24,7 @@ import {
 import {
   MAX_NAME_LENGTH,
   MAX_PLAYERS,
+  STOMP_MAX_DISTANCE,
   TIMING,
   type ClientMessage,
   type ClientMessageOf,
@@ -89,6 +90,10 @@ export class GameSession {
   private raceEndsAt = 0;
   private raceGuard: PathGuard | null = null;
   private refused = new Map<string, number>();
+  /** Vine id -> player holding it. */
+  private vineHolders = new Map<number, string>();
+  /** "stomper>victim" -> time of the last accepted stomp. */
+  private lastStomp = new Map<string, number>();
 
   private timers: Array<() => void> = [];
   private ghostTimer: (() => void) | null = null;
@@ -209,6 +214,12 @@ export class GameSession {
       case "block":
         this.onBlock(p, msg);
         return;
+      case "stomp":
+        this.onStomp(p, msg);
+        return;
+      case "vine":
+        this.onVine(p, msg);
+        return;
     }
   }
 
@@ -234,7 +245,8 @@ export class GameSession {
     this.levelIndex = Math.floor(this.rng() * this.levels.length);
     this.level = parseLevel(this.levels[this.levelIndex]!);
     this.round = 0;
-    this.objects = [];
+    // Objects drawn in the map itself (springs, vines, cannons...) are there from the start.
+    this.objects = prepareObjects(this.level, this.level.initialObjects);
     this.nextObjectId = 1;
     this.scores = new Map();
     for (const p of this.players.values()) {
@@ -307,7 +319,9 @@ export class GameSession {
       const i = available.indexOf(o?.kind);
       if (i < 0 || !Number.isInteger(o.x) || !Number.isInteger(o.y)) return null;
       available.splice(i, 1);
-      out.push({ kind: o.kind, x: o.x, y: o.y });
+      const choice: PlacementChoice = { kind: o.kind, x: o.x, y: o.y };
+      if (OBJECT_DEFS[o.kind].rotatable) choice.dir = cleanDir(o.dir);
+      out.push(choice);
     }
     return out;
   }
@@ -332,11 +346,13 @@ export class GameSession {
     for (const p of order) {
       for (const c of p.choice) {
         const obj: PlacedObject = { id: this.nextObjectId, kind: c.kind, x: c.x, y: c.y, ownerId: p.id };
+        if (c.dir !== undefined) obj.dir = c.dir;
         if (canPlaceAt(this.level, guard.objects, c.x, c.y) && guard.tryAdd(obj)) this.nextObjectId++;
         else this.refused.set(p.id, (this.refused.get(p.id) ?? 0) + 1);
       }
     }
-    this.objects = [...guard.objects];
+    // Cannon lines and vine ropes depend on everything around them: measure them now.
+    this.objects = prepareObjects(this.level, guard.objects);
     this.startCountdown();
   }
 
@@ -356,6 +372,8 @@ export class GameSession {
       p.placedBlock = false;
       this.sendCountdown(p);
     }
+    this.vineHolders.clear();
+    this.lastStomp.clear();
     // Built now so dead players' blocks can be checked quickly during the race.
     this.raceGuard = new PathGuard(this.level, this.objects, DEFAULT_MOVEMENT);
     this.later(() => this.startRace(), Math.max(0, this.raceStartsAt - this.io.now()));
@@ -392,6 +410,7 @@ export class GameSession {
     // The client says which object killed it; the kill goes to that object's owner.
     const killer = msg.killerId === null ? undefined : this.objects.find((o) => o.id === msg.killerId);
     p.killedBy = killer?.ownerId ?? null;
+    this.releaseVines(p.id);
     this.io.broadcast({ type: "playerDied", id: p.id, x: num(msg.x), y: num(msg.y), fell: !!msg.fell });
     this.checkRaceDone();
   }
@@ -400,6 +419,7 @@ export class GameSession {
     if (!this.raceRunning() || p.status !== "running") return;
     p.status = "finished";
     p.finishTime = Math.min(Math.max(num(msg.time), 0), this.cfg.raceTime);
+    this.releaseVines(p.id);
     this.io.broadcast({ type: "playerFinished", id: p.id, time: p.finishTime });
     this.checkRaceDone();
   }
@@ -428,6 +448,58 @@ export class GameSession {
     this.io.broadcast({ type: "block", block, appearsAt: roundTime + TIMING.blockDelay / 1000 });
   }
 
+  /**
+   * A player landed on another one's head. The stomper's machine detects it (it sees the
+   * victim where the victim was ~100 ms ago); the server only checks it is plausible and
+   * tells everyone, and the victim's machine pushes its own character down.
+   */
+  private onStomp(p: Player, msg: ClientMessageOf<"stomp">): void {
+    if (this.phase !== "race" || p.status !== "running") return;
+    const victim = this.players.get(String(msg.victim));
+    if (!victim || victim.id === p.id || !victim.inGame || victim.status !== "running") return;
+    if (p.pose && victim.pose) {
+      const far = Math.abs(p.pose.x - victim.pose.x) > STOMP_MAX_DISTANCE || Math.abs(p.pose.y - victim.pose.y) > STOMP_MAX_DISTANCE;
+      if (far) return;
+    }
+    const now = this.io.now();
+    if (now - this.raceStartsAt < TIMING.contactGrace) return;
+    const key = `${p.id}>${victim.id}`;
+    if (now - (this.lastStomp.get(key) ?? -Infinity) < TIMING.stompCooldown) return;
+    this.lastStomp.set(key, now);
+    this.io.broadcast({ type: "stomped", by: p.id, victim: victim.id });
+  }
+
+  /** Grab or let go of a vine. The first to grab it holds it; the others are told it is taken. */
+  private onVine(p: Player, msg: ClientMessageOf<"vine">): void {
+    if (this.phase !== "race" && this.phase !== "countdown") return;
+    const id = msg.id;
+    if (!Number.isInteger(id) || !this.objects.some((o) => o.id === id && o.kind === "vine")) return;
+    const holder = this.vineHolders.get(id);
+    if (msg.hold) {
+      if (p.status !== "running") return;
+      if (holder && holder !== p.id) {
+        // Someone else got there first: tell this player so their client lets go.
+        this.io.send(p.id, { type: "vine", id, holder });
+        return;
+      }
+      if (holder === p.id) return;
+      this.releaseVines(p.id);
+      this.vineHolders.set(id, p.id);
+      this.io.broadcast({ type: "vine", id, holder: p.id });
+    } else if (holder === p.id) {
+      this.vineHolders.delete(id);
+      this.io.broadcast({ type: "vine", id, holder: null });
+    }
+  }
+
+  private releaseVines(playerId: string): void {
+    for (const [id, holder] of this.vineHolders) {
+      if (holder !== playerId) continue;
+      this.vineHolders.delete(id);
+      this.io.broadcast({ type: "vine", id, holder: null });
+    }
+  }
+
   private raceRunning(): boolean {
     return this.phase === "race" || this.phase === "countdown";
   }
@@ -451,6 +523,7 @@ export class GameSession {
       this.endPlacement();
     } else if (this.phase === "race" || this.phase === "countdown") {
       if (p.status === "running") p.status = "out";
+      this.releaseVines(p.id);
       this.checkRaceDone();
     }
   }
@@ -500,6 +573,7 @@ export class GameSession {
       this.broadcastPlacedStatus();
     } else if (this.phase === "countdown" || this.phase === "race" || this.phase === "raceEnd") {
       this.sendCountdown(p);
+      for (const [vid, holder] of this.vineHolders) this.io.send(id, { type: "vine", id: vid, holder });
     }
   }
 
@@ -522,6 +596,10 @@ function cleanName(raw: unknown): string {
     .replace(/[\u0000-\u001f]/g, "")
     .trim()
     .slice(0, MAX_NAME_LENGTH);
+}
+
+function cleanDir(v: unknown): Dir {
+  return v === 0 || v === 1 || v === 2 || v === 3 ? v : 2;
 }
 
 function num(v: unknown): number {

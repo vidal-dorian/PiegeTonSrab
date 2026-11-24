@@ -20,14 +20,28 @@
  * Safety margin: traps are treated as PATH_SAFETY_MARGIN bigger than they are, so the path
  * that remains never depends on threading a pixel-wide gap between two traps.
  *
- * Limits: moving objects will need their swept area treated as hazardous (build step 5).
- * Moves are a fixed sample; a path needing a very precise trick may be missed, which makes
- * the check strict rather than lenient.
+ * Objects (build step 5):
+ * - A cannon's whole line of fire counts as deadly, so the answer never depends on timing.
+ * - Springs are played for real by the controller: landing on one throws the character up
+ *   and the move goes on until it lands somewhere else. A spring is never a place to stand.
+ * - Vines: only their anchor block counts (it is solid). The check never uses a vine to get
+ *   somewhere, so a vine can only add ways through, never be required.
+ *
+ * Limits: moves are a fixed sample; a path needing a very precise trick may be missed, which
+ * makes the check strict rather than lenient.
  */
-import { boxOverlapsSolid, cellSpan, isSolidCell, type Level } from "./level";
+import { boxOverlapsSolid, cellSpan, isBouncyCell, isSolidCell, type Level } from "./level";
 import { CharacterController, type StepInput } from "./movement/controller";
 import { HAZARD_INSET, SIM_HZ, type MovementTuning } from "./movement/tuning";
-import { boxHitsHazard, hazardsOf, withSolidObjects, type Hazard, type PlacedObject } from "./objects";
+import {
+  boxHitsHazard,
+  footprintCells,
+  prepareObjects,
+  staticHazards,
+  withSolidObjects,
+  type Hazard,
+  type PlacedObject,
+} from "./objects";
 
 const DT = 1 / SIM_HZ;
 
@@ -100,7 +114,7 @@ class HazardIndex {
     objects: readonly PlacedObject[],
   ) {
     for (const obj of objects) {
-      for (const hz of hazardsOf(obj, 0)) {
+      for (const hz of staticHazards(obj)) {
         const b = hz.shape === "circle" ? { x: hz.cx - hz.r, y: hz.cy - hz.r, w: hz.r * 2, h: hz.r * 2 } : hz;
         const [x0, x1] = cellSpan(b.x, b.w);
         const [y0, y1] = cellSpan(b.y, b.h);
@@ -143,8 +157,9 @@ class Explorer {
     objects: readonly PlacedObject[],
     tuning: MovementTuning,
   ) {
-    this.collision = withSolidObjects(level, objects);
-    this.hazards = new HazardIndex(level.width, objects);
+    const prepared = prepareObjects(level, objects);
+    this.collision = withSolidObjects(level, prepared);
+    this.hazards = new HazardIndex(level.width, prepared);
     this.c = new CharacterController(this.collision, tuning);
     this.w = tuning.bodyWidth;
     this.h = tuning.bodyHeight;
@@ -157,6 +172,8 @@ class Explorer {
   isStandCell(cx: number, cy: number): boolean {
     if (cx < 0 || cx >= this.level.width || cy < 0 || cy >= this.level.height) return false;
     if (isSolidCell(this.collision, cx, cy) || !isSolidCell(this.collision, cx, cy + 1)) return false;
+    // Nobody stands on a spring: landing on it throws you up.
+    if (isBouncyCell(this.collision, cx, cy + 1)) return false;
     const x = cx + (1 - this.w) / 2;
     const y = cy + 1 - this.h;
     return !boxOverlapsSolid(this.collision, x, y, this.w, this.h) && !this.hitsHazard(x, y, 0);
@@ -376,7 +393,7 @@ export class PathGuard {
     const result = this.check(candidate);
     if (result === null) return false;
     this.current.push(candidate);
-    if (result === "quick") this.blocked.add(this.cellOf(candidate));
+    if (result === "quick") for (const c of this.footprint(candidate)) this.blocked.add(c);
     else {
       this.graph = result;
       this.blocked.clear();
@@ -389,14 +406,15 @@ export class PathGuard {
     // A level that is already blocked (should not happen) cannot be "cut" further: don't punish the player.
     if (!this.graph.reachable) return "quick";
     const blocked = new Set(this.blocked);
-    blocked.add(this.cellOf(candidate));
+    for (const c of this.footprint(candidate)) blocked.add(c);
     if (reachableWithout(this.graph, blocked)) return "quick";
     const full = buildReachGraph(this.level, [...this.current, candidate], this.tuning);
     return full.reachable ? full : null;
   }
 
-  private cellOf(o: PlacedObject): number {
-    return o.y * this.level.width + o.x;
+  /** Cells the candidate occupies or makes deadly, measured with everything already placed. */
+  private footprint(candidate: PlacedObject): number[] {
+    return objectFootprint(this.level, this.current, candidate);
   }
 }
 
@@ -413,6 +431,12 @@ export function placementKeepsPath(
 ): boolean {
   // A level that is already blocked (should not happen) cannot be "cut" further: don't punish the player.
   if (!graph.reachable) return true;
-  if (reachableWithout(graph, new Set([candidate.y * level.width + candidate.x]))) return true;
+  if (reachableWithout(graph, new Set(objectFootprint(level, objects, candidate)))) return true;
   return buildReachGraph(level, [...objects, candidate], tuning).reachable;
+}
+
+/** Footprint of `candidate` once added to `objects` (a cannon's line depends on what is around it). */
+function objectFootprint(level: Level, objects: readonly PlacedObject[], candidate: PlacedObject): number[] {
+  const prepared = prepareObjects(level, [...objects, candidate]);
+  return footprintCells(prepared[prepared.length - 1]!, level.width);
 }

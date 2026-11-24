@@ -21,7 +21,8 @@ class FakeIO implements SessionIO {
   now() { return this.t; }
   send(to: string, msg: ServerMessage) { this.sent.push({ to, msg }); }
   broadcast(msg: ServerMessage) { this.sent.push({ to: "*", msg }); }
-  random() { return 0.42; }
+  seed = 0.42;
+  random() { return this.seed; }
   setTimeout(fn: () => void, ms: number) {
     const id = this.nextId++;
     this.timers.push({ at: this.t + ms, fn, id });
@@ -111,7 +112,8 @@ describe("GameSession", () => {
     const pa = io.last("placement", "a")!;
     const pb = io.last("placement", "b")!;
     expect(pa.needed).toBe(3);
-    expect(pa.offer).toHaveLength(5);
+    // Objects are drawn, not chosen: exactly as many as must be placed.
+    expect(pa.offer).toHaveLength(3);
 
     // Each player places their first three offered objects in the air.
     s.handle("a", { type: "placement", objects: pa.offer.slice(0, 3).map((kind, i) => ({ kind, x: 3 + i, y: 0 })), done: true });
@@ -148,10 +150,18 @@ describe("GameSession", () => {
   });
 
   it("refuses the placement that, combined with another player's, cuts the path", () => {
-    const { io, s } = setup(twoLanes);
-    s.addPlayer("a", "A");
-    s.addPlayer("b", "B");
-    toPlacement(io, s, ["a", "b"]);
+    // The draw is random and imposed: pick a game seed where both hands hold a saw or spikes.
+    const isTrap = (k: ObjectKind) => k === "saw" || k === "spikes";
+    let io!: FakeIO;
+    let s!: GameSession;
+    for (let i = 1; i < 100; i++) {
+      ({ io, s } = setup(twoLanes));
+      io.seed = i / 100;
+      s.addPlayer("a", "A");
+      s.addPlayer("b", "B");
+      toPlacement(io, s, ["a", "b"]);
+      if (io.last("placement", "a")!.offer.some(isTrap) && io.last("placement", "b")!.offer.some(isTrap)) break;
+    }
     // Each player puts a killing object in one lane and the rest in harmless cells of the top-left corner.
     const choose = (offer: ObjectKind[], lane: { x: number; y: number }, spareX: number) => {
       const killer = offer.findIndex((k) => k === "saw" || k === "spikes");

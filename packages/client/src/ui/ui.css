@@ -96,7 +96,7 @@
 }
 .ui-tray .cards { display: flex; gap: 8px; justify-content: center; }
 .card {
-  width: 84px;
+  width: 112px;
   padding: 6px 4px;
   border: 2.5px solid var(--ink);
   border-radius: 8px;
@@ -110,6 +110,8 @@
 }
 .card .key { font-size: 11px; opacity: 0.6; }
 .card .name { font-weight: 700; font-size: 14px; }
+.card .desc { font-size: 11px; opacity: 0.75; max-width: 110px; text-align: center; line-height: 1.2; }
+.ui-tray .tray-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.7; }
 .card .tag { font-size: 11px; font-weight: 800; padding: 1px 6px; border-radius: 4px; color: var(--surface); }
 .card .tag.kill { background: var(--red); }
 .card .tag.help { background: var(--orange); }

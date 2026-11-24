@@ -3,11 +3,11 @@
  * This is not the placement phase of the game (that comes with build step 3); it has no
  * draw, no timer and only the basic placement rule.
  *
- * E toggles the editor; 1, 2, 3 pick saw, spikes, platform; click places on an empty cell
- * or removes the object under the cursor.
+ * E toggles the editor; 1 to 6 pick an object; T turns cannons; click places on an empty
+ * cell or removes the object under the cursor.
  */
 import Phaser from "phaser";
-import { OBJECT_DEFS, OBJECT_KINDS, type ObjectKind } from "@game/shared";
+import { OBJECT_DEFS, OBJECT_KINDS, type Dir, type ObjectKind } from "@game/shared";
 import { CELL_PX } from "../config";
 
 export interface EditorHost {
@@ -21,6 +21,8 @@ export interface EditorHost {
 export class DebugEditor {
   enabled = false;
   kind: ObjectKind = "saw";
+  /** Direction given to rotatable objects (cannon). */
+  dir: Dir = 2;
   private hover: { x: number; y: number } | null = null;
   private preview: Phaser.GameObjects.Graphics;
   private cleanup: Array<() => void> = [];
@@ -60,7 +62,11 @@ export class DebugEditor {
       return true;
     }
     if (!this.enabled) return false;
-    const index = ["Digit1", "Digit2", "Digit3"].indexOf(code);
+    if (code === "KeyT") {
+      this.dir = ((this.dir + 1) % 4) as Dir;
+      return true;
+    }
+    const index = /^Digit([1-9])$/.test(code) ? Number(code.slice(5)) - 1 : -1;
     const kind = OBJECT_KINDS[index];
     if (index >= 0 && kind) {
       this.kind = kind;
@@ -76,7 +82,8 @@ export class DebugEditor {
       const name = `${i + 1} ${OBJECT_DEFS[k].name}`;
       return k === this.kind ? `[${name}]` : name;
     }).join("  ");
-    return `ÉDITION (E pour quitter) · ${choices} · clic : poser / retirer`;
+    const arrow = ["→", "↓", "←", "↑"][this.dir];
+    return `ÉDITION (E pour quitter) · ${choices} · T canon ${arrow} · clic : poser / retirer`;
   }
 
   /** Redraw the preview cell. */

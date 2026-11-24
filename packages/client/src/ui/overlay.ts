@@ -22,7 +22,8 @@ export interface TrayState {
   others?: Array<{ name: string; done: boolean }>;
   /** This player validated and is waiting for the others. */
   waiting?: boolean;
-  cards: Array<{ kind: ObjectKind; used: boolean }>;
+  /** The objects drawn for this player this round. `arrow`: direction of a cannon. */
+  cards: Array<{ kind: ObjectKind; used: boolean; arrow?: string }>;
   selected: number | null;
   placed: number;
   needed: number;
@@ -114,7 +115,8 @@ export class Overlay {
       const card = el("button", "card");
       if (c.used) card.classList.add("used");
       if (s.selected === i) card.classList.add("selected");
-      card.append(el("span", "key", String(i + 1)), el("span", "name", def.name), el("span", `tag ${def.family}`, FAMILY_TAG[def.family]));
+      const name = el("span", "name", c.arrow ? `${def.name} ${c.arrow}` : def.name);
+      card.append(el("span", "key", String(i + 1)), name, el("span", "desc", def.hint), el("span", `tag ${def.family}`, FAMILY_TAG[def.family]));
       card.disabled = c.used;
       card.addEventListener("click", () => {
         card.blur();
@@ -127,7 +129,8 @@ export class Overlay {
     const row = el("div", "row");
     row.append(el("span", "", `${s.placed} / ${s.needed} posés`), validate);
     this.trayHint = el("div", "hint");
-    const parts: HTMLElement[] = [cards, this.trayHint, row];
+    const title = el("div", "tray-title", "Tes objets, tirés au sort");
+    const parts: HTMLElement[] = [title, cards, this.trayHint, row];
     if (s.others?.length) {
       const status = el("div", "status");
       for (const o of s.others) status.append(el("span", o.done ? "done" : "", `${o.name} ${o.done ? "✓" : "…"}`));

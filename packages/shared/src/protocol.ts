@@ -6,7 +6,7 @@
  * protocol can be read in this one file. Times are server times in milliseconds
  * (Date.now() on the server) unless the name says otherwise.
  */
-import type { ObjectKind, PlacedObject } from "./objects";
+import type { Dir, ObjectKind, PlacedObject } from "./objects";
 import type { RoundVerdict, ScoreLine } from "./rules";
 
 export const SERVER_PORT = 2567;
@@ -29,7 +29,18 @@ export const TIMING = {
   ghostInterval: 50,
   /** A block placed by a dead player becomes solid this long after the server accepts it. */
   blockDelay: 300,
+  /** The same player can't stomp the same victim twice within this long. */
+  stompCooldown: 350,
+  /** No bumping or stomping this soon after the race starts: everyone starts on the same cell. */
+  contactGrace: 800,
 } as const;
+
+/**
+ * A stomp is accepted only if the two players' last known positions are this close (cells).
+ * Positions arrive 20 times per second, so this leaves room for lag without allowing stomps
+ * across the level.
+ */
+export const STOMP_MAX_DISTANCE = 3;
 
 export interface LobbyPlayer {
   id: string;
@@ -67,6 +78,8 @@ export interface PlacementChoice {
   kind: ObjectKind;
   x: number;
   y: number;
+  /** Rotatable objects only (cannon). */
+  dir?: Dir;
 }
 
 // --- Server to client ---------------------------------------------------------
@@ -101,6 +114,10 @@ export type ServerMessage =
   /** A block placed by a dead player; solid from round time `appearsAt` (seconds). */
   | { type: "block"; block: PlacedObject; appearsAt: number }
   | { type: "blockRefused"; reason: string }
+  /** `by` landed on `victim`'s head: the victim's client slams its character down and stuns it. */
+  | { type: "stomped"; by: string; victim: string }
+  /** Who holds a vine now (null: nobody). Only one player holds a vine at a time. */
+  | { type: "vine"; id: number; holder: string | null }
   | {
       type: "score";
       round: number;
@@ -124,6 +141,10 @@ export type ClientMessage =
   | { type: "died"; killerId: number | null; x: number; y: number; fell: boolean }
   | { type: "finished"; time: number }
   | { type: "block"; x: number; y: number }
+  /** This player's character landed on `victim`'s head (detected on the stomper's machine). */
+  | { type: "stomp"; victim: string }
+  /** This player grabbed (hold) or let go of a vine. */
+  | { type: "vine"; id: number; hold: boolean }
   | { type: "ping"; c: number }
   | { type: "backToLobby" };
 
