@@ -74,6 +74,20 @@ Defaults added while building step 3 (2026-11-24), not yet discussed with Dorian
 - Objects can be placed anywhere that is free, including in mid-air (floating spikes, floating saws).
 - Interface (menu, timer, tray, scores) is HTML over the Phaser canvas rather than drawn in Phaser.
 
+Decided (2026-11-24, step 4): when the host starts a game, a carousel spins through the maps and stops on one drawn at random by the server; every round of that game is played on it. More maps will be added later (list in `packages/shared/src/levelList.ts`).
+
+Defaults added while building step 4 (2026-11-24), not yet discussed with Dorian:
+
+- Colyseus is used for rooms, connections and reconnection only. Its automatic state sync is not used: every exchange is an explicit message, all listed in `packages/shared/src/protocol.ts`.
+- All game logic (lobby, rounds, placement checks, scoring) is one network-free class, `GameSession`, in the shared package. The server room only plugs it into Colyseus, and the offline solo mode runs the same class in the browser.
+- A room is joined with a 4-letter code (no I or O) or a link `?salon=CODE`. Up to 4 players, colours by order of arrival (black, white, blue, green). The first player is the host and picks 10 or 25 points; if the host leaves, the next player becomes host.
+- The host can start alone; the solo scoring exception then applies. This is meant for testing.
+- Nobody can join a game in progress. A dropped player has 30 seconds to reconnect and gets the current phase back.
+- Placement checks on the client and on the server both use `DEFAULT_MOVEMENT`, so tuning-panel values must be pasted there before they count for the server.
+- Other players are drawn 100 ms in the past, interpolated between position updates (20 per second).
+- A dead player's block becomes solid 300 ms after the server accepts it, and never inside a running player's body.
+- After a death or a finish, the camera follows a living player; left and right arrows switch players.
+
 ## Scoring
 
 Decided:

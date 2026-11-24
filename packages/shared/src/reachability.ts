@@ -254,8 +254,11 @@ class Explorer {
       c.step(DT, input);
 
       // --- Record and check ---------------------------------------------------
-      const [x0, x1] = cellSpan(c.x, this.w);
-      const [y0, y1] = cellSpan(c.y, this.h);
+      // Record the cells touched by the body grown to the size used for trap checks, so that
+      // a trap in any cell not recorded here cannot affect this move (pruning stays sound).
+      const grow = Math.max(0, PATH_SAFETY_MARGIN - HAZARD_INSET);
+      const [x0, x1] = cellSpan(c.x - grow, this.w + 2 * grow);
+      const [y0, y1] = cellSpan(c.y - grow, this.h + 2 * grow);
       for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) cells.add(y * width + x);
 
       if (c.fellOut || this.hitsHazard(c.x, c.y, c.vy)) return { result: null, cells, touchedWall };
@@ -313,14 +316,14 @@ export function buildReachGraph(level: Level, objects: readonly PlacedObject[], 
   return { width: level.width, start, edges, reachable };
 }
 
-/** Search the existing graph, ignoring every edge that passes through `blockedCell`. */
-export function reachableWithout(graph: ReachGraph, blockedCell: number): boolean {
+/** Search the existing graph, ignoring every edge that passes through one of `blockedCells`. */
+export function reachableWithout(graph: ReachGraph, blockedCells: ReadonlySet<number>): boolean {
   const seen = new Set<number>([graph.start]);
   const queue = [graph.start];
   while (queue.length > 0) {
     const node = queue.shift()!;
     for (const e of graph.edges.get(node) ?? []) {
-      if (e.cells.has(blockedCell)) continue;
+      if (crosses(e.cells, blockedCells)) continue;
       if (e.to === FINISH) return true;
       if (!seen.has(e.to)) {
         seen.add(e.to);
@@ -329,6 +332,72 @@ export function reachableWithout(graph: ReachGraph, blockedCell: number): boolea
     }
   }
   return false;
+}
+
+function crosses(cells: ReadonlySet<number>, blocked: ReadonlySet<number>): boolean {
+  for (const b of blocked) if (cells.has(b)) return true;
+  return false;
+}
+
+/**
+ * Validates placements one after the other against a level, keeping the finish reachable.
+ * Used by the server at the end of the placement step (placements are applied in order and
+ * any that would cut the last path is refused) and for blocks placed by dead players.
+ *
+ * It builds the graph once, then for each accepted object only adds its cell to a blocked
+ * set; the full simulation is re-run only when the quick check is not enough.
+ */
+export class PathGuard {
+  private graph: ReachGraph;
+  private blocked = new Set<number>();
+  private current: PlacedObject[];
+
+  constructor(
+    private level: Level,
+    objects: readonly PlacedObject[],
+    private tuning: MovementTuning,
+  ) {
+    this.current = [...objects];
+    this.graph = buildReachGraph(level, this.current, tuning);
+  }
+
+  /** Objects accepted so far, including the initial ones. */
+  get objects(): readonly PlacedObject[] {
+    return this.current;
+  }
+
+  /** Whether `candidate` could be added now without cutting the path. Does not add it. */
+  keepsPath(candidate: PlacedObject): boolean {
+    return this.check(candidate) !== null;
+  }
+
+  /** Add `candidate` if it keeps a path to the finish; returns whether it was added. */
+  tryAdd(candidate: PlacedObject): boolean {
+    const result = this.check(candidate);
+    if (result === null) return false;
+    this.current.push(candidate);
+    if (result === "quick") this.blocked.add(this.cellOf(candidate));
+    else {
+      this.graph = result;
+      this.blocked.clear();
+    }
+    return true;
+  }
+
+  /** null: refused. "quick": accepted by the quick check. A graph: accepted after a full rebuild. */
+  private check(candidate: PlacedObject): "quick" | ReachGraph | null {
+    // A level that is already blocked (should not happen) cannot be "cut" further: don't punish the player.
+    if (!this.graph.reachable) return "quick";
+    const blocked = new Set(this.blocked);
+    blocked.add(this.cellOf(candidate));
+    if (reachableWithout(this.graph, blocked)) return "quick";
+    const full = buildReachGraph(this.level, [...this.current, candidate], this.tuning);
+    return full.reachable ? full : null;
+  }
+
+  private cellOf(o: PlacedObject): number {
+    return o.y * this.level.width + o.x;
+  }
 }
 
 /**
@@ -344,6 +413,6 @@ export function placementKeepsPath(
 ): boolean {
   // A level that is already blocked (should not happen) cannot be "cut" further: don't punish the player.
   if (!graph.reachable) return true;
-  if (reachableWithout(graph, candidate.y * level.width + candidate.x)) return true;
+  if (reachableWithout(graph, new Set([candidate.y * level.width + candidate.x]))) return true;
   return buildReachGraph(level, [...objects, candidate], tuning).reachable;
 }

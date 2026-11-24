@@ -2,6 +2,7 @@ import Phaser from "phaser";
 import { CELL_PX, VIEW_CELLS_X, VIEW_CELLS_Y } from "./config";
 import { createTuningPanel } from "./debug/tuningPanel";
 import { GameScene } from "./scenes/GameScene";
+import { LobbyScene } from "./scenes/LobbyScene";
 import { MenuScene } from "./scenes/MenuScene";
 import { SoloScene } from "./scenes/SoloScene";
 
@@ -15,7 +16,7 @@ const game = new Phaser.Game({
   // Input is read directly from the browser (see input.ts and the scenes), not through Phaser.
   input: { keyboard: false, gamepad: false, mouse: false, touch: false },
   // The first scene in the list starts automatically.
-  scene: [MenuScene, GameScene, SoloScene],
+  scene: [MenuScene, LobbyScene, GameScene, SoloScene],
 });
 
 createTuningPanel(() => {

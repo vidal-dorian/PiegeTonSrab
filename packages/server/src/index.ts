@@ -1,3 +1,17 @@
-// The game server (Colyseus) is built in step 4 of the build order (see HANDOFF.md).
-// Until then this package only exists so the monorepo layout is in place.
-console.log("Server not implemented yet: see step 4 in HANDOFF.md.");
+/**
+ * Game server entry point: one Colyseus server with one room type ("game").
+ * Run with `npm run server` (needs Node 22).
+ */
+import { defineRoom, defineServer } from "@colyseus/core";
+import { WebSocketTransport } from "@colyseus/ws-transport";
+import { ROOM_NAME, SERVER_PORT } from "@game/shared";
+import { GameRoom } from "./GameRoom";
+
+const port = Number(process.env.PORT ?? SERVER_PORT);
+
+const server = defineServer({
+  transport: new WebSocketTransport(),
+  rooms: { [ROOM_NAME]: defineRoom(GameRoom) },
+});
+
+server.listen(port).then(() => console.log(`Game server listening on port ${port}`));

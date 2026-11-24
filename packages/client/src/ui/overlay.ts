@@ -18,6 +18,10 @@ export interface TopBarState {
 }
 
 export interface TrayState {
+  /** Other players and whether they validated; empty offline. */
+  others?: Array<{ name: string; done: boolean }>;
+  /** This player validated and is waiting for the others. */
+  waiting?: boolean;
   cards: Array<{ kind: ObjectKind; used: boolean }>;
   selected: number | null;
   placed: number;
@@ -39,7 +43,7 @@ export interface ScoresState {
   actions?: Array<{ label: string; primary?: boolean; onClick: () => void }>;
 }
 
-function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text = ""): HTMLElementTagNameMap[K] {
+export function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text = ""): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
   if (className) e.className = className;
   if (text) e.textContent = text;
@@ -47,20 +51,22 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text 
 }
 
 export class Overlay {
-  private root: HTMLDivElement;
-  private menu = el("div", "ui-menu ui-panel");
+  /** Container for every interface part; other UI modules append their panels here. */
+  readonly root: HTMLDivElement;
   private topbar = el("div", "ui-topbar ui-panel");
   private tray = el("div", "ui-tray ui-panel");
   private banner = el("div", "ui-banner ui-panel");
   private scores = el("div", "ui-scores ui-panel");
   private help = el("div", "ui-help");
+  private notice = el("div", "ui-notice ui-panel");
+  private noticeTimer = 0;
   private trayHandlers: { onSelect: (i: number) => void; onValidate: () => void } | null = null;
   private trayHint: HTMLDivElement | null = null;
 
   constructor() {
     this.root = el("div");
     this.root.id = "ui";
-    for (const part of [this.menu, this.topbar, this.tray, this.banner, this.scores, this.help]) {
+    for (const part of [this.topbar, this.tray, this.banner, this.scores, this.help, this.notice]) {
       part.hidden = true;
       this.root.append(part);
     }
@@ -68,20 +74,20 @@ export class Overlay {
   }
 
   hideAll(): void {
-    for (const part of [this.menu, this.topbar, this.tray, this.banner, this.scores, this.help]) part.hidden = true;
+    for (const part of [this.topbar, this.tray, this.banner, this.scores, this.help, this.notice]) part.hidden = true;
+    for (const extra of this.root.querySelectorAll<HTMLElement>("[data-screen]")) extra.hidden = true;
   }
 
-  showMenu(choices: Array<{ label: string; primary?: boolean; onClick: () => void }>): void {
-    this.menu.replaceChildren(
-      el("h1", "", "Prototype"),
-      el("p", "", "Chaque round : pose tes objets, puis cours jusqu'au drapeau."),
-      ...choices.map((c) => this.button(c.label, c.onClick, c.primary)),
-    );
-    this.menu.hidden = false;
+  /** Short message at the top of the screen; stays until hidden if `ms` is 0. */
+  showNotice(text: string, ms = 3000): void {
+    this.notice.textContent = text;
+    this.notice.hidden = false;
+    window.clearTimeout(this.noticeTimer);
+    if (ms > 0) this.noticeTimer = window.setTimeout(() => (this.notice.hidden = true), ms);
   }
 
-  hideMenu(): void {
-    this.menu.hidden = true;
+  hideNotice(): void {
+    this.notice.hidden = true;
   }
 
   setTopBar(s: TopBarState | null): void {
@@ -116,12 +122,18 @@ export class Overlay {
       });
       cards.append(card);
     });
-    const validate = this.button("Valider la pose", () => this.trayHandlers?.onValidate(), true);
-    validate.disabled = s.placed < s.needed;
+    const validate = this.button(s.waiting ? "En attente des autres…" : "Valider la pose", () => this.trayHandlers?.onValidate(), true);
+    validate.disabled = s.waiting === true || s.placed < s.needed;
     const row = el("div", "row");
     row.append(el("span", "", `${s.placed} / ${s.needed} posés`), validate);
     this.trayHint = el("div", "hint");
-    this.tray.replaceChildren(cards, this.trayHint, row);
+    const parts: HTMLElement[] = [cards, this.trayHint, row];
+    if (s.others?.length) {
+      const status = el("div", "status");
+      for (const o of s.others) status.append(el("span", o.done ? "done" : "", `${o.name} ${o.done ? "✓" : "…"}`));
+      parts.push(status);
+    }
+    this.tray.replaceChildren(...parts);
     this.setTrayHint(s.hint, s.hintBad);
     this.tray.hidden = false;
   }
