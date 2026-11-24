@@ -44,8 +44,10 @@ const BODY_FIELDS: Array<[keyof MovementTuning, Range]> = [
 const CAMERA_FIELDS: Array<[keyof CameraTuning, Range]> = [
   ["lookAhead", { label: "regard en avant (cases)", min: 0, max: 10, step: 0.1 }],
   ["lookAheadSpeed", { label: "vitesse du regard", min: 0.2, max: 15, step: 0.1 }],
+  ["lookAheadTurnDelay", { label: "délai demi-tour (s)", min: 0, max: 1, step: 0.01 }],
   ["followSpeedX", { label: "suivi horizontal", min: 0.5, max: 30, step: 0.1 }],
   ["followSpeedY", { label: "suivi vertical", min: 0.5, max: 30, step: 0.1 }],
+  ["deadZoneX", { label: "zone morte horizontale", min: 0, max: 6, step: 0.1 }],
   ["deadZoneY", { label: "zone morte verticale", min: 0, max: 6, step: 0.1 }],
 ];
 

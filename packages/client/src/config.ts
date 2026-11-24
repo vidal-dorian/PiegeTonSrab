@@ -62,10 +62,14 @@ export interface CameraTuning {
   lookAhead: number;
   /** How fast the look-ahead swings when the character turns around (higher = faster), 1/s. */
   lookAheadSpeed: number;
+  /** How long the character must run on the ground in a new direction before the look-ahead turns, seconds. */
+  lookAheadTurnDelay: number;
   /** How fast the camera catches up with its target (higher = tighter), 1/s. */
   followSpeedX: number;
   followSpeedY: number;
-  /** The character can move this far vertically from the camera target before it follows, cells. */
+  /** The character can move this far horizontally from the camera focus before it follows, cells. */
+  deadZoneX: number;
+  /** The character can move this far vertically from the camera focus before it follows, cells. */
   deadZoneY: number;
 }
 
@@ -104,8 +108,10 @@ export const DEFAULT_TUNING: Tuning = {
   camera: {
     lookAhead: 4,
     lookAheadSpeed: 2.5,
+    lookAheadTurnDelay: 0.15,
     followSpeedX: 8,
     followSpeedY: 4,
+    deadZoneX: 1.5,
     deadZoneY: 2,
   },
 };

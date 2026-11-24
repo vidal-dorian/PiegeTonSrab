@@ -149,7 +149,8 @@ export class TestScene extends Phaser.Scene {
 
   private cameraTarget(x: number, y: number) {
     const m = tuning.movement;
-    return { cx: x + m.bodyWidth / 2, cy: y + m.bodyHeight / 2, facing: this.controller.facing };
+    const c = this.controller;
+    return { cx: x + m.bodyWidth / 2, cy: y + m.bodyHeight / 2, vx: c.vx, grounded: c.grounded, facing: c.facing };
   }
 
   private recordTrail(): void {

@@ -48,6 +48,14 @@ Decided (2026-11-24):
 
 Default: maximum level width about 2 screens (64 cells).
 
+Decided (2026-11-24): a path from the start to the finish must always exist. Otherwise a single player can wall off the level (with saws, for example) and nobody can score until the end of the game. Placement validation must therefore check that the finish stays reachable, not only that the target cell is free.
+
+Default, not yet discussed with Dorian:
+
+- Reachability is checked on the grid with the character's real abilities (run, jump, wall jump, springs and vines once they exist), using the same tuning values as the controller. Cells occupied or swept by a killing object count as blocked, including the whole path of moving objects (moving saw, ball and chain, cannon line of fire), so the check stays static and does not depend on timing.
+- Placement is simultaneous, so placements that are each legal on their own can block the path together. The server applies the round's placements one at a time, in the order they were validated, and rejects any that would cut the last path. A rejected object is lost, and its owner is told so.
+- The placement screen shows the player straight away when the cell they are aiming at would cut the path, so a rejection at the end of placement stays rare.
+
 ## Scoring
 
 Decided:
@@ -173,7 +181,7 @@ Each step must end with something playable. Do not start a step before the previ
 
 1. **Character alone.** Empty test level, run, variable jump, wall slide, wall jump, coyote time, jump buffer. Done when Dorian says it feels good.
 2. **One level and three objects.** Saw, spikes, platform, plus death and the finish. Playable solo.
-3. **Round loop, local.** Draw, placement, race, score, on one machine with one player.
+3. **Round loop, local.** Draw, placement (including the check that the finish stays reachable), race, score, on one machine with one player.
 4. **Multiplayer.** Rooms, ghosts, shared round clock, server-side scoring. This is the first playtest with friends.
 5. **Rest of the first batch and the look.** Cannon, spring, vine, then the sketchbook art direction.
 6. **Deployment** to the Raspberry Pi.
