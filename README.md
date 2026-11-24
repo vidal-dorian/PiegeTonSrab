@@ -6,7 +6,8 @@ Online 2D platformer where players build the level by placing traps. See `HANDOF
 
 - `packages/client`: Phaser 4 + TypeScript + Vite. The game in the browser.
 - `packages/server`: Colyseus server, empty until step 4 of the build order.
-- `packages/shared`: code used by both sides (level format, later object logic and message types).
+- `packages/shared`: code used by both sides: level format, objects, character controller and movement
+  tuning, game rules (draw, scoring, end of game) and the "finish still reachable" check.
 
 ## Commands
 
@@ -19,8 +20,12 @@ npm run typecheck
 
 Node 20.15 works with the pinned versions (Vite 6). Moving to Node 22 would allow Vite 8.
 
-## Step 1: character
+## Playing
 
-Controls: Q/A left, D right, Space / Z / Up jump, R restart, gamepad supported.
+The menu offers a short game (10 points), a long game (25 points) and free practice.
+Free practice has an editor (E, then 1-3 and click) to place objects by hand.
+
+Controls: Q/A left, D right, Space / Z / Up jump, Escape back to the menu, gamepad supported.
+In free practice: R restart, N next level.
 Tab shows or hides the tuning panel. Tuned values are kept in the browser between reloads;
 "Copier la config" copies them as JSON to paste into `DEFAULT_TUNING` in `packages/client/src/config.ts`.

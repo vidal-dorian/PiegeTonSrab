@@ -66,6 +66,14 @@ Default, not yet discussed with Dorian:
 - Placement is simultaneous, so placements that are each legal on their own can block the path together. The server applies the round's placements one at a time, in the order they were validated, and rejects any that would cut the last path. A rejected object is lost, and its owner is told so.
 - The placement screen shows the player straight away when the cell they are aiming at would cut the path, so a rejection at the end of placement stays rare.
 
+Defaults added while building step 3 (2026-11-24), not yet discussed with Dorian:
+
+- Placement: a card is picked from the tray, then a cell is clicked; clicking one of this round's objects takes it back. "Valider la pose" is enabled once all of the round's objects are placed. When the timer runs out, objects not placed are lost.
+- A 1.5-second "Prêt ?" countdown separates placement from the race; it does not count in the race time.
+- With a single player, the "everyone finished, nobody scores" rule is skipped, otherwise a solo game could never score. This is only for local testing.
+- Objects can be placed anywhere that is free, including in mid-air (floating spikes, floating saws).
+- Interface (menu, timer, tray, scores) is HTML over the Phaser canvas rather than drawn in Phaser.
+
 ## Scoring
 
 Decided:

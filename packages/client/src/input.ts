@@ -6,7 +6,7 @@
  * Left: arrow left, Q/A. Right: arrow right, D. Jump: space, arrow up, Z/W.
  * Gamepad: left stick or d-pad to move, bottom face button (A / Cross) to jump.
  */
-import type { StepInput } from "./character/controller";
+import type { StepInput } from "@game/shared";
 
 const LEFT_CODES = new Set(["ArrowLeft", "KeyA"]);
 const RIGHT_CODES = new Set(["ArrowRight", "KeyD"]);

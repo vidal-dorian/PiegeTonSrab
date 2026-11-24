@@ -1,0 +1,63 @@
+import { describe, expect, it } from "vitest";
+import {
+  createRng,
+  DEFAULT_GAME_CONFIG as cfg,
+  drawOffer,
+  gameWinner,
+  objectsForRound,
+  scoreRound,
+  type RaceResult,
+} from "@game/shared";
+
+const r = (playerId: string, finishTime: number | null, killedBy: string | null = null): RaceResult => ({
+  playerId,
+  finishTime,
+  killedBy,
+});
+const totals = (results: RaceResult[], solo = false) =>
+  Object.fromEntries(scoreRound(results, cfg, solo).lines.map((l) => [l.playerId, l.total]));
+
+describe("rules", () => {
+  it("3 objects for the first 3 rounds, then 2", () => {
+    expect([1, 2, 3, 4, 10].map((n) => objectsForRound(cfg, n))).toEqual([3, 3, 3, 2, 2]);
+  });
+
+  it("draw is reproducible from its seed and has the requested size", () => {
+    const a = drawOffer(createRng(42), 5);
+    const b = drawOffer(createRng(42), 5);
+    expect(a).toHaveLength(5);
+    expect(a).toEqual(b);
+  });
+
+  it("finish 2, first +1, only finisher +1, kills +1 each", () => {
+    expect(totals([r("a", 10), r("b", null, "a"), r("c", null, "a")])).toEqual({ a: 6, b: 0, c: 0 });
+    expect(totals([r("a", 10), r("b", 12), r("c", null, "b")])).toEqual({ a: 3, b: 3, c: 0 });
+  });
+
+  it("kills are capped at 2 per round", () => {
+    const res = [r("a", 10), r("b", null, "a"), r("c", null, "a"), r("d", null, "a")];
+    expect(scoreRound(res, cfg).lines.find((l) => l.playerId === "a")!.kills).toBe(2);
+  });
+
+  it("dying to your own object gives nothing", () => {
+    expect(totals([r("a", null, "a"), r("b", 10)])).toEqual({ a: 0, b: 4 });
+  });
+
+  it("everyone finished: nobody scores (except in solo test mode)", () => {
+    expect(scoreRound([r("a", 10), r("b", 11)], cfg).verdict).toBe("everyone-finished");
+    expect(totals([r("a", 10), r("b", 11)])).toEqual({ a: 0, b: 0 });
+    expect(totals([r("a", 10)], true)).toEqual({ a: 4 });
+  });
+
+  it("nobody finished: nobody scores, kills included", () => {
+    const s = scoreRound([r("a", null, "b"), r("b", null)], cfg);
+    expect(s.verdict).toBe("nobody-finished");
+    expect(s.lines.every((l) => l.total === 0)).toBe(true);
+  });
+
+  it("game ends at the target with a single leader; a tie plays on", () => {
+    expect(gameWinner(new Map([["a", 9], ["b", 4]]), cfg)).toBeNull();
+    expect(gameWinner(new Map([["a", 11], ["b", 4]]), cfg)).toBe("a");
+    expect(gameWinner(new Map([["a", 11], ["b", 11]]), cfg)).toBeNull();
+  });
+});

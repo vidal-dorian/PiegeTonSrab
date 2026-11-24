@@ -110,7 +110,7 @@ export class DebugEditor {
   }
 }
 
-function drawDashedRect(g: Phaser.GameObjects.Graphics, x: number, y: number, w: number, h: number): void {
+export function drawDashedRect(g: Phaser.GameObjects.Graphics, x: number, y: number, w: number, h: number): void {
   const dash = 6;
   const gap = 4;
   const edge = (x1: number, y1: number, x2: number, y2: number) => {

@@ -17,8 +17,8 @@ export class ObjectViews {
 
   constructor(private scene: Phaser.Scene) {}
 
-  /** Create, keep or destroy views so they match `objects`. */
-  sync(objects: readonly PlacedObject[]): void {
+  /** Create, keep or destroy views so they match `objects`. Objects in `dimmed` are drawn see-through. */
+  sync(objects: readonly PlacedObject[], dimmed: ReadonlySet<number> = new Set()): void {
     const alive = new Set(objects.map((o) => o.id));
     for (const [id, g] of this.views) {
       if (!alive.has(id)) {
@@ -27,7 +27,12 @@ export class ObjectViews {
       }
     }
     for (const obj of objects) {
-      if (!this.views.has(obj.id)) this.views.set(obj.id, this.create(obj));
+      let g = this.views.get(obj.id);
+      if (!g) {
+        g = this.create(obj);
+        this.views.set(obj.id, g);
+      }
+      g.setAlpha(dimmed.has(obj.id) ? 0.55 : 1);
     }
   }
 

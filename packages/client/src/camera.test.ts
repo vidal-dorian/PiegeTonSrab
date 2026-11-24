@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseLevel, testLevel } from "@game/shared";
-import { CharacterController } from "./character/controller";
+import { CharacterController } from "@game/shared";
 import { FollowCamera } from "./camera";
 import { cloneTuning, DEFAULT_TUNING, SIM_HZ, VIEW_CELLS_X, VIEW_CELLS_Y } from "./config";
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseLevel, testLevel, type LevelDefinition } from "@game/shared";
-import { CharacterController, NO_INPUT, type StepInput } from "./controller";
-import { cloneTuning, DEFAULT_TUNING, SIM_HZ } from "../config";
+import { CharacterController, NO_INPUT, type StepInput } from "@game/shared";
+import { cloneTuning, DEFAULT_TUNING, SIM_HZ } from "./config";
 
 const DT = 1 / SIM_HZ;
 

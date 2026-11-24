@@ -5,8 +5,8 @@
  * which makes it testable and keeps the feel identical at any frame rate.
  * Units are cells and seconds; y grows downwards, so a negative vy means moving up.
  */
-import { boxOverlapsSolid, cellSpan, isSolidCell, type Level } from "@game/shared";
-import { deriveMovement, type DerivedMovement, type MovementTuning } from "../config";
+import { boxOverlapsSolid, cellSpan, isSolidCell, type Level } from "../level";
+import { deriveMovement, type DerivedMovement, type MovementTuning } from "./tuning";
 
 /** Input for one simulation step. */
 export interface StepInput {
@@ -69,10 +69,14 @@ export class CharacterController {
   }
 
   respawn(): void {
+    this.standInCell(this.level.start.x, this.level.start.y);
+  }
+
+  /** Put the character standing still on the bottom of a cell, centred, with every timer cleared. */
+  standInCell(cx: number, cy: number): void {
     const t = this.tuning;
-    // Stand on the bottom of the start cell, centred horizontally.
-    this.x = this.level.start.x + (1 - t.bodyWidth) / 2;
-    this.y = this.level.start.y + 1 - t.bodyHeight;
+    this.x = cx + (1 - t.bodyWidth) / 2;
+    this.y = cy + 1 - t.bodyHeight;
     this.vx = 0;
     this.vy = 0;
     this.rising = false;

@@ -53,6 +53,8 @@ const CAMERA_FIELDS: Array<[keyof CameraTuning, Range]> = [
 
 export function createTuningPanel(onChange: () => void): Pane {
   const pane = new Pane({ title: "Réglages (Tab pour masquer)" });
+  // Hidden by default now that the game has a menu; Tab shows it.
+  pane.hidden = true;
 
   const derivedView = { jumpLength: 0, gravity: 0 };
   const refreshDerived = () => {

@@ -8,10 +8,10 @@ import {
   level1,
   parseLevel,
   withSolidObjects,
+  CharacterController,
   type Box,
   type PlacedObject,
 } from "@game/shared";
-import { CharacterController } from "./character/controller";
 import { cloneTuning, DEFAULT_TUNING, HAZARD_INSET, SIM_HZ } from "./config";
 
 const saw: PlacedObject = { id: 1, kind: "saw", x: 5, y: 5 };
@@ -66,14 +66,17 @@ describe("objects", () => {
     expect(canPlaceAt(level, objects, -1, 5)).toBe(false);
   });
 
-  it("level 1: running under the head-height saw is safe", () => {
+  it("running under a saw at head height is safe", () => {
     const tuning = cloneTuning(DEFAULT_TUNING).movement;
-    const level = parseLevel(level1);
-    const collision = withSolidObjects(level, level.initialObjects);
-    const c = new CharacterController(collision, tuning);
-    c.x = 33;
-    c.y = 16 - tuning.bodyHeight;
-    for (let i = 0; i < SIM_HZ && c.x < 39; i++) {
+    const def = {
+      name: "saw corridor",
+      rows: ["....................", "....................", "S...................", "####################"],
+    };
+    const level = parseLevel(def);
+    // Saw in the cell just above the running character's cell.
+    const objects: PlacedObject[] = [{ id: 1, kind: "saw", x: 8, y: 1 }];
+    const c = new CharacterController(level, tuning);
+    for (let i = 0; i < SIM_HZ * 3 && c.x < 14; i++) {
       c.step(1 / SIM_HZ, { left: false, right: true, jumpHeld: false, jumpPressed: false });
       const box = {
         x: c.x + HAZARD_INSET,
@@ -81,8 +84,9 @@ describe("objects", () => {
         w: tuning.bodyWidth - 2 * HAZARD_INSET,
         h: tuning.bodyHeight - 2 * HAZARD_INSET,
       };
-      expect(findKiller(level.initialObjects, box, c.vy, i / SIM_HZ)).toBeNull();
+      expect(findKiller(objects, box, c.vy, i / SIM_HZ)).toBeNull();
     }
-    expect(c.x).toBeGreaterThanOrEqual(39);
+    expect(c.grounded).toBe(true);
+    expect(c.x).toBeGreaterThanOrEqual(14);
   });
 });
