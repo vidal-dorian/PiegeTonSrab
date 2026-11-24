@@ -46,6 +46,16 @@ Decided (2026-11-24):
 - During the race, opponents who are off screen are shown by arrows on the screen edges.
 - A dead player chooses which living player their camera follows.
 
+Decided (2026-11-24): dead players can place blocks during the race. Living players only place objects during the placement step, never during the race. This gives dead players something to do while they watch, without weakening the traps for the living (a living player cannot bridge over the saw that threatens them).
+
+Decided (2026-11-24), details of the rule above:
+
+- Dead players place platforms only, never traps. A platform scores nothing, so dying early never becomes a way to earn kill points.
+- One block per dead player per round, placed by clicking a cell (the same targeting as the placement screen).
+- A block cannot be placed on the start, on the finish, on another object, or on or right next to a living player (so nobody gets stuck inside a block that appears on them). The reachability check applies as for normal placement.
+- These blocks disappear at the end of the round, so the level does not fill up faster than the placement step intends.
+- Network: the dead player's client sends the placement to the server, which validates it and broadcasts it with the round time at which it appears. Every client then adds it to the collision grid. This is one more exception to "objects are not synchronised" (see Network model).
+
 Default: maximum level width about 2 screens (64 cells).
 
 Decided (2026-11-24): a path from the start to the finish must always exist. Otherwise a single player can wall off the level (with saws, for example) and nobody can score until the end of the game. Placement validation must therefore check that the finish stays reachable, not only that the target cell is free.
@@ -167,7 +177,7 @@ Decided:
 Network model (Decided):
 
 - Each client simulates its own character and sends its position to the server about 20 times per second. Other players are drawn as interpolated ghosts. Players do not collide with each other.
-- Objects are not synchronised. Their state is a pure function of the round clock, which every client shares. Any object logic must therefore be deterministic and driven by elapsed round time, never by per-frame accumulation. Objects triggered by a player (crusher, fragile platform, bubble, vine occupancy) are the exception and need a server message.
+- Objects are not synchronised. Their state is a pure function of the round clock, which every client shares. Any object logic must therefore be deterministic and driven by elapsed round time, never by per-frame accumulation. Objects triggered by a player (crusher, fragile platform, bubble, vine occupancy) and blocks placed by dead players during the race are the exception and need a server message.
 - The server is the referee: it runs the timers, receives placements, checks that they are legal, attributes kills and counts points.
 - Cheating is not a concern. A client could lie about its position; among friends this is accepted.
 
@@ -182,7 +192,7 @@ Each step must end with something playable. Do not start a step before the previ
 1. **Character alone.** Empty test level, run, variable jump, wall slide, wall jump, coyote time, jump buffer. Done when Dorian says it feels good.
 2. **One level and three objects.** Saw, spikes, platform, plus death and the finish. Playable solo.
 3. **Round loop, local.** Draw, placement (including the check that the finish stays reachable), race, score, on one machine with one player.
-4. **Multiplayer.** Rooms, ghosts, shared round clock, server-side scoring. This is the first playtest with friends.
+4. **Multiplayer.** Rooms, ghosts, shared round clock, server-side scoring, blocks placed by dead players. This is the first playtest with friends.
 5. **Rest of the first batch and the look.** Cannon, spring, vine, then the sketchbook art direction.
 6. **Deployment** to the Raspberry Pi.
 
