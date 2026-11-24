@@ -1,0 +1,48 @@
+name: CI / CD
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  # Redéploiement manuel depuis l'onglet Actions.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Types, tests, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  deploy:
+    name: Déploiement sur le Raspberry Pi
+    needs: check
+    # Jamais sur une pull request : seul le code fusionné dans main tourne sur le Pi.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: [self-hosted, linux, arm64]
+    # Un seul déploiement à la fois ; un merge pendant un déploiement attend son tour.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+      - name: Construire les images et redémarrer les conteneurs
+        # --wait échoue si un healthcheck ne passe pas.
+        run: docker compose up -d --build --wait --wait-timeout 180
+      - name: Journaux des conteneurs
+        if: always()
+        run: docker compose logs --tail 100
+      - name: Supprimer les anciennes images
+        run: docker image prune -f
