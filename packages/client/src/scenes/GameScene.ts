@@ -19,6 +19,7 @@ import {
   DEFAULT_MOVEMENT,
   OBJECT_DEFS,
   parseLevel,
+  PathGuard,
   placementKeepsPath,
   prepareObjects,
   RACE_LEVELS,
@@ -59,6 +60,10 @@ const PLACEMENT_MARGIN_PX = 8;
 export const DIR_ARROWS: Record<Dir, string> = { 0: "→", 1: "↓", 2: "←", 3: "↑" };
 /** The same player can't be stomped again by us this soon, seconds. */
 const STOMP_REPEAT = TIMING.stompCooldown / 1000;
+/** Ids of this round's objects before the server numbers them; far from map objects' ids (-1, -2...). */
+const LOCAL_ID_START = -1_000_000;
+/** If our simulated clock falls this far behind the round clock (frozen tab), jump it forward, seconds. */
+const MAX_CLOCK_LAG = 0.1;
 
 type Phase = "carousel" | "placement" | "countdown" | "race" | "raceEnd" | "score" | "over";
 type MyStatus = "running" | "dead" | "finished" | "timeout";
@@ -97,6 +102,8 @@ export class GameScene extends Phaser.Scene {
   private doneIds: string[] = [];
   private endsAt = 0;
   private graph: ReachGraph | null = null;
+  /** Graph for the session's objects only (fixed during placement), reused by order checks. */
+  private baseGraph: ReachGraph | null = null;
   private verdicts = new Map<string, Verdict>();
   private hover: { x: number; y: number } | null = null;
   private nextLocalId = -1;
@@ -230,8 +237,12 @@ export class GameScene extends Phaser.Scene {
         }
         break;
       case "gameStart":
-        // A new game in the same room ("Rejouer").
-        if (this.phase !== "carousel") this.scene.restart({ link: this.link, start: msg, lobby: this.lobby });
+        // A new game in the same room ("Rejouer"), or a reconnection. The restart happens on the
+        // next frame: detach now so the messages that follow wait in the link for the new scene.
+        if (this.phase !== "carousel") {
+          this.link.setHandler(null);
+          this.scene.restart({ link: this.link, start: msg, lobby: this.lobby });
+        }
         break;
       case "placement":
         this.startPlacement(msg);
@@ -304,8 +315,11 @@ export class GameScene extends Phaser.Scene {
     this.endsAt = msg.endsAt;
     this.objects = msg.objects;
     this.blocks = [];
-    this.validated = false;
+    // Rejoining after validating: the session ignores changes, so don't offer any.
+    this.validated = msg.done === true;
     this.doneIds = [];
+    this.nextLocalId = LOCAL_ID_START;
+    this.baseGraph = null;
     this.offer = msg.offer.map((kind) => ({ kind, used: false }));
     // Rebuild our own choice when rejoining in the middle of placement.
     this.pending = [];
@@ -317,7 +331,7 @@ export class GameScene extends Phaser.Scene {
       if (c.dir !== undefined) obj.dir = c.dir;
       this.pending.push(obj);
     }
-    this.selected = this.pending.length < this.needed ? this.nextFreeCard() : null;
+    this.selected = this.pending.length < this.needed && !this.validated ? this.nextFreeCard() : null;
     for (const g of this.ghosts.values()) g.clear();
     this.player.reset();
     this.rebuildGraph();
@@ -374,12 +388,12 @@ export class GameScene extends Phaser.Scene {
     const h = this.hover;
     const target = h ? this.pending.find((p) => p.x === h.x && p.y === h.y && OBJECT_DEFS[p.kind].rotatable) : undefined;
     if (target) {
-      // Turning a placed cannon must keep the path open, like placing it.
-      const others = [...this.objects, ...this.pending.filter((p) => p !== target).map((p) => this.plain(p))];
+      // Turning a placed cannon must keep the path open, with the whole hand applied in order.
       let d = target.dir ?? 2;
       for (let i = 0; i < 3; i++) {
         d = next(d);
-        if (placementKeepsPath(this.level, others, { ...this.plain(target), dir: d }, DEFAULT_MOVEMENT)) {
+        const hand = this.pending.map((p) => (p === target ? { ...this.plain(p), dir: d } : this.plain(p)));
+        if (this.wholeHandAccepted(hand)) {
           target.dir = d;
           this.placeDir = d;
           this.sendPlacement(false);
@@ -394,10 +408,30 @@ export class GameScene extends Phaser.Scene {
     this.renderTray();
   }
 
+  /**
+   * Whether the session will accept all of these pending objects, applied one after the other
+   * in this order as it does at the end of placement. One object can make another legal (a
+   * platform shielding a cannon's line), so taking back or turning one must keep the rest valid.
+   */
+  private wholeHandAccepted(pending: readonly PlacedObject[]): boolean {
+    this.baseGraph ??= buildReachGraph(this.level, this.objects, DEFAULT_MOVEMENT);
+    const guard = new PathGuard(this.level, this.objects, DEFAULT_MOVEMENT, { graph: this.baseGraph });
+    return pending.every((p) => canPlaceAt(this.level, guard.objects, p.x, p.y) && guard.tryAdd(p));
+  }
+
   private verdictAt(x: number, y: number): Verdict {
     if (this.validated) return { ok: false, takeBack: false, text: "Pose validée : en attente des autres" };
-    if (this.pending.some((p) => p.x === x && p.y === y)) {
-      return { ok: true, takeBack: true, text: "Clic : reprendre cet objet" };
+    const mine = this.pending.find((p) => p.x === x && p.y === y);
+    if (mine) {
+      const key = `back,${x},${y}`;
+      const cached = this.verdicts.get(key);
+      if (cached) return cached;
+      const rest = this.pending.filter((p) => p !== mine).map((p) => this.plain(p));
+      const v = this.wholeHandAccepted(rest)
+        ? { ok: true, takeBack: true, text: "Clic : reprendre cet objet" }
+        : { ok: false, takeBack: true, text: "Sans lui, un autre de tes objets couperait le chemin : reprends l'autre d'abord" };
+      this.verdicts.set(key, v);
+      return v;
     }
     const kind = this.selected !== null ? this.offer[this.selected]?.kind : undefined;
     if (!kind) {
@@ -528,7 +562,7 @@ export class GameScene extends Phaser.Scene {
     this.preview.clear();
     if (!this.hover || this.validated) return;
     const v = this.verdictAt(this.hover.x, this.hover.y);
-    const color = v.takeBack ? 0x161616 : v.ok ? 0xf07a2e : 0xb3361a;
+    const color = v.takeBack && v.ok ? 0x161616 : v.ok ? 0xf07a2e : 0xb3361a;
     this.preview.lineStyle(4, color, 1);
     drawDashedRect(this.preview, this.hover.x * CELL_PX + 3, this.hover.y * CELL_PX + 3, CELL_PX - 6, CELL_PX - 6);
     // A cannon about to be placed: show where it would fire.
@@ -628,6 +662,9 @@ export class GameScene extends Phaser.Scene {
     this.activateBlocks();
 
     if (this.myStatus === "running") {
+      // Traps run on the round clock. If this tab froze, our simulated clock fell behind:
+      // jump it forward so what can kill us is what everyone sees.
+      if (this.roundTime() - this.player.time > MAX_CLOCK_LAG) this.player.catchUp(this.roundTime());
       const outcome = this.player.advance(dt, () => this.controls.takeStepInput(), this.objects, () => this.checkContacts());
       if (outcome?.kind === "died") {
         const c = this.player.centre();
@@ -659,13 +696,19 @@ export class GameScene extends Phaser.Scene {
    */
   private checkContacts(): void {
     const t = this.player.time;
-    if (t < TIMING.contactGrace / 1000) {
-      this.touching.clear();
-      return;
-    }
     const m = tuning.movement;
     const c = this.player.controller;
     const me = { x: c.x, y: c.y };
+    if (t < TIMING.contactGrace / 1000) {
+      // Everyone starts on the same cell: remember who we overlap, so that only a touch that
+      // starts after the grace period counts.
+      for (const g of this.ghosts.values()) {
+        const other = g.current;
+        if (other && other.status === "running" && bodiesOverlap(me, other, m.bodyWidth, m.bodyHeight)) this.touching.add(g.id);
+        else this.touching.delete(g.id);
+      }
+      return;
+    }
     for (const g of this.ghosts.values()) {
       const other = g.current;
       if (!other || other.status !== "running") {
@@ -681,7 +724,8 @@ export class GameScene extends Phaser.Scene {
         g.stomped(m.stunTime);
         this.effects.pof(other.x + m.bodyWidth / 2, other.y);
       } else if (contact === "bump") {
-        const away = Math.sign(c.x - other.x) || -c.facing;
+        // Same x on both machines: break the tie by id, so the two players go opposite ways.
+        const away = Math.sign(c.x - other.x) || (this.link.myId < g.id ? -1 : 1);
         c.shove(away * m.shoveSpeed, m.shoveLock);
         this.effects.puff((c.x + other.x) / 2 + m.bodyWidth / 2, c.y + m.bodyHeight / 2);
       }
@@ -696,6 +740,7 @@ export class GameScene extends Phaser.Scene {
     if (victim === this.link.myId) {
       if (this.myStatus !== "running") return;
       this.player.controller.slam(m.stompSlamSpeed, m.stunTime);
+      this.player.syncVine();
       this.playerView.squash();
       const c = this.player.centre();
       this.effects.pof(c.x, c.y - m.bodyHeight / 2, "AÏE !");
@@ -903,7 +948,9 @@ export class GameScene extends Phaser.Scene {
     const pos = this.player.renderPosition();
     const racing = this.phase === "race" || this.phase === "countdown";
     this.playerView.update(pos.x, pos.y, this.player.controller, racing && this.myStatus !== "dead");
-    this.objectViews.update(this.shown, racing ? Math.max(0, this.roundTime()) : 0, {
+    // Draw traps on the clock that decides whether they kill us (ours while we run).
+    const objectTime = !racing ? 0 : this.myStatus === "running" && this.phase === "race" ? this.player.renderTime() : Math.max(0, this.roundTime());
+    this.objectViews.update(this.shown, objectTime, {
       holders: this.vineHolderPositions(),
       showLines: this.phase === "placement",
     });

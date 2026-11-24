@@ -232,6 +232,11 @@ export class SoloScene extends Phaser.Scene {
     this.objects = prepareObjects(this.level, this.objects);
     this.player.setCollision(withSolidObjects(this.level, this.objects));
     this.player.vines = vinesOf(this.objects);
+    // Removed (or shortened) the vine we hang from: let go.
+    const s = this.player.controller.swing;
+    if (s && !this.player.vines.some((v) => v.id === s.vineId && s.length <= v.length + 1e-9)) {
+      this.player.letGo();
+    }
     this.objectViews.sync(this.objects);
   }
 

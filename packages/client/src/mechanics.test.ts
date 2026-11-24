@@ -19,6 +19,7 @@ import {
   GameSession,
   OBJECT_KINDS,
   parseLevel,
+  PathGuard,
   placementKeepsPath,
   prepareObjects,
   TIMING,
@@ -411,5 +412,82 @@ describe("contact detection", () => {
 
   it("feet already deep inside the other body do not stomp", () => {
     expect(contactWith({ x: 5.2, y: 4.7 }, 4.6, 6, other, w, h, false)).toBe("bump");
+  });
+});
+
+describe("review fixes", () => {
+  const w = 0.8;
+  const h = 0.9;
+
+  it("the victim of a stomp sees no bump from the body landing on its head", () => {
+    expect(contactWith({ x: 5, y: 10 }, 10, 0, { x: 5.1, y: 9.2 }, w, h, false)).toBeNull();
+  });
+
+  it("a stunned player can neither grab a vine nor jump off one", () => {
+    const room = parseLevel({ name: "r", rows: ["##########", "#........#", "#........#", "#........#", "#........#", "#........#", "#S.......#", "##########"] });
+    const objects = prepareObjects(room, [{ id: 1, kind: "vine", x: 4, y: 1 }]);
+    const c = new CharacterController(withSolidObjects(room, objects), tuning);
+    c.x = 4.1;
+    c.y = 3.5;
+    c.grounded = false;
+    c.slam(0, 0.5);
+    expect(c.tryGrabVine(vinesOf(objects), () => true)).toBeNull();
+    c.stunTimer = 0;
+    expect(c.tryGrabVine(vinesOf(objects), () => true)).not.toBeNull();
+    c.stunTimer = 0.5;
+    c.step(DT, { ...idle, jumpPressed: true, jumpHeld: true });
+    expect(c.swing).not.toBeNull();
+  });
+
+  it("a vine rope stops above the floor, and a vine with one free cell has none", () => {
+    const room = parseLevel({ name: "r", rows: ["##########", "#........#", "#........#", "#S.......#", "##########"] });
+    const [low] = prepareObjects(room, [{ id: 1, kind: "vine", x: 4, y: 1 }]);
+    expect(low!.range).toBe(2);
+    expect(vinesOf([low!])[0]!.length + tuning.bodyHeight / 2).toBeLessThanOrEqual(2);
+    const [tiny] = prepareObjects(room, [{ id: 2, kind: "vine", x: 4, y: 2 }]);
+    expect(tiny!.range).toBe(1);
+    expect(vinesOf([tiny!])).toEqual([]);
+  });
+
+  it("the race guard keeps cannon lines as measured at the start: a block does not make a line safe", () => {
+    // Cannon above a shelf points down through route A; route B is a tunnel under the shelf.
+    const def: LevelDefinition = {
+      name: "frozen",
+      rows: [
+        "####################",
+        "#.........U........#",
+        "#..................#",
+        "#..................#",
+        "#..................#",
+        "#..................#",
+        "#..................#",
+        "#.......#####......#",
+        "#S.................F",
+        "####################",
+      ],
+    };
+    const level = parseLevel(def);
+    const objects = prepareObjects(level, level.initialObjects);
+    const guard = new PathGuard(level, objects, tuning, { frozenRanges: true });
+    // Shield right under the cannon: accepted (it only adds a solid cell).
+    expect(guard.tryAdd({ id: 1, kind: "platform", x: 10, y: 2 })).toBe(true);
+    // Closing the tunnel would be fine if the shield stopped balls, but in the race it does not.
+    const closesTunnel = { id: 2, kind: "platform" as const, x: 10, y: 8 };
+    const really = buildReachGraph(level, [...objects, { id: 1, kind: "platform", x: 10, y: 2 }, closesTunnel], tuning, true).reachable;
+    expect(guard.tryAdd(closesTunnel)).toBe(really);
+  });
+
+  it("a dead player's block may not shut a living player in", () => {
+    // A 1-high corridor: a block behind a player doesn't shut them in, a block ahead does.
+    const level = parseLevel({ name: "lane", rows: ["##############", "#S..........F#", "##############"] });
+    const W = level.width;
+    const guard = new PathGuard(level, [], tuning, { frozenRanges: true });
+    const player = 1 * W + 8;
+    const behind = { id: 1, kind: "platform" as const, x: 4, y: 1 };
+    const ahead = { id: 2, kind: "platform" as const, x: 10, y: 1 };
+    expect(guard.keepsPathFrom([player], behind)).toBe(true);
+    expect(guard.keepsPathFrom([player], ahead)).toBe(false);
+    // A cell the graph never reached (inside a wall, mid-air) is ignored.
+    expect(guard.keepsPathFrom([0], ahead)).toBe(true);
   });
 });

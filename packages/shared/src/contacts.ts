@@ -41,6 +41,9 @@ export function contactWith(
 ): Contact {
   const overlapX = Math.min(me.x + w, other.x + w) - Math.max(me.x, other.x);
   if (overlapX <= 0) return null;
+  // The other body is on top of me: that is its stomp (or nothing), resolved by its machine
+  // and the server's "stomped" message. Never a bump, or every stomp would also shove the victim.
+  if (other.y < me.y && other.y + h <= me.y + STOMP_DEPTH) return null;
   const myBottom = me.y + h;
   const wasAbove = prevY + h <= other.y + STOMP_DEPTH;
   if (vy > 0 && wasAbove && myBottom >= other.y && myBottom <= other.y + h && overlapX >= STOMP_MIN_OVERLAP) {

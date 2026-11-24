@@ -33,6 +33,8 @@ export const TIMING = {
   stompCooldown: 350,
   /** No bumping or stomping this soon after the race starts: everyone starts on the same cell. */
   contactGrace: 800,
+  /** A dead player's block requests are answered at most this often (each one can cost a path check). */
+  blockThrottle: 500,
 } as const;
 
 /**
@@ -96,6 +98,8 @@ export type ServerMessage =
       objects: PlacedObject[];
       /** Your own choice so far, when rejoining in the middle of placement. */
       mine: PlacementChoice[];
+      /** You already validated it (rejoining after "Valider la pose"). */
+      done: boolean;
     }
   /** Who has validated their placement. Never where (placement is hidden). */
   | { type: "placedStatus"; done: string[] }

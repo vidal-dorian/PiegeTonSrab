@@ -144,7 +144,8 @@ export class CharacterController {
 
     // --- Hanging from a vine -------------------------------------------------
     if (this.swing) {
-      if (!input.jumpPressed) {
+      // Stunned players can't jump off either.
+      if (!input.jumpPressed || this.stunTimer > 0) {
         this.stepSwing(dt, dir);
         return;
       }
@@ -255,7 +256,7 @@ export class CharacterController {
    * Returns the vine grabbed, or null.
    */
   tryGrabVine(vines: readonly Vine[], canHold: (vineId: number) => boolean): Vine | null {
-    if (this.swing || this.grounded || this.regrabTimer > 0 || vines.length === 0) return null;
+    if (this.swing || this.grounded || this.regrabTimer > 0 || this.stunTimer > 0 || vines.length === 0) return null;
     const { bodyWidth: w, bodyHeight: h } = this.tuning;
     const cx = this.x + w / 2;
     const cy = this.y + h / 2;

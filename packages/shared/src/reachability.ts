@@ -156,8 +156,9 @@ class Explorer {
     private level: Level,
     objects: readonly PlacedObject[],
     tuning: MovementTuning,
+    alreadyPrepared: boolean,
   ) {
-    const prepared = prepareObjects(level, objects);
+    const prepared = alreadyPrepared ? objects : prepareObjects(level, objects);
     this.collision = withSolidObjects(level, prepared);
     this.hazards = new HazardIndex(level.width, prepared);
     this.c = new CharacterController(this.collision, tuning);
@@ -310,9 +311,18 @@ class Explorer {
   }
 }
 
-/** Explore every node reachable from the start and record all edges. */
-export function buildReachGraph(level: Level, objects: readonly PlacedObject[], tuning: MovementTuning): ReachGraph {
-  const ex = new Explorer(level, objects, tuning);
+/**
+ * Explore every node reachable from the start and record all edges.
+ * `alreadyPrepared`: use the objects' cannon and vine ranges as given instead of measuring
+ * them again (the race keeps the ranges measured when it started).
+ */
+export function buildReachGraph(
+  level: Level,
+  objects: readonly PlacedObject[],
+  tuning: MovementTuning,
+  alreadyPrepared = false,
+): ReachGraph {
+  const ex = new Explorer(level, objects, tuning, alreadyPrepared);
   const start = ex.key(level.start.x, level.start.y);
   const edges = new Map<number, Edge[]>();
   let reachable = false;
@@ -335,8 +345,13 @@ export function buildReachGraph(level: Level, objects: readonly PlacedObject[], 
 
 /** Search the existing graph, ignoring every edge that passes through one of `blockedCells`. */
 export function reachableWithout(graph: ReachGraph, blockedCells: ReadonlySet<number>): boolean {
-  const seen = new Set<number>([graph.start]);
-  const queue = [graph.start];
+  return reachableFrom(graph, graph.start, blockedCells);
+}
+
+/** Same search from another node of the graph (a node it never explored has no way out). */
+export function reachableFrom(graph: ReachGraph, from: number, blockedCells: ReadonlySet<number>): boolean {
+  const seen = new Set<number>([from]);
+  const queue = [from];
   while (queue.length > 0) {
     const node = queue.shift()!;
     for (const e of graph.edges.get(node) ?? []) {
@@ -364,18 +379,50 @@ function crosses(cells: ReadonlySet<number>, blocked: ReadonlySet<number>): bool
  * It builds the graph once, then for each accepted object only adds its cell to a blocked
  * set; the full simulation is re-run only when the quick check is not enough.
  */
+export interface PathGuardOptions {
+  /**
+   * Keep the cannon and vine ranges the objects already have, and never measure them again
+   * (the race: lines were fixed when it started, dead players' blocks don't stop balls).
+   * Objects must then come already prepared.
+   */
+  frozenRanges?: boolean;
+  /** The graph for `objects`, when the caller already has it. */
+  graph?: ReachGraph;
+}
+
 export class PathGuard {
   private graph: ReachGraph;
   private blocked = new Set<number>();
   private current: PlacedObject[];
+  private frozen: boolean;
 
   constructor(
     private level: Level,
     objects: readonly PlacedObject[],
     private tuning: MovementTuning,
+    options: PathGuardOptions = {},
   ) {
     this.current = [...objects];
-    this.graph = buildReachGraph(level, this.current, tuning);
+    this.frozen = options.frozenRanges === true;
+    this.graph = options.graph ?? buildReachGraph(level, this.current, tuning, this.frozen);
+  }
+
+  /**
+   * Whether the finish stays reachable from each of `fromCells` (stand cells, y * width + x)
+   * once `candidate` is added. Quick check only, on the current graph: conservative, never
+   * rebuilds (it runs on the server during the race). Cells the graph never reached, or
+   * from which the finish was already out of reach, are ignored.
+   */
+  keepsPathFrom(fromCells: readonly number[], candidate: PlacedObject): boolean {
+    if (!this.graph.reachable) return true;
+    const blocked = new Set(this.blocked);
+    for (const c of this.footprint(candidate)) blocked.add(c);
+    for (const from of fromCells) {
+      if (!this.graph.edges.has(from)) continue;
+      if (!reachableFrom(this.graph, from, this.blocked)) continue;
+      if (!reachableFrom(this.graph, from, blocked)) return false;
+    }
+    return true;
   }
 
   /** Objects accepted so far, including the initial ones. */
@@ -408,12 +455,13 @@ export class PathGuard {
     const blocked = new Set(this.blocked);
     for (const c of this.footprint(candidate)) blocked.add(c);
     if (reachableWithout(this.graph, blocked)) return "quick";
-    const full = buildReachGraph(this.level, [...this.current, candidate], this.tuning);
+    const full = buildReachGraph(this.level, [...this.current, candidate], this.tuning, this.frozen);
     return full.reachable ? full : null;
   }
 
   /** Cells the candidate occupies or makes deadly, measured with everything already placed. */
   private footprint(candidate: PlacedObject): number[] {
+    if (this.frozen) return footprintCells(candidate, this.level.width);
     return objectFootprint(this.level, this.current, candidate);
   }
 }

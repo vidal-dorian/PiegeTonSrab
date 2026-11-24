@@ -190,8 +190,12 @@ describe("GameSession", () => {
     s.handle("b", { type: "block", x: 6, y: 1 });
     expect(io.last("blockRefused", "b")!.reason).toMatch(/près/);
     s.handle("b", { type: "block", x: 12, y: 1 });
+    expect(io.last("blockRefused", "b")!.reason).toMatch(/Doucement/); // one request per 500 ms
+    io.advance(TIMING.blockThrottle);
+    s.handle("b", { type: "block", x: 12, y: 1 });
     const block = io.last("block")!;
     expect(block.block).toMatchObject({ kind: "platform", x: 12, y: 1, ownerId: "b" });
+    io.advance(TIMING.blockThrottle);
     s.handle("b", { type: "block", x: 14, y: 1 });
     expect(io.last("blockRefused", "b")!.reason).toMatch(/seul/);
   });

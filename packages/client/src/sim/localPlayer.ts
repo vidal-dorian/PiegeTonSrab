@@ -38,6 +38,8 @@ export class LocalPlayer {
   onVine: ((vineId: number, hold: boolean) => void) | null = null;
   /** Called when this character bounces on a spring; `cell` is the spring's cell index. */
   onBounce: ((cell: number) => void) | null = null;
+  /** The vine last reported through onVine. */
+  private reportedVine: number | undefined;
 
   constructor(
     private level: Level,
@@ -50,9 +52,8 @@ export class LocalPlayer {
 
   /** Back to the start, clock at zero. */
   reset(): void {
-    const held = this.controller.swing?.vineId;
     this.controller.respawn();
-    if (held !== undefined) this.onVine?.(held, false);
+    this.syncVine();
     this.prevX = this.controller.x;
     this.prevY = this.controller.y;
     this.accumulator = 0;
@@ -76,21 +77,20 @@ export class LocalPlayer {
     this.accumulator += frameDt;
     while (this.accumulator >= STEP) {
       const c = this.controller;
+      // A network message (a stomp) may have dropped the vine since the last step.
+      this.syncVine();
       this.prevX = c.x;
       this.prevY = c.y;
-      const heldBefore = c.swing?.vineId;
       const bounces = c.bounceCount;
       c.step(STEP, takeInput());
       if (!c.swing) c.tryGrabVine(this.vines, this.canHoldVine);
-      const heldAfter = c.swing?.vineId;
-      if (heldBefore !== heldAfter) {
-        if (heldBefore !== undefined) this.onVine?.(heldBefore, false);
-        if (heldAfter !== undefined) this.onVine?.(heldAfter, true);
-      }
+      this.syncVine();
       if (c.bounceCount !== bounces) this.onBounce?.(c.lastBounceCell);
       this.time += STEP;
       this.accumulator -= STEP;
       onStep?.();
+      // onStep may push the character (a stomp bounce lets go of the vine).
+      this.syncVine();
       const outcome = this.check(objects);
       if (outcome) {
         this.accumulator = 0;
@@ -103,10 +103,26 @@ export class LocalPlayer {
 
   /** Let go of the vine held, if any (death, finish, or someone else got it first). */
   letGo(): void {
-    const held = this.controller.swing?.vineId;
-    if (held === undefined) return;
     this.controller.releaseVine(false);
-    this.onVine?.(held, false);
+    this.syncVine();
+  }
+
+  /**
+   * Report any change of the vine held since the last report. Every way of grabbing or
+   * letting go (steps, stomps, deaths, resets) ends up here, so the session always knows.
+   */
+  syncVine(): void {
+    const now = this.controller.swing?.vineId;
+    if (now === this.reportedVine) return;
+    const was = this.reportedVine;
+    this.reportedVine = now;
+    if (was !== undefined) this.onVine?.(was, false);
+    if (now !== undefined) this.onVine?.(now, true);
+  }
+
+  /** Move the clock forward without simulating (the tab froze): keeps traps in step with everyone. */
+  catchUp(roundTime: number): void {
+    if (roundTime > this.time) this.time = roundTime;
   }
 
   /** Position to draw at, interpolated between the last two steps. */

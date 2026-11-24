@@ -67,6 +67,7 @@ interface Player {
   finishTime: number | null;
   killedBy: string | null;
   placedBlock: boolean;
+  lastBlockRequest: number;
 }
 
 export class GameSession {
@@ -130,6 +131,7 @@ export class GameSession {
       finishTime: null,
       killedBy: null,
       placedBlock: false,
+      lastBlockRequest: -Infinity,
     });
     if (!this.hostId) this.hostId = id;
     this.broadcastLobby();
@@ -295,6 +297,7 @@ export class GameSession {
       endsAt: this.placementEndsAt,
       objects: this.objects,
       mine: p.choice,
+      done: p.doneAt !== null,
     });
   }
 
@@ -370,12 +373,14 @@ export class GameSession {
       p.finishTime = null;
       p.killedBy = null;
       p.placedBlock = false;
+      p.lastBlockRequest = -Infinity;
       this.sendCountdown(p);
     }
     this.vineHolders.clear();
     this.lastStomp.clear();
-    // Built now so dead players' blocks can be checked quickly during the race.
-    this.raceGuard = new PathGuard(this.level, this.objects, DEFAULT_MOVEMENT);
+    // Built now so dead players' blocks can be checked quickly during the race. Cannon lines
+    // stay as measured now, like on the clients: blocks don't stop balls.
+    this.raceGuard = new PathGuard(this.level, this.objects, DEFAULT_MOVEMENT, { frozenRanges: true });
     this.later(() => this.startRace(), Math.max(0, this.raceStartsAt - this.io.now()));
   }
 
@@ -430,6 +435,9 @@ export class GameSession {
     if (this.phase !== "race" || !this.level || !this.raceGuard) return refuse("Pas maintenant.");
     if (p.status !== "dead") return refuse("Seuls les joueurs morts posent des blocs.");
     if (p.placedBlock) return refuse("Un seul bloc par round.");
+    const now = this.io.now();
+    if (now - p.lastBlockRequest < TIMING.blockThrottle) return refuse("Doucement !");
+    p.lastBlockRequest = now;
     const x = msg.x;
     const y = msg.y;
     if (!Number.isInteger(x) || !Number.isInteger(y)) return refuse("Case invalide.");
@@ -441,6 +449,11 @@ export class GameSession {
       if (near) return refuse("Trop près d'un joueur.");
     }
     const block: PlacedObject = { id: this.nextObjectId, kind: "platform", x, y, ownerId: p.id };
+    // Nor shut a living player in: the finish must stay reachable from where each one stands.
+    const standing = this.inGamePlayers()
+      .filter((q) => q.status === "running" && q.pose)
+      .map((q) => standCellOf(q.pose!, this.level!));
+    if (!this.raceGuard.keepsPathFrom(standing, block)) return refuse("Enfermerait un joueur.");
     if (!this.raceGuard.tryAdd(block)) return refuse("Bloquerait le chemin vers l'arrivée.");
     this.nextObjectId++;
     p.placedBlock = true;
@@ -466,6 +479,8 @@ export class GameSession {
     const key = `${p.id}>${victim.id}`;
     if (now - (this.lastStomp.get(key) ?? -Infinity) < TIMING.stompCooldown) return;
     this.lastStomp.set(key, now);
+    // The victim's machine lets go of any vine when slammed; don't wait for it to say so.
+    this.releaseVines(victim.id);
     this.io.broadcast({ type: "stomped", by: p.id, victim: victim.id });
   }
 
@@ -596,6 +611,14 @@ function cleanName(raw: unknown): string {
     .replace(/[\u0000-\u001f]/g, "")
     .trim()
     .slice(0, MAX_NAME_LENGTH);
+}
+
+/** The stand cell under a player's pose (the cell holding their feet). */
+function standCellOf(pose: PlayerPose, level: Level): number {
+  const m = DEFAULT_MOVEMENT;
+  const cx = Math.floor(pose.x + m.bodyWidth / 2);
+  const cy = Math.floor(pose.y + m.bodyHeight - 0.01);
+  return cy * level.width + cx;
 }
 
 function cleanDir(v: unknown): Dir {

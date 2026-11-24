@@ -272,6 +272,16 @@ export function prepareObjects(level: Level, objects: readonly PlacedObject[]): 
   });
 }
 
+/**
+ * Longest rope a body can hang from: the body's centre is at the end of the rope, so the rope
+ * stops half a cell (a body half-height plus a margin) above the first solid cell below.
+ * A vine with a single free cell below has no usable rope.
+ */
+export function vineRopeLength(range: number): number {
+  return range - 0.5;
+}
+const VINE_MIN_ROPE = 0.8;
+
 /** A vine as the character sees it: the rope hangs from (ax, ay) and is `length` cells long. */
 export interface Vine {
   id: number;
@@ -285,7 +295,9 @@ export function vinesOf(objects: readonly PlacedObject[]): Vine[] {
   const vines: Vine[] = [];
   for (const o of objects) {
     if (o.kind !== "vine" || !o.range) continue;
-    vines.push({ id: o.id, ax: o.x + 0.5, ay: o.y + 1, length: o.range - 0.15 });
+    const length = vineRopeLength(o.range);
+    if (length < VINE_MIN_ROPE) continue;
+    vines.push({ id: o.id, ax: o.x + 0.5, ay: o.y + 1, length });
   }
   return vines;
 }
