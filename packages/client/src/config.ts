@@ -11,6 +11,14 @@ export const CELL_PX = 40;
 export const VIEW_CELLS_X = 32;
 export const VIEW_CELLS_Y = 18;
 
+/** Delay between a death and the respawn at the start, seconds. */
+export const RESPAWN_DELAY = 0.7;
+/**
+ * The body used to test traps is smaller than the collision body by this much on each side, cells.
+ * Grazing a trap by a pixel does not kill, which feels fairer.
+ */
+export const HAZARD_INSET = 0.1;
+
 /** Simulation rate. The character always advances in fixed steps of 1/SIM_HZ seconds. */
 export const SIM_HZ = 120;
 

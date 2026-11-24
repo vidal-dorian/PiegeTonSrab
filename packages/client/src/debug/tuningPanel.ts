@@ -4,7 +4,7 @@
  */
 import { Pane } from "tweakpane";
 import { deriveMovement, type MovementTuning, type CameraTuning } from "../config";
-import { debugView, liveStats } from "../scenes/TestScene";
+import { debugView, liveStats } from "./debugState";
 import { resetTuning, saveTuning, tuning } from "../tuningStore";
 
 type Range = { label: string; min: number; max: number; step: number };

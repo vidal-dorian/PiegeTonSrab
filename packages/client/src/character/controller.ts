@@ -62,9 +62,10 @@ export class CharacterController {
     this.derived = deriveMovement(this.tuning);
   }
 
-  setLevel(level: Level): void {
+  /** Swap the collision grid (e.g. after a platform was placed) without moving the character. */
+  replaceLevel(level: Level): void {
     this.level = level;
-    this.respawn();
+    this.senseContacts();
   }
 
   respawn(): void {

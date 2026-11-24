@@ -1,7 +1,7 @@
 import Phaser from "phaser";
 import { CELL_PX, VIEW_CELLS_X, VIEW_CELLS_Y } from "./config";
 import { createTuningPanel } from "./debug/tuningPanel";
-import { TestScene } from "./scenes/TestScene";
+import { SoloScene } from "./scenes/SoloScene";
 
 const game = new Phaser.Game({
   type: Phaser.WEBGL,
@@ -12,10 +12,10 @@ const game = new Phaser.Game({
   scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
   // Input is read directly from the browser (see input.ts), not through Phaser.
   input: { keyboard: false, gamepad: false, mouse: false, touch: false },
-  scene: [TestScene],
+  scene: [SoloScene],
 });
 
 createTuningPanel(() => {
-  const scene = game.scene.getScene("test") as TestScene | null;
+  const scene = game.scene.getScene("solo") as SoloScene | null;
   scene?.applyTuning();
 });

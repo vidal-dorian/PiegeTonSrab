@@ -1,3 +1,5 @@
+import type { ObjectKind, PlacedObject } from "./objects";
+
 /**
  * Level format and grid queries.
  *
@@ -27,6 +29,8 @@ export interface LevelDefinition {
   rows: string[];
   /** Optional notes drawn in the level, used by test levels. */
   labels?: LevelLabel[];
+  /** Objects already in the level before players place anything (mainly for testing). */
+  objects?: Array<{ kind: ObjectKind; x: number; y: number }>;
 }
 
 export interface Level {
@@ -39,6 +43,8 @@ export interface Level {
   start: { x: number; y: number };
   finish: { x: number; y: number } | null;
   labels: LevelLabel[];
+  /** Objects the level starts with. Their ids are negative so they never clash with placed objects. */
+  initialObjects: PlacedObject[];
 }
 
 export function parseLevel(def: LevelDefinition): Level {
@@ -66,7 +72,8 @@ export function parseLevel(def: LevelDefinition): Level {
   });
 
   if (!start) throw new Error(`Level "${def.name}" has no start cell "S"`);
-  return { name: def.name, width, height, solid, start, finish, labels: def.labels ?? [] };
+  const initialObjects = (def.objects ?? []).map((o, i) => ({ id: -(i + 1), kind: o.kind, x: o.x, y: o.y }));
+  return { name: def.name, width, height, solid, start, finish, labels: def.labels ?? [], initialObjects };
 }
 
 /**
