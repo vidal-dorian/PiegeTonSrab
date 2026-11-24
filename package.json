@@ -1,0 +1,20 @@
+{
+  "name": "game-monorepo",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/shared",
+    "packages/client",
+    "packages/server"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @game/client",
+    "build": "npm run build -w @game/client",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test -w @game/client"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.43",
+    "typescript": "5.9.3"
+  }
+}

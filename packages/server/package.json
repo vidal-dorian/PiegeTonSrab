@@ -1,0 +1,11 @@
+{
+  "name": "@game/server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@game/shared": "*"
+  }
+}
