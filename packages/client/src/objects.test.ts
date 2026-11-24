@@ -5,7 +5,7 @@ import {
   findKiller,
   hazardsOf,
   isSolidCell,
-  level1,
+  testLevel,
   parseLevel,
   withSolidObjects,
   CharacterController,
@@ -44,7 +44,7 @@ describe("objects", () => {
   });
 
   it("platforms become solid terrain, other objects do not", () => {
-    const level = parseLevel(level1);
+    const level = parseLevel(testLevel);
     const objects: PlacedObject[] = [
       { id: 1, kind: "platform", x: 5, y: 5 },
       { id: 2, kind: "saw", x: 6, y: 5 },
@@ -56,7 +56,7 @@ describe("objects", () => {
   });
 
   it("placement refuses terrain, start, finish and occupied cells", () => {
-    const level = parseLevel(level1);
+    const level = parseLevel(testLevel);
     const objects: PlacedObject[] = [{ id: 1, kind: "saw", x: 5, y: 5 }];
     expect(canPlaceAt(level, objects, 6, 5)).toBe(true);
     expect(canPlaceAt(level, objects, 5, 5)).toBe(false);

@@ -88,6 +88,24 @@ Defaults added while building step 4 (2026-11-24), not yet discussed with Dorian
 - A dead player's block becomes solid 300 ms after the server accepts it, and never inside a running player's body.
 - After a death or a finish, the camera follows a living player; left and right arrows switch players.
 
+Decided (2026-11-24, build step 5):
+
+- Objects are no longer chosen: each player gets exactly the objects they must place this round, drawn at random (`extraOffered` is 0 in the game config). The player still chooses where to put them, in which order, and which way a cannon points. A hand never holds the same object three times.
+- Players collide. This replaces "Players do not collide with each other" in the network model. Landing on another player's head bounces you higher than a jump (holding jump gives the full bounce) and slams the other player down with a short stun (no jump, slow run). Touching sideways pushes both players apart.
+- The game has 10 maps.
+
+Defaults added while building step 5 (2026-11-24), not yet discussed with Dorian:
+
+- Contacts are resolved by the player they push, so each machine still only moves its own character. The stomper's machine detects the stomp against the ghost it sees (about 100 ms in the past), bounces, and sends `stomp`; the server checks it is plausible (both running, last poses within 3 cells, not twice within 350 ms) and broadcasts `stomped`; the victim's machine slams its own character. A bump needs no message: both machines see the touch and each pushes its own character away. A bump only fires when a touch starts, and no contact counts in the first 0.8 s of the race, because everyone starts on the same cell.
+- Stomps and bumps never score. A player pushed into a trap is killed by that trap and its owner gets the kill, as before (see Open questions).
+- The score leader (alone in first place, with points) wears an orange crown.
+- Cannon: placed with a direction (R or right click turns it during placement, default left). It is a solid block and fires a ball every 2 s (first shot between 0.6 s and 2.6 s into the race, depending on its id, so cannons are not in step). A ball flies at 7 cells per second until the first solid cell. The line of fire is measured when the race starts; blocks placed by dead players during the race do not stop balls. For the reachability check, the whole line of fire counts as deadly.
+- Spring: a solid block; landing on top throws the character 7 cells up, whatever the jump button does. Nobody can stand on it.
+- Vine: the anchor block is solid, the rope hangs up to 4 cells below it (shorter if something is in the way). A player touching the rope in mid-air grabs it, keeps their momentum, swings (left and right pump the swing) and lets go with jump, with an upward push. Only one player holds a vine: the client grabs at once and tells the server; if someone else got it first, the server says so and the client lets go. The reachability check never uses vines, so a vine can only add routes.
+- Maps can contain objects, written as characters in the level rows (`*` saw, `^` spikes, `=` platform, `T` spring, `V` vine, `<` `>` `A` `U` cannons). They are there from the first round, belong to nobody and never score kills.
+- Draw weights: saw 1, spikes 1, cannon 0.8, spring 0.8, platform 0.8, vine 0.6.
+- Movement values for these (spring height, stomp bounce, slam speed, stun time, bump speed, swing pump) live in `DEFAULT_MOVEMENT` and in the tuning panel ("Interactions").
+
 ## Scoring
 
 Decided:
@@ -198,8 +216,8 @@ Decided:
 
 Network model (Decided):
 
-- Each client simulates its own character and sends its position to the server about 20 times per second. Other players are drawn as interpolated ghosts. Players do not collide with each other.
-- Objects are not synchronised. Their state is a pure function of the round clock, which every client shares. Any object logic must therefore be deterministic and driven by elapsed round time, never by per-frame accumulation. Objects triggered by a player (crusher, fragile platform, bubble, vine occupancy) and blocks placed by dead players during the race are the exception and need a server message.
+- Each client simulates its own character and sends its position to the server about 20 times per second. Other players are drawn as interpolated ghosts. ~~Players do not collide with each other.~~ Players collide since build step 5 (see above).
+- Objects are not synchronised. Their state is a pure function of the round clock, which every client shares. Any object logic must therefore be deterministic and driven by elapsed round time, never by per-frame accumulation. Objects triggered by a player (crusher, fragile platform, bubble, vine occupancy) and blocks placed by dead players during the race are the exception and need a server message. Stomps between players also go through the server (see build step 5 above).
 - The server is the referee: it runs the timers, receives placements, checks that they are legal, attributes kills and counts points.
 - Cheating is not a concern. A client could lie about its position; among friends this is accepted.
 
@@ -215,7 +233,7 @@ Each step must end with something playable. Do not start a step before the previ
 2. **One level and three objects.** Saw, spikes, platform, plus death and the finish. Playable solo.
 3. **Round loop, local.** Draw, placement (including the check that the finish stays reachable), race, score, on one machine with one player.
 4. **Multiplayer.** Rooms, ghosts, shared round clock, server-side scoring, blocks placed by dead players. This is the first playtest with friends.
-5. **Rest of the first batch and the look.** Cannon, spring, vine, then the sketchbook art direction.
+5. **Rest of the first batch and the look.** Cannon, spring, vine, then the sketchbook art direction. Built on 2026-11-24 together with player contacts, the random draw and 10 maps; waiting for Dorian's playtest.
 6. **Deployment** to the Raspberry Pi.
 
 The playtest comes at step 4, before the art, on purpose: use plain rectangles until then, so that rule changes are cheap.
@@ -227,6 +245,8 @@ The playtest comes at step 4, before the art, on purpose: use plain rectangles u
 - After how many rounds the object count drops from 3 to 2 (Default: after round 3).
 - Whether a catch-up bonus is needed for the last-placed player (only if playtests show the leader running away).
 - How rare the eraser should be.
+- Should a stomp that sends a player into a pit or a trap within a second or two give the stomper a kill point? It would make stomps worth chasing; today they never score.
+- The object count is still 3 per round, then 2 after round 3. Dorian asked for "2 objects drawn at random": if he meant 2 from the first round, set `objectsEarly` to 2 in `DEFAULT_GAME_CONFIG`.
 
 ## Where to start
 
