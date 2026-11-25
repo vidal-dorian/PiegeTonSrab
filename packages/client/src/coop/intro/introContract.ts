@@ -54,4 +54,4 @@ export interface IntroSceneData {
  * Length of the intro when watched to the end, seconds. The online phase waits at most this plus
  * 10 seconds. The intro's author keeps it equal to the real length of the timeline.
  */
-export const INTRO_DURATION_S = 80;
+export const INTRO_DURATION_S = 87;

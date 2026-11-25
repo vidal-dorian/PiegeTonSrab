@@ -1,0 +1,132 @@
+/*
+ * Co-op intro layer (coop/intro/introHud.ts), in the sketchbook style of ui.css: white cards,
+ * 2.5 px felt-pen outlines, solid offset shadows. Sizes are in em of a root font scaled with the
+ * canvas (--sts-scale), so the layout matches the drawing at any window size. The colour and font
+ * variables come from ui.css, with fallbacks. Nothing here is red: red means "this kills".
+ */
+.sts-intro {
+  --s-ink: var(--ink, #161616);
+  --s-orange: var(--orange, #f07a2e);
+  --s-outline: calc(2.5px * var(--sts-scale, 1)) solid var(--s-ink);
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 20;
+  overflow: hidden;
+  pointer-events: none;
+  font-size: calc(16px * var(--sts-scale, 1));
+  font-family: var(--font-text, Rubik, "Segoe UI", Arial, sans-serif);
+  color: var(--s-ink);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+.sts-intro [hidden] { display: none !important; }
+
+/* --- Narrator's caption (bottom centre) ------------------------------------------------- */
+
+.sts-caption {
+  position: absolute;
+  left: 50%;
+  bottom: 1.5em;
+  width: max-content;
+  max-width: 62%;
+  box-sizing: border-box;
+  padding: 0.42em 1.05em 0.5em;
+  font-size: 1.55em;
+  font-weight: 500;
+  line-height: 1.25;
+  text-align: center;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+  background: #fff;
+  border: var(--s-outline);
+  border-radius: 0.6em;
+  box-shadow: calc(3px * var(--sts-scale, 1)) calc(5px * var(--sts-scale, 1)) 0 var(--s-ink);
+  transform: translateX(-50%) rotate(-0.6deg);
+}
+.sts-caption.pop { animation: sts-caption-pop 240ms cubic-bezier(0.3, 1.5, 0.5, 1); }
+@keyframes sts-caption-pop {
+  from { transform: translateX(-50%) translateY(0.5em) rotate(-0.6deg) scale(0.9); opacity: 0.2; }
+  to { transform: translateX(-50%) rotate(-0.6deg) scale(1); opacity: 1; }
+}
+
+/* --- Speech bubbles ---------------------------------------------------------------------
+ * .sts-bubble is a zero-size anchor at the top centre of the bubble; the body hangs from it,
+ * and the tail slides along the bottom edge to stay over the speaker (--tail-x).
+ */
+
+.sts-bubble {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+.sts-bubble-body {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: max-content;
+  max-width: 21em;
+  box-sizing: border-box;
+  padding: 0.3em 0.85em 0.4em;
+  font-family: var(--font-title, Fredoka, sans-serif);
+  font-weight: 600;
+  font-size: 1.7em;
+  line-height: 1.2;
+  text-align: center;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+  background: #fff;
+  border: var(--s-outline);
+  border-radius: 0.75em;
+  transform: translateX(-50%);
+  transform-origin: calc(50% + var(--tail-x, 0px)) 115%;
+  filter: drop-shadow(calc(3px * var(--sts-scale, 1)) calc(5px * var(--sts-scale, 1)) 0 var(--s-ink));
+}
+.sts-bubble.small .sts-bubble-body { font-size: 1.35em; }
+.sts-bubble-body.pop { animation: sts-bubble-pop 220ms cubic-bezier(0.3, 1.7, 0.5, 1); }
+@keyframes sts-bubble-pop {
+  from { transform: translateX(-50%) scale(0.55); }
+  to { transform: translateX(-50%) scale(1); }
+}
+.sts-bubble-tail {
+  position: absolute;
+  left: calc(50% + var(--tail-x, 0px));
+  bottom: -0.42em;
+  width: 0.7em;
+  height: 0.7em;
+  box-sizing: border-box;
+  background: #fff;
+  border-right: var(--s-outline);
+  border-bottom: var(--s-outline);
+  transform: translateX(-50%) skewX(12deg) rotate(45deg);
+}
+
+/* --- Skip button and progress dots (bottom right) ---------------------------------------- */
+
+.sts-corner {
+  position: absolute;
+  right: 1.2em;
+  bottom: 1.1em;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.55em;
+}
+.sts-intro .sts-skip {
+  pointer-events: auto;
+  font-size: 1.05em;
+  padding: 0.45em 0.9em;
+}
+.sts-progress { display: flex; gap: 0.32em; margin-right: 0.2em; }
+.sts-progress i {
+  width: 0.5em;
+  height: 0.5em;
+  box-sizing: border-box;
+  border: calc(1.5px * var(--sts-scale, 1)) solid var(--s-ink);
+  border-radius: 50%;
+  background: #fff;
+}
+.sts-progress i.past { background: var(--s-ink); }
+.sts-progress i.now { background: var(--s-orange); transform: scale(1.25); }
