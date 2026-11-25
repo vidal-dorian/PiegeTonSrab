@@ -4,6 +4,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   bodiesOverlap,
+  boxHitsHazard,
   buildReachGraph,
   contactWith,
   cannonBalls,
@@ -22,6 +23,8 @@ import {
   PathGuard,
   placementKeepsPath,
   prepareObjects,
+  spawnCell,
+  staticHazards,
   TIMING,
   vinesOf,
   withSolidObjects,
@@ -51,10 +54,32 @@ describe("cannon", () => {
     const [right] = prepareObjects(corridor, [{ id: 1, kind: "cannon", x: 5, y: 1, dir: 0 }]);
     expect(right!.range).toBe(13); // cells 6..18, the wall is at x = 19
     const [left] = prepareObjects(corridor, [
-      { id: 1, kind: "cannon", x: 5, y: 1, dir: 2 },
-      { id: 2, kind: "platform", x: 2, y: 1 },
+      { id: 1, kind: "cannon", x: 12, y: 1, dir: 2 },
+      { id: 2, kind: "platform", x: 9, y: 1 },
     ]);
-    expect(left!.range).toBe(2); // cells 4 and 3, stopped by the platform
+    expect(left!.range).toBe(2); // cells 11 and 10, stopped by the platform
+  });
+
+  it("never fires into the spawn pad, whatever the direction", () => {
+    // S at (1, 2): the pad is x -1..3 (inside the level: 0..3), rows 0 to 2.
+    const [left] = prepareObjects(corridor, [{ id: 1, kind: "cannon", x: 5, y: 1, dir: 2 }]);
+    expect(left!.range).toBe(1); // cell 4, then the pad
+    const open = parseLevel({
+      name: "open",
+      rows: ["..........", "..........", "..........", "..........", "..........", "..S......F", "##########"],
+    });
+    // Above the pad (rows 3 to 5, x 0 to 4), pointing down at seat 1 (x = 1).
+    const [down] = prepareObjects(open, [{ id: 1, kind: "cannon", x: 1, y: 0, dir: 1 }]);
+    expect(down!.range).toBe(2); // rows 1 and 2, the pad starts at row 3
+    const hazards = staticHazards(down!);
+    for (let seat = 0; seat < 5; seat++) {
+      const c = spawnCell(open, seat);
+      const body = { x: c.x + (1 - tuning.bodyWidth) / 2, y: c.y + 1 - tuning.bodyHeight, w: tuning.bodyWidth, h: tuning.bodyHeight };
+      expect(hazards.some((h) => boxHitsHazard(body, h, 0))).toBe(false);
+    }
+    // Away from the pad, the same cannon fires down to the floor.
+    const [far] = prepareObjects(open, [{ id: 1, kind: "cannon", x: 7, y: 0, dir: 1 }]);
+    expect(far!.range).toBe(5); // rows 1 to 5, down to the floor
   });
 
   it("fires on a fixed schedule: balls are a pure function of the round clock", () => {

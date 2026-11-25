@@ -43,6 +43,7 @@ import {
   type RaceStatus,
   type RefusedObject,
   type ServerMessage,
+  type ServerMessageOf,
 } from "./protocol";
 import { RACE_LEVELS } from "./levelList";
 
@@ -62,6 +63,11 @@ type Phase = "lobby" | "carousel" | "placement" | "countdown" | "race" | "raceEn
 
 interface Player {
   id: string;
+  /**
+   * Random key the player's browser keeps (localStorage) and sends when joining, so that
+   * after a reload, a closed tab or a long disconnection it can take its place back.
+   */
+  key: string;
   name: string;
   color: number;
   connected: boolean;
@@ -112,6 +118,11 @@ export class GameSession {
   /** "stomper>victim" -> time of the last accepted stomp. */
   private lastStomp = new Map<string, number>();
 
+  /** The end-of-game message, sent again to a player who reconnects on the end screen. */
+  private overMsg: ServerMessageOf<"over"> | null = null;
+  /** The last round's score message, sent again to a player who reconnects on the score screen. */
+  private scoreMsg: ServerMessageOf<"score"> | null = null;
+
   private timers: Array<() => void> = [];
   private ghostTimer: (() => void) | null = null;
 
@@ -127,16 +138,28 @@ export class GameSession {
   // --- Players ------------------------------------------------------------------
 
   /** Returns an error message (in French, shown to the player) or null if the player joined. */
-  addPlayer(id: string, rawName: string): string | null {
-    if (this.phase !== "lobby") return "La partie a déjà commencé.";
+  addPlayer(id: string, rawName: string, rawKey: unknown = ""): string | null {
+    const key = cleanKey(rawKey);
+    if (this.phase !== "lobby") {
+      // A player of this game coming back (page reloaded, tab closed, connection lost for
+      // longer than the reconnection window): they take their place back.
+      const back = this.returningPlayer(rawName, key);
+      if (!back) return "La partie a déjà commencé. Pour reprendre ta place, rejoins avec le même pseudo.";
+      this.takeOver(back, id);
+      return null;
+    }
     if (this.players.size >= MAX_PLAYERS) return `Le salon est plein (${MAX_PLAYERS} joueurs).`;
     // The colour index is also the player's spawn seat (spawnCell, level.ts): unique in the
     // room, so each body starts on its own cell of the spawn pad. Clients read it from the lobby.
     const used = new Set([...this.players.values()].map((p) => p.color));
     const color = Array.from({ length: MAX_PLAYERS }, (_, i) => i).find((c) => !used.has(c)) ?? 0;
     const name = cleanName(rawName) || `Joueur ${this.players.size + 1}`;
+    // One key per room: two tabs of one browser share it, and a comeback must find the
+    // right player. The second tab simply has none (it can still come back by pseudo).
+    const uniqueKey = key && ![...this.players.values()].some((q) => q.key === key) ? key : "";
     this.players.set(id, {
       id,
+      key: uniqueKey,
       name,
       color,
       connected: true,
@@ -156,6 +179,82 @@ export class GameSession {
     this.broadcastLobby();
     return null;
   }
+
+  /**
+   * The player of this game a newcomer is, if any, in this order:
+   * 1. a disconnected player with the same browser key;
+   * 2. the only disconnected player with the same name (another device, or a second tab of
+   *    the same browser: keys are unique per room, so that tab has none, see addPlayer);
+   * 3. a player still seen connected with the same key: a reload a few seconds ago, whose old
+   *    connection is not detected dead yet. That old connection is then closed (onTakeover).
+   * A name alone never takes the place of someone still playing.
+   */
+  private returningPlayer(rawName: string, key: string): Player | null {
+    const players = this.inGamePlayers();
+    const byKey = key ? players.find((p) => p.key === key) : undefined;
+    if (byKey && !byKey.connected) return byKey;
+    const name = cleanName(rawName).toLowerCase();
+    const byName = name ? players.filter((p) => !p.connected && p.name.toLowerCase() === name) : [];
+    if (byName.length === 1) return byName[0]!;
+    return byKey ?? null;
+  }
+
+  /**
+   * Player `p` comes back under the connection `newId`: same seat, colour, score and objects.
+   * Everything the session keys by player id is renamed, then the player is brought up to
+   * date like after a reconnection. The old connection, if it still exists, now names nobody.
+   */
+  private takeOver(p: Player, newId: string): void {
+    const old = p.id;
+    if (old === newId) return;
+    // Still seen connected (the old connection is not detected dead yet): treat it as gone
+    // first, so its vines are let go for everyone and its last pose stops counting.
+    if (p.connected) {
+      this.releaseVines(old);
+      p.pose = null;
+    }
+    const rename = (id: string | null | undefined) => (id === old ? newId : id);
+    const renameKeys = <V>(m: Map<string, V>) => new Map([...m].map(([k, v]) => [rename(k)!, v] as const));
+    p.id = newId;
+    this.players = renameKeys(this.players);
+    this.scores = renameKeys(this.scores);
+    this.refused = renameKeys(this.refused);
+    this.unplaced = renameKeys(this.unplaced);
+    if (this.hostId === old) this.hostId = newId;
+    for (const o of [...this.objects, ...(this.raceGuard?.objects ?? [])]) {
+      if (o.ownerId === old) (o as PlacedObject).ownerId = newId;
+    }
+    for (const q of this.players.values()) {
+      q.killedBy = rename(q.killedBy) ?? null;
+      q.pushedBy = rename(q.pushedBy) ?? null;
+    }
+    for (const [vine, holder] of this.vineHolders) this.vineHolders.set(vine, rename(holder)!);
+    this.lastStomp = new Map(
+      [...this.lastStomp].map(([k, t]) => [k.split(">").map((id) => rename(id)).join(">"), t] as const),
+    );
+    if (this.overMsg) {
+      const totals = Object.fromEntries(Object.entries(this.overMsg.totals).map(([id, v]) => [rename(id)!, v]));
+      this.overMsg = { ...this.overMsg, winner: rename(this.overMsg.winner)!, totals };
+    }
+    if (this.scoreMsg) {
+      const totals = Object.fromEntries(Object.entries(this.scoreMsg.totals).map(([id, v]) => [rename(id)!, v]));
+      const lines = this.scoreMsg.lines.map((l) => ({ ...l, playerId: rename(l.playerId)! }));
+      this.scoreMsg = { ...this.scoreMsg, totals, lines };
+    }
+    // The other clients rename what they keep by id, then get the lobby with the new id.
+    this.io.broadcast({ type: "renamed", from: old, to: newId });
+    // Back in the game: like a reconnection (a race restarts from the spawn, resync).
+    this.setConnected(newId, true);
+    // On the end screen, the others redraw it with the new id (winner, totals).
+    if (this.phase === "over" && this.overMsg) this.io.broadcast(this.overMsg);
+    this.onTakeover?.(old, newId);
+  }
+
+  /**
+   * Called after a player was taken back under a new connection (see takeOver), with the
+   * old connection id: the room closes that connection if it is still open.
+   */
+  onTakeover: ((oldId: string, newId: string) => void) | null = null;
 
   /** The player left for good. */
   removePlayer(id: string): void {
@@ -186,6 +285,11 @@ export class GameSession {
     if (connected) this.resync(id);
     else this.onPlayerGone(p);
     this.broadcastLobby();
+  }
+
+  /** Whether this connection id is a player (not one whose place was taken back). */
+  hasPlayer(id: string): boolean {
+    return this.players.has(id);
   }
 
   get isEmpty(): boolean {
@@ -660,14 +764,15 @@ export class GameSession {
     }));
     const rs = scoreRound(results, this.cfg, players.length === 1);
     for (const l of rs.lines) this.scores.set(l.playerId, (this.scores.get(l.playerId) ?? 0) + l.total);
-    this.io.broadcast({
+    this.scoreMsg = {
       type: "score",
       round: this.round,
       verdict: rs.verdict,
       lines: rs.lines,
       totals: Object.fromEntries(this.scores),
       endsAt: this.io.now() + this.cfg.scoreTime * 1000,
-    });
+    };
+    this.io.broadcast(this.scoreMsg);
     this.later(() => this.afterScore(), this.cfg.scoreTime * 1000);
   }
 
@@ -679,7 +784,8 @@ export class GameSession {
     }
     this.clearTimers();
     this.phase = "over";
-    this.io.broadcast({ type: "over", winner, totals: Object.fromEntries(this.scores), rounds: this.round });
+    this.overMsg = { type: "over", winner, totals: Object.fromEntries(this.scores), rounds: this.round };
+    this.io.broadcast(this.overMsg);
     this.broadcastLobby();
   }
 
@@ -691,8 +797,17 @@ export class GameSession {
     if (!p) return;
     this.io.send(id, { type: "lobby", lobby: this.lobbyInfo() });
     if (this.phase === "lobby" || !p.inGame) return;
-    this.io.send(id, { type: "gameStart", levelIndex: this.levelIndex, spinMs: 0, holdMs: 0 });
-    if (this.phase === "placement") {
+    // The game screen (re)starts on this game's level with the scores so far, then gets the
+    // current phase. A client coming from the lobby screen (page reloaded) needs the
+    // gameStart to open the game screen at all.
+    const totals = Object.fromEntries(this.scores);
+    this.io.send(id, { type: "gameStart", levelIndex: this.levelIndex, spinMs: 0, holdMs: 0, totals });
+    if (this.phase === "over") {
+      // The end screen again, with its buttons.
+      if (this.overMsg) this.io.send(id, this.overMsg);
+    } else if (this.phase === "score") {
+      if (this.scoreMsg) this.io.send(id, this.scoreMsg);
+    } else if (this.phase === "placement") {
       this.sendPlacement(p);
       this.broadcastPlacedStatus();
     } else if (this.phase === "countdown" || this.phase === "race" || this.phase === "raceEnd") {
@@ -713,6 +828,11 @@ export class GameSession {
     this.ghostTimer?.();
     this.ghostTimer = null;
   }
+}
+
+/** Browser keys are short random strings; anything else is ignored. */
+function cleanKey(raw: unknown): string {
+  return typeof raw === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(raw) ? raw : "";
 }
 
 function cleanName(raw: unknown): string {

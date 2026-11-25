@@ -18,6 +18,12 @@ export const MAX_NAME_LENGTH = 16;
  * shows the error's message, written in French for the player, instead of "server down".
  */
 export const JOIN_REFUSED_CODE = 4210;
+/**
+ * Close code sent to a connection whose player was taken back by another one (the same
+ * browser in another tab, or the same pseudo from another device): it must not reconnect.
+ */
+export const TAKEN_OVER_CODE = 4211;
+export const TAKEN_OVER_REASON = "Ta place a été reprise depuis une autre fenêtre ou un autre appareil.";
 
 /** Timings of the parts of a game that are not in GameConfig, milliseconds. */
 export const TIMING = {
@@ -122,7 +128,19 @@ export interface RefusedObject {
 
 export type ServerMessage =
   | { type: "lobby"; lobby: LobbyInfo }
-  | { type: "gameStart"; levelIndex: number; spinMs: number; holdMs: number }
+  | {
+      type: "gameStart";
+      levelIndex: number;
+      spinMs: number;
+      holdMs: number;
+      /** Scores so far, for a player who joins a running game again (absent at a real start). */
+      totals?: Record<string, number>;
+    }
+  /**
+   * A player came back under a new connection id (see GameSession.takeOver): clients rename
+   * what they keep by player id. Sent before the lobby that lists the new id.
+   */
+  | { type: "renamed"; from: string; to: string }
   | {
       type: "placement";
       round: number;

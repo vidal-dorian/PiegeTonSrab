@@ -46,6 +46,7 @@ import { FollowCamera } from "../camera";
 import { CELL_PX, VIEW_CELLS_X, VIEW_CELLS_Y } from "../config";
 import { drawDashedRect } from "../debug/editor";
 import { debugView } from "../debug/debugState";
+import { guarded } from "../errors";
 import { InputSource } from "../input";
 import type { GameLink } from "../net/link";
 import { GhostView, INTERPOLATION_DELAY_MS } from "../render/ghostView";
@@ -78,6 +79,12 @@ const MAX_CLOCK_LAG = 0.1;
 const REFUSAL_SHAKE_MS = 450;
 /** The "vine already taken" notice is repeated at most this often for the same vine, milliseconds. */
 const VINE_NOTICE_MS = 2000;
+/**
+ * Escape quits only when pressed twice within this long, milliseconds. One press is easy to
+ * make by reflex (leaving full screen, closing a panel), and it used to throw the player out
+ * of the game at once.
+ */
+const ESCAPE_CONFIRM_MS = 2000;
 /** How long the end-of-placement messages stay on screen, milliseconds. */
 const PLACEMENT_RESULT_MS = 6500;
 
@@ -164,6 +171,10 @@ export class GameScene extends Phaser.Scene {
   /** The "over" message, kept to show the end screen again if the host changes. */
   private overMsg: ServerMessageOf<"over"> | null = null;
   private spectating: string | null = null;
+  /** When Escape was last pressed (performance.now), for the second press that quits. */
+  private escapeAt = -Infinity;
+  /** Bumped by each run of the scene, so a handler attached late never lands on a stopped one. */
+  private handlerGen = 0;
   /** Vine id -> player holding it, as last told by the session. */
   private vineHolders = new Map<number, string>();
   /** Other players our body touched on the last step, and when we last stomped each one. */
@@ -199,7 +210,8 @@ export class GameScene extends Phaser.Scene {
     this.level = parseLevel(RACE_LEVELS[this.levelIndex]!);
     this.phase = "carousel";
     this.round = 0;
-    this.totals = {};
+    // Scores so far: a player joining a running game again gets them with the gameStart.
+    this.totals = { ...(data.start.totals ?? {}) };
     this.objects = [];
     this.pending = [];
     this.erasing = [];
@@ -210,6 +222,7 @@ export class GameScene extends Phaser.Scene {
     this.myStatus = "running";
     this.overMsg = null;
     this.roomGen = 0;
+    this.escapeAt = -Infinity;
 
     this.gridGfx = drawLevel(this, this.level).grid;
     this.stains = new Stains(this);
@@ -261,9 +274,10 @@ export class GameScene extends Phaser.Scene {
     this.link.onStatus = (status) => {
       if (status === "lost") overlay.showNotice("Connexion perdue, reconnexion…", 0);
       else if (status === "back") overlay.showNotice("Reconnecté");
-      else this.quit("Déconnecté du serveur.");
+      else this.quit(this.link.closeMessage ?? "Déconnecté du serveur.");
     };
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.handlerGen++;
       this.link.setHandler(null);
       this.link.onStatus = null;
       this.controls.destroy();
@@ -280,8 +294,15 @@ export class GameScene extends Phaser.Scene {
     // Hide the level while the carousel spins, so it does not give the result away.
     this.cameras.main.setAlpha(0);
     carouselScreen.show(RACE_LEVELS, data.start.levelIndex, data.start.spinMs);
-    overlay.setHelp("Échap : quitter la partie");
-    this.link.setHandler((msg) => this.onMessage(msg));
+    overlay.setHelp("Échap deux fois : quitter la partie");
+    // Messages that waited while the scene (re)started are replayed as soon as the handler is
+    // set. Not from here: create() runs inside a Phaser frame, and the frame must not carry
+    // a whole backlog (a reconnection, a tab left in the background). The microtask runs once
+    // the frame is over, before any new message can arrive.
+    const gen = ++this.handlerGen;
+    queueMicrotask(() => {
+      if (gen === this.handlerGen) this.link.setHandler((msg) => this.onMessage(msg));
+    });
   }
 
   /** Called by the tuning panel whenever a value changes. */
@@ -292,7 +313,12 @@ export class GameScene extends Phaser.Scene {
 
   // --- Messages from the session ------------------------------------------------------
 
+  /** One message from the session. An error in it is reported, never thrown (errors.ts). */
   private onMessage(msg: ServerMessage): void {
+    guarded(`le message « ${msg.type} »`, () => this.handleMessage(msg));
+  }
+
+  private handleMessage(msg: ServerMessage): void {
     switch (msg.type) {
       case "lobby": {
         const hostBefore = this.lobby?.hostId;
@@ -301,14 +327,23 @@ export class GameScene extends Phaser.Scene {
         this.player.seat = this.seatOf(this.link.myId);
         // Back to the lobby after the end of a game (online).
         if (!msg.lobby.inGame && this.phase === "over" && this.link.online) {
+          // Let go now, as for gameStart: the lobby only starts on the next frame, and what
+          // comes meanwhile (a quick new game) is for it.
+          this.link.setHandler(null);
           this.scene.start("lobby", { link: this.link, lobby: msg.lobby });
         } else if (this.phase === "over" && this.overMsg && hostBefore !== msg.lobby.hostId && this.link.online) {
           // The host left: the new host needs the "Rejouer" button, or nobody could restart.
           this.showGameOver(this.overMsg);
           if (msg.lobby.hostId === this.link.myId) overlay.showNotice("L'hôte est parti : tu es le nouvel hôte", 4000);
         }
+        this.dropGhostsNotIn(msg.lobby.players.map((p) => p.id));
+        // Names and "done" marks in the tray come from the lobby.
+        if (this.phase === "placement") this.renderTray();
         break;
       }
+      case "renamed":
+        this.renamePlayer(msg.from, msg.to);
+        break;
       case "gameStart":
         // A new game in the same room ("Rejouer"), or a reconnection. The restart happens on the
         // next frame: detach now so the messages that follow wait in the link for the new scene.
@@ -383,6 +418,45 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * A player came back into the game under a new connection id: everything this scene keeps
+   * by player id follows. Their ghost is dropped (a new one comes with the new id) instead of
+   * staying frozen where they were.
+   */
+  private renamePlayer(from: string, to: string): void {
+    const r = (id: string) => (id === from ? to : id);
+    if (this.lobby) {
+      this.lobby = { ...this.lobby, hostId: r(this.lobby.hostId), players: this.lobby.players.map((p) => ({ ...p, id: r(p.id) })) };
+    }
+    this.totals = Object.fromEntries(Object.entries(this.totals).map(([id, v]) => [r(id), v]));
+    if (this.overMsg) {
+      const totals = Object.fromEntries(Object.entries(this.overMsg.totals).map(([id, v]) => [r(id), v]));
+      this.overMsg = { ...this.overMsg, winner: r(this.overMsg.winner), totals };
+    }
+    this.dropGhost(from);
+    this.touching.delete(from);
+    this.lastStompAt.delete(from);
+    for (const [vine, holder] of this.vineHolders) this.vineHolders.set(vine, r(holder));
+    if (this.spectating === from) this.spectating = null;
+    this.doneIds = this.doneIds.map(r);
+    this.roundKills.rename(from, to);
+    for (const o of this.objects) if (o.ownerId === from) o.ownerId = to;
+    for (const b of this.blocks) if (b.block.ownerId === from) b.block.ownerId = to;
+    this.updateCrowns();
+    this.syncObjectViews();
+    if (this.phase === "placement") this.renderTray();
+  }
+
+  private dropGhost(id: string): void {
+    this.ghosts.get(id)?.destroy();
+    this.ghosts.delete(id);
+  }
+
+  /** Ghosts of players no longer in the room (taken back under another id, left in the lobby). */
+  private dropGhostsNotIn(ids: readonly string[]): void {
+    for (const id of [...this.ghosts.keys()]) if (!ids.includes(id)) this.dropGhost(id);
+  }
+
   // --- Placement ---------------------------------------------------------------------
 
   private startPlacement(msg: ServerMessageOf<"placement">): void {
@@ -429,7 +503,7 @@ export class GameScene extends Phaser.Scene {
     this.player.reset();
     this.rebuildGraph();
     this.scanForRoom();
-    overlay.setHelp("Clic : poser ou reprendre · 1 à 3 : choisir l'objet · R ou clic droit : tourner le canon · Échap : quitter");
+    overlay.setHelp("Clic : poser ou reprendre · 1 à 3 : choisir l'objet · R ou clic droit : tourner le canon · Échap ×2 : quitter");
     this.renderTray();
     this.updateTopBar();
     this.showWholeLevel();
@@ -978,7 +1052,7 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.setZoom(1);
     this.followCam.snapTo(this.cameraTarget());
     overlay.showBanner("Prêt ?");
-    overlay.setHelp("Q/A ← · D → · Espace/Z/↑ saut · S/↓ lâcher la liane · Échap : quitter");
+    overlay.setHelp("Q/A ← · D → · Espace/Z/↑ saut · S/↓ lâcher la liane · Échap ×2 : quitter");
     // What became of our objects, named: refused ones and why, and those never placed in time.
     const lines = msg.refusedObjects
       ? refusedText(msg.refusedObjects)
@@ -1251,7 +1325,7 @@ export class GameScene extends Phaser.Scene {
     const parts: string[] = [];
     if (this.spectating) parts.push(`Tu regardes ${this.nameOf(this.spectating)} · ←/→ pour changer`);
     if (this.myStatus === "dead" && !this.blockPlaced) parts.push("Clic : poser ton bloc (1 par round)");
-    overlay.setHelp(parts.join(" · ") || "Échap : quitter");
+    overlay.setHelp(parts.join(" · ") || "Échap ×2 : quitter");
   }
 
   /** Why a dead player's block can't go on this cell, as far as this client can tell (null: try it). */
@@ -1321,6 +1395,9 @@ export class GameScene extends Phaser.Scene {
   // --- Score and end of game -------------------------------------------------------------
 
   private showScore(msg: ServerMessageOf<"score">): void {
+    // Rejoining on the score screen comes right after a gameStart: no carousel then.
+    carouselScreen.hide();
+    this.cameras.main.setAlpha(1);
     this.phase = "score";
     this.totals = msg.totals;
     this.updateCrowns();
@@ -1350,6 +1427,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showGameOver(msg: ServerMessageOf<"over">): void {
+    carouselScreen.hide();
+    this.cameras.main.setAlpha(1);
     this.phase = "over";
     this.overMsg = msg;
     overlay.setTopBar(null);
@@ -1381,6 +1460,12 @@ export class GameScene extends Phaser.Scene {
   // --- Frame update --------------------------------------------------------------------
 
   override update(_time: number, deltaMs: number): void {
+    // One exception here would stop this player's game for good (see errors.ts): report it
+    // and carry on with the next frame instead.
+    guarded("l'image de jeu", () => this.frame(deltaMs));
+  }
+
+  private frame(deltaMs: number): void {
     const dt = Math.min(deltaMs / 1000, MAX_FRAME_TIME);
     this.controls.poll();
     this.gridGfx.setVisible(debugView.showGrid);
@@ -1481,7 +1566,16 @@ export class GameScene extends Phaser.Scene {
 
   private onKey(code: string): void {
     if (code === "Escape") {
-      this.quit();
+      const now = performance.now();
+      if (now - this.escapeAt <= ESCAPE_CONFIRM_MS) {
+        this.quit();
+        return;
+      }
+      this.escapeAt = now;
+      const reminder = this.link.online ? "Appuie encore sur Échap pour quitter la partie" : "Appuie encore sur Échap pour revenir au menu";
+      // While the connection is down, the "connection lost" notice must stay on screen.
+      if (this.link.isLost) overlay.showNotice(`Connexion perdue, reconnexion…\n${reminder}`, 0);
+      else overlay.showNotice(reminder, ESCAPE_CONFIRM_MS);
       return;
     }
     const digit = /^Digit([1-9])$/.exec(code);

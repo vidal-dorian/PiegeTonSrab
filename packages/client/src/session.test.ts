@@ -396,4 +396,174 @@ describe("GameSession", () => {
     io.advance(TIMING.raceEndPause);
     expect(io.last("score")!.verdict).toBe("nobody-finished");
   });
+
+  it("a player reconnecting on the end screen gets the game screen with the end screen on it", () => {
+    const { io, s } = setup();
+    s.addPlayer("a", "Alice");
+    s.addPlayer("b", "Bob");
+    toPlacement(io, s, ["a", "b"]);
+    // Jump to the end of the game: Alice reached the target.
+    const internals = s as unknown as { scores: Map<string, number>; afterScore(): void };
+    internals.scores.set("a", 10);
+    internals.afterScore();
+    const over = io.last("over")!;
+    expect(over.winner).toBe("a");
+    s.setConnected("b", false);
+    io.sent = [];
+    s.setConnected("b", true);
+    const toB = io.sent.filter((m) => m.to === "b").map((m) => m.msg.type);
+    // gameStart opens the game screen (needed from the lobby screen after a reload), then the
+    // end screen and its buttons.
+    expect(toB).toEqual(["lobby", "gameStart", "over"]);
+    expect(io.sent.find((m) => m.to === "b" && m.msg.type === "over")!.msg).toEqual(over);
+  });
+
+  describe("coming back into a running game", () => {
+    const KEY_A = "aaaaaaaa-key";
+    /** Alice, Bob and Chloé in a race; Alice placed three objects and has 4 points. */
+    function raceWithAlice() {
+      const { io, s } = setup();
+      s.addPlayer("a", "Alice", KEY_A);
+      s.addPlayer("b", "Bob", "bbbbbbbb-key");
+      s.addPlayer("c", "Chloé", "cccccccc-key");
+      toPlacement(io, s, ["a", "b", "c"]);
+      const offer = io.last("placement", "a")!.offer;
+      s.handle("a", { type: "placement", objects: offer.map((kind, i) => ({ kind, x: 3 + i, y: 0 })), done: true });
+      s.handle("b", { type: "placement", objects: [], done: true });
+      s.handle("c", { type: "placement", objects: [], done: true });
+      (s as unknown as { scores: Map<string, number> }).scores.set("a", 4);
+      io.advance(TIMING.countdown);
+      return { io, s };
+    }
+
+    it("after a reload (same browser key), the player gets their seat, score and objects back", () => {
+      const { io, s } = raceWithAlice();
+      // Alice's page reloads: her old connection is gone for good, a new one joins.
+      s.removePlayer("a");
+      expect(s.addPlayer("a2", "Alice", KEY_A)).toBeNull();
+      const lobby = io.last("lobby")!.lobby;
+      // She had left for good, so Bob became the host; he stays the host.
+      expect(lobby.hostId).toBe("b");
+      expect(lobby.players.find((p) => p.id === "a2")).toMatchObject({ name: "Alice", color: 0, connected: true });
+      expect(lobby.players.some((p) => p.id === "a")).toBe(false);
+      // Brought up to date like after a reconnection: running again in this race.
+      const cd = io.last("countdown", "a2")!;
+      expect(cd.status).toBe("running");
+      expect(cd.objects.filter((o) => o.ownerId === "a2")).toHaveLength(3);
+      expect(cd.objects.some((o) => o.ownerId === "a")).toBe(false);
+      // Her traps still score for her.
+      s.handle("b", { type: "died", killerId: cd.objects.find((o) => o.ownerId === "a2")!.id, x: 4, y: 2, fell: false });
+      expect(io.last("playerDied")!.killerOwner).toBe("a2");
+      s.handle("a2", { type: "finished", time: 10 });
+      s.handle("c", { type: "died", killerId: null, x: 0, y: 0, fell: true });
+      io.advance(TIMING.raceEndPause);
+      const totals = io.last("score")!.totals;
+      expect(Object.keys(totals).sort()).toEqual(["a2", "b", "c"]);
+      expect(totals.a2).toBeGreaterThan(4);
+      // The old connection's late events name nobody any more.
+      s.removePlayer("a");
+      s.setConnected("a", false);
+      expect(io.last("lobby")!.lobby.players.find((p) => p.id === "a2")!.connected).toBe(true);
+    });
+
+    it("with the same browser key, even before the old connection is seen dead", () => {
+      const { io, s } = raceWithAlice();
+      expect(s.addPlayer("a2", "Alice", KEY_A)).toBeNull();
+      expect(io.last("countdown", "a2")!.status).toBe("running");
+      // Never seen gone: still the host, under the new id.
+      expect(io.last("lobby")!.lobby.hostId).toBe("a2");
+    });
+
+    it("from another device: the same pseudo takes back a disconnected player's place, not a connected one's", () => {
+      const { io, s } = raceWithAlice();
+      expect(s.addPlayer("x", "bob", "xxxxxxxx-key")).toMatch(/commencé.*même pseudo/);
+      s.setConnected("b", false);
+      expect(s.addPlayer("x", "  BOB ", "xxxxxxxx-key")).toBeNull();
+      expect(io.last("lobby")!.lobby.players.find((p) => p.id === "x")).toMatchObject({ name: "Bob", color: 1 });
+      // A stranger is still refused.
+      expect(s.addPlayer("y", "Zoé", "yyyyyyyy-key")).toMatch(/commencé/);
+    });
+
+    it("a reloaded page on the end screen gets the end screen, with the scores under its new id", () => {
+      const { io, s } = raceWithAlice();
+      const internals = s as unknown as { scores: Map<string, number>; afterScore(): void };
+      internals.scores.set("a", 10);
+      internals.afterScore();
+      s.removePlayer("a");
+      io.sent = [];
+      expect(s.addPlayer("a2", "Alice", KEY_A)).toBeNull();
+      const over = io.sent.find((m) => m.to === "a2" && m.msg.type === "over")!.msg as Extract<ServerMessage, { type: "over" }>;
+      expect(over.winner).toBe("a2");
+      expect(over.totals.a2).toBe(10);
+      const start = io.sent.find((m) => m.to === "a2" && m.msg.type === "gameStart")!.msg as Extract<ServerMessage, { type: "gameStart" }>;
+      expect(start.totals).toMatchObject({ a2: 10 });
+      // The others redraw their end screen with the new id.
+      expect(io.sent.some((m) => m.to === "*" && m.msg.type === "over" && m.msg.winner === "a2")).toBe(true);
+    });
+
+    it("tells everyone about the new id first, then closes the old connection", () => {
+      const { io, s } = raceWithAlice();
+      const taken: string[] = [];
+      s.onTakeover = (oldId) => taken.push(oldId);
+      s.setConnected("a", false);
+      io.sent = [];
+      expect(s.addPlayer("a2", "Alice", KEY_A)).toBeNull();
+      const types = io.sent.filter((m) => m.to === "*").map((m) => m.msg.type);
+      expect(types[0]).toBe("renamed");
+      expect(io.sent[0]!.msg).toEqual({ type: "renamed", from: "a", to: "a2" });
+      expect(types).toContain("lobby");
+      expect(taken).toEqual(["a"]);
+      expect(s.hasPlayer("a")).toBe(false);
+      expect(s.hasPlayer("a2")).toBe(true);
+      // The scores so far come with the gameStart.
+      const start = io.sent.find((m) => m.to === "a2" && m.msg.type === "gameStart")!.msg as Extract<ServerMessage, { type: "gameStart" }>;
+      expect(start.totals).toEqual({ a2: 4, b: 0, c: 0 });
+    });
+
+    it("taking back a player still seen connected lets go of their vine for everyone", () => {
+      const { io, s } = raceWithAlice();
+      // A vine somewhere in the level, held by Alice.
+      const internals = s as unknown as { objects: Array<{ id: number; kind: string }>; vineHolders: Map<number, string> };
+      internals.objects.push({ id: 999, kind: "vine" } as never);
+      s.handle("a", { type: "vine", id: 999, hold: true });
+      expect(internals.vineHolders.get(999)).toBe("a");
+      io.sent = [];
+      expect(s.addPlayer("a2", "Alice", KEY_A)).toBeNull();
+      expect(internals.vineHolders.has(999)).toBe(false);
+      expect(io.sent.some((m) => m.to === "*" && m.msg.type === "vine" && m.msg.id === 999 && m.msg.holder === null)).toBe(true);
+    });
+
+    it("two tabs of one browser share a key: only the first player keeps it, the second comes back by pseudo", () => {
+      const { io, s } = setup();
+      s.addPlayer("t1", "Tab1", KEY_A);
+      s.addPlayer("t2", "Tab2", KEY_A);
+      toPlacement(io, s, ["t1", "t2"]);
+      // Tab 2 reloads: its key would have matched tab 1, still playing.
+      s.removePlayer("t2");
+      expect(s.addPlayer("t2b", "Tab2", KEY_A)).toBeNull();
+      const players = io.last("lobby")!.lobby.players;
+      expect(players.map((p) => [p.id, p.name, p.connected])).toEqual([
+        ["t1", "Tab1", true],
+        ["t2b", "Tab2", true],
+      ]);
+    });
+
+    it("rejoining on the score screen gets the score table again", () => {
+      const { io, s } = raceWithAlice();
+      s.handle("a", { type: "finished", time: 10 });
+      s.handle("b", { type: "died", killerId: null, x: 0, y: 0, fell: true });
+      s.handle("c", { type: "died", killerId: null, x: 0, y: 0, fell: true });
+      io.advance(TIMING.raceEndPause);
+      const score = io.last("score")!;
+      s.removePlayer("a");
+      io.sent = [];
+      expect(s.addPlayer("a2", "Alice", KEY_A)).toBeNull();
+      const toA = io.sent.filter((m) => m.to === "a2").map((m) => m.msg);
+      expect(toA.map((m) => m.type)).toEqual(["lobby", "gameStart", "score"]);
+      const again = toA[2] as Extract<ServerMessage, { type: "score" }>;
+      expect(again.round).toBe(score.round);
+      expect(again.lines.map((l) => l.playerId).sort()).toEqual(["a2", "b", "c"]);
+      expect(Object.keys(again.totals).sort()).toEqual(["a2", "b", "c"]);
+    });
+  });
 });

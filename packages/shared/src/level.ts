@@ -106,7 +106,8 @@ export function parseLevel(def: LevelDefinition): Level {
 // overlap (and a trap placed next to S would kill everyone at once), so the start is a pad:
 // the S cell, SPAWN_PAD_HALF_WIDTH cells on each side on the same row, and SPAWN_PAD_HEADROOM
 // rows above those cells. Each seat (the player's colour index) gets its own cell on the pad,
-// and nobody may place anything on the pad (objects.ts, canPlaceAt).
+// nobody may place anything on the pad (objects.ts, canPlaceAt), and cannon balls break at
+// its edge (objects.ts, prepareObjects), so no cannon can fire into it.
 //
 // Reachability (reachability.ts) stays rooted at S alone: the pad row is flat, empty floor
 // with headroom that no object can ever occupy, so every seat can walk to S and S's reach
