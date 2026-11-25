@@ -4,9 +4,11 @@
  * which is simpler to lay out and style. Text is always set with textContent.
  */
 import { cardInfo, type CardKind } from "@game/shared";
+import { formatPoints } from "./points";
 import "./ui.css";
 
-const FAMILY_TAG = { kill: "TUE", help: "AIDE", neutral: "NEUTRE" } as const;
+/** Word on each object card for its colour family; also used by the rules screen. */
+export const FAMILY_TAG = { kill: "TUE", help: "AIDE", neutral: "NEUTRE" } as const;
 
 export interface TopBarState {
   round: number;
@@ -17,15 +19,28 @@ export interface TopBarState {
   target: number;
 }
 
+/** Why a card in the hand can't be played: no accepted cell left anywhere, or the player discarded it. */
+export type CardOut = "noRoom" | "discarded";
+
+const CARD_OUT_LABEL: Record<CardOut, string> = { noRoom: "Plus de place", discarded: "Défaussé" };
+
+/** How long a floating label stays above a cell, milliseconds (the CSS animation lasts as long). */
+const FLOAT_MS = 1600;
+
 export interface TrayState {
   /** Other players and whether they validated; empty offline. */
   others?: Array<{ name: string; done: boolean }>;
   /** This player validated and is waiting for the others. */
   waiting?: boolean;
-  cards: Array<{ kind: CardKind; used: boolean }>;
+  /** The objects drawn for this player this round. `arrow`: direction of a cannon. */
+  cards: Array<{ kind: CardKind; used: boolean; arrow?: string; out?: CardOut }>;
   selected: number | null;
   placed: number;
   needed: number;
+  /** "Valider la pose" can be pressed (everything is placed, discarded or has no room). */
+  canValidate: boolean;
+  /** "Défausser" can be pressed (an object is selected). */
+  canDiscard: boolean;
   hint: string;
   hintBad: boolean;
 }
@@ -50,6 +65,12 @@ export function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = ""
   return e;
 }
 
+export interface TrayHandlers {
+  onSelect: (i: number) => void;
+  onValidate: () => void;
+  onDiscard: () => void;
+}
+
 export class Overlay {
   /** Container for every interface part; other UI modules append their panels here. */
   readonly root: HTMLDivElement;
@@ -60,7 +81,7 @@ export class Overlay {
   private help = el("div", "ui-help");
   private notice = el("div", "ui-notice ui-panel");
   private noticeTimer = 0;
-  private trayHandlers: { onSelect: (i: number) => void; onValidate: () => void } | null = null;
+  private trayHandlers: TrayHandlers | null = null;
   private trayHint: HTMLDivElement | null = null;
 
   constructor() {
@@ -76,6 +97,7 @@ export class Overlay {
   hideAll(): void {
     for (const part of [this.topbar, this.tray, this.banner, this.scores, this.help, this.notice]) part.hidden = true;
     for (const extra of this.root.querySelectorAll<HTMLElement>("[data-screen]")) extra.hidden = true;
+    for (const label of this.root.querySelectorAll(".ui-float")) label.remove();
   }
 
   /** Short message at the top of the screen; stays until hidden if `ms` is 0. */
@@ -90,6 +112,21 @@ export class Overlay {
     this.notice.hidden = true;
   }
 
+  /**
+   * A short handwritten note that pops up at a point of the page (CSS pixels), usually right
+   * above a cell of the level, then floats up and fades. One at a time: a new one replaces it.
+   */
+  floatLabel(text: string, x: number, y: number): void {
+    for (const old of this.root.querySelectorAll(".ui-float")) old.remove();
+    const label = el("div", "ui-float", text);
+    // Keep it on screen near the edges; the label is centred on x.
+    const margin = 128;
+    label.style.left = `${Math.min(Math.max(x, margin), window.innerWidth - margin)}px`;
+    label.style.top = `${Math.max(y, 40)}px`;
+    this.root.append(label);
+    window.setTimeout(() => label.remove(), FLOAT_MS);
+  }
+
   setTopBar(s: TopBarState | null): void {
     if (!s) {
       this.topbar.hidden = true;
@@ -101,12 +138,12 @@ export class Overlay {
       el("span", "", `Round ${s.round}`),
       el("strong", "", s.phase),
       timer,
-      el("span", "", `${s.score} / ${s.target} pts`),
+      el("span", "", `${formatPoints(s.score)} / ${s.target} pts`),
     );
     this.topbar.hidden = false;
   }
 
-  showTray(s: TrayState, handlers: { onSelect: (i: number) => void; onValidate: () => void }): void {
+  showTray(s: TrayState, handlers: TrayHandlers): void {
     this.trayHandlers = handlers;
     const cards = el("div", "cards");
     s.cards.forEach((c, i) => {
@@ -115,8 +152,13 @@ export class Overlay {
       if (c.kind === "eraser") card.classList.add("rare");
       if (c.used) card.classList.add("used");
       if (s.selected === i) card.classList.add("selected");
-      card.append(el("span", "key", String(i + 1)), el("span", "name", def.name), el("span", `tag ${def.family}`, FAMILY_TAG[def.family]));
-      card.disabled = c.used;
+      if (c.out) card.classList.add("out", c.out);
+      const name = el("span", "name", c.arrow ? `${def.name} ${c.arrow}` : def.name);
+      card.append(el("span", "key", String(i + 1)), name, el("span", "desc", def.hint), el("span", `tag ${def.family}`, FAMILY_TAG[def.family]));
+      // A stamp across the card; a discarded card stays clickable to take it back.
+      if (c.out) card.append(el("span", "stamp", CARD_OUT_LABEL[c.out]));
+      if (c.out === "discarded") card.title = "Clic : reprendre cet objet";
+      card.disabled = c.used || c.out === "noRoom";
       card.addEventListener("click", () => {
         card.blur();
         this.trayHandlers?.onSelect(i);
@@ -124,11 +166,23 @@ export class Overlay {
       cards.append(card);
     });
     const validate = this.button(s.waiting ? "En attente des autres…" : "Valider la pose", () => this.trayHandlers?.onValidate(), true);
-    validate.disabled = s.waiting === true || s.placed < s.needed;
+    validate.disabled = s.waiting === true || !s.canValidate;
+    const out = s.cards.filter((c) => c.out).length;
+    const count = `${s.placed} / ${s.needed} posés${out ? ` · ${out} défaussé${out > 1 ? "s" : ""}` : ""}`;
     const row = el("div", "row");
-    row.append(el("span", "", `${s.placed} / ${s.needed} posés`), validate);
+    row.append(el("span", "", count));
+    if (!s.waiting) {
+      // Give up the selected object for this round (a map so full nothing fits where you want).
+      const discard = this.button("Défausser", () => this.trayHandlers?.onDiscard());
+      discard.classList.add("small");
+      discard.title = "Renoncer à l'objet choisi pour ce round";
+      discard.disabled = !s.canDiscard;
+      row.append(discard);
+    }
+    row.append(validate);
     this.trayHint = el("div", "hint");
-    const parts: HTMLElement[] = [cards, this.trayHint, row];
+    const title = el("div", "tray-title", "Tes objets, tirés au sort");
+    const parts: HTMLElement[] = [title, cards, this.trayHint, row];
     if (s.others?.length) {
       const status = el("div", "status");
       for (const o of s.others) status.append(el("span", o.done ? "done" : "", `${o.name} ${o.done ? "✓" : "…"}`));

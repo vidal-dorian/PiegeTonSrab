@@ -6,6 +6,7 @@ export * from "./reachability";
 export * from "./rules";
 export * from "./protocol";
 export * from "./session";
+export * from "./contacts";
 export { RACE_LEVELS } from "./levelList";
 export { testLevel } from "./levels/testLevel";
 export { level1 } from "./levels/level1";

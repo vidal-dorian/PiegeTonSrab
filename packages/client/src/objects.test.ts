@@ -5,7 +5,7 @@ import {
   findKiller,
   hazardsOf,
   isSolidCell,
-  level1,
+  testLevel,
   parseLevel,
   withSolidObjects,
   CharacterController,
@@ -43,8 +43,47 @@ describe("objects", () => {
     expect(findKiller([{ id: 3, kind: "platform", x: 5, y: 5 }], box, 0, 0)).toBeNull();
   });
 
+  describe("findKiller when several hazards touch in the same step", () => {
+    const sp = (id: number, x: number, ownerId?: string): PlacedObject => ({ id, kind: "spikes", x, y: 7, ...(ownerId ? { ownerId } : {}) });
+    const body = (x: number): Box => ({ x: x + 0.1, y: 7.2, w: 0.6, h: 0.7 });
+    const killer = (objs: PlacedObject[], x: number, prefs?: Parameters<typeof findKiller>[4]) =>
+      findKiller(objs, body(x), 1, 0, prefs)?.id;
+
+    it("a player's trap beats a map object, listed first or not", () => {
+      expect(killer([sp(-1, 5), sp(3, 6, "A")], 5.6, { victimId: "B" })).toBe(3);
+      expect(killer([sp(-1, 5), sp(3, 6, "A")], 5.6)).toBe(3);
+    });
+
+    it("another player's trap beats the victim's own", () => {
+      expect(killer([sp(1, 8, "V"), sp(7, 9, "A")], 8.5, { victimId: "V" })).toBe(7);
+    });
+
+    it("between two players' traps, the one closest to the body's centre", () => {
+      expect(killer([sp(2, 8, "B"), sp(7, 9, "A")], 8.75, { victimId: "X" })).toBe(7);
+      expect(killer([sp(2, 8, "B"), sp(7, 9, "A")], 8.4, { victimId: "X" })).toBe(2);
+      expect(killer([sp(7, 9, "A"), sp(2, 8, "B")], 8.25, { victimId: "X" })).toBe(2);
+    });
+
+    it("a trap of a recent pusher comes first", () => {
+      expect(killer([sp(2, 8, "B"), sp(7, 9, "A")], 8.4, { victimId: "X", pusherIds: ["A"] })).toBe(7);
+    });
+
+    it("at the same distance, the newest object", () => {
+      const a: PlacedObject = { id: 4, kind: "saw", x: 5, y: 5, ownerId: "A" };
+      const b: PlacedObject = { id: 9, kind: "saw", x: 5, y: 5, ownerId: "B" };
+      const box: Box = { x: 5.3, y: 5.3, w: 0.4, h: 0.4 };
+      expect(findKiller([a, b], box, 0, 0)?.id).toBe(9);
+      expect(findKiller([b, a], box, 0, 0)?.id).toBe(9);
+    });
+
+    it("a map hazard alone, or the victim's own trap alone, still kills", () => {
+      expect(killer([sp(-1, 5)], 5.0, { victimId: "B" })).toBe(-1);
+      expect(killer([sp(1, 5, "B")], 5.0, { victimId: "B" })).toBe(1);
+    });
+  });
+
   it("platforms become solid terrain, other objects do not", () => {
-    const level = parseLevel(level1);
+    const level = parseLevel(testLevel);
     const objects: PlacedObject[] = [
       { id: 1, kind: "platform", x: 5, y: 5 },
       { id: 2, kind: "saw", x: 6, y: 5 },
@@ -56,7 +95,7 @@ describe("objects", () => {
   });
 
   it("placement refuses terrain, start, finish and occupied cells", () => {
-    const level = parseLevel(level1);
+    const level = parseLevel(testLevel);
     const objects: PlacedObject[] = [{ id: 1, kind: "saw", x: 5, y: 5 }];
     expect(canPlaceAt(level, objects, 6, 5)).toBe(true);
     expect(canPlaceAt(level, objects, 5, 5)).toBe(false);

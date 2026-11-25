@@ -9,6 +9,7 @@
 import { Client, type Room } from "@colyseus/sdk";
 import {
   GameSession,
+  JOIN_REFUSED_CODE,
   ROOM_NAME,
   SERVER_PORT,
   type ClientMessage,
@@ -89,6 +90,8 @@ export class OnlineLink extends BaseLink implements GameLink {
       return new OnlineLink(room);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
+      // The session said why (game already started...), in French: show it as is.
+      if ((e as { code?: unknown }).code === JOIN_REFUSED_CODE && message) throw new Error(message);
       if (code && /not found|locked|full/i.test(message)) throw new Error(`Salon ${code.toUpperCase()} introuvable ou plein.`);
       throw new Error(`Impossible de joindre le serveur (${serverUrl()}). Est-il lancé ?`);
     }

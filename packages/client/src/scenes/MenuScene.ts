@@ -1,5 +1,6 @@
 /**
- * Start screen: pseudo, create or join an online room, offline solo, free practice.
+ * Start screen: pseudo, create or join an online room, offline solo, free practice, the
+ * tutorial and the rules (the rules are a DOM panel opened by ui/screens.ts on its own).
  * The menu itself is HTML (ui/screens.ts); this scene wires its buttons.
  */
 import Phaser from "phaser";
@@ -25,6 +26,10 @@ export class MenuScene extends Phaser.Scene {
         practice: () => {
           menuScreen.hide();
           this.scene.start("solo");
+        },
+        tutorial: () => {
+          menuScreen.hide();
+          this.scene.start("tutorial");
         },
       },
       code.toUpperCase().slice(0, 4),

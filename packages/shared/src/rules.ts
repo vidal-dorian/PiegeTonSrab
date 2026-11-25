@@ -16,16 +16,39 @@ export interface GameConfig {
   objectsLate: number;
   /** Rounds 1..switchAfterRound use objectsEarly; later rounds use objectsLate. */
   switchAfterRound: number;
-  /** How many more objects are offered than kept. */
+  /**
+   * From this many players on, every round uses objectsLate, round 1 included. Objects pile up
+   * on one map for the whole game, so a full room would otherwise fill it about 25 % faster
+   * than 4 players do (decided 2026-11-25: 2 objects from round 1 at 5 players).
+   */
+  lateOnlyFromPlayers: number;
+  /**
+   * How many more objects are drawn than placed. 0 (decided 2026-11-24): every player gets
+   * exactly the objects they must place, drawn at random, so nobody picks their favourite.
+   */
   extraOffered: number;
-  /** Maximum points from kills per player per round. */
+  /**
+   * Victims that count at full value for one player per round, most valuable first; each
+   * further victim is worth POINTS.minKill.
+   */
   killCap: number;
   /**
-   * Chance (0 to 1) that a player's offer for a round holds one eraser. Never more than one
-   * per offer, and only when there is an object of another player to erase.
+   * Chance (0 to 1) that one of a player's cards for a round is the eraser instead of an
+   * object. Never more than one per hand, and only when another player's object can be erased.
    */
   eraserChance: number;
 }
+
+/** Point values (decided 2026-11-25). The rules screen and the tutorial read them from here. */
+export const POINTS = {
+  finish: 2,
+  first: 1,
+  onlyOne: 1,
+  kill: 1,
+  pushKill: 2,
+  /** A trap kill is never worth less: victims past killCap, and every victim in a round nobody finished. */
+  minKill: 0.5,
+} as const;
 
 export const SHORT_GAME = 10;
 export const LONG_GAME = 25;
@@ -38,13 +61,15 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   objectsEarly: 3,
   objectsLate: 2,
   switchAfterRound: 3,
-  extraOffered: 2,
+  lateOnlyFromPlayers: 5,
+  extraOffered: 0,
   killCap: 2,
   eraserChance: 0.15,
 };
 
-/** Objects each player places in round `round` (1-based). */
-export function objectsForRound(cfg: GameConfig, round: number): number {
+/** Objects each player places in round `round` (1-based) when `players` are in the game. */
+export function objectsForRound(cfg: GameConfig, round: number, players: number): number {
+  if (players >= cfg.lateOnlyFromPlayers) return cfg.objectsLate;
   return round <= cfg.switchAfterRound ? cfg.objectsEarly : cfg.objectsLate;
 }
 
@@ -64,26 +89,34 @@ export function createRng(seed: number): () => number {
 export const DRAW_WEIGHTS: Record<ObjectKind, number> = {
   saw: 1,
   spikes: 1,
-  platform: 1,
+  cannon: 0.8,
+  spring: 0.8,
+  vine: 0.6,
+  platform: 0.8,
 };
 
 /**
- * Random cards offered to one player for one round. With probability `eraserChance`, one
- * of them (at a random position) is replaced by the eraser.
+ * Random cards drawn for one player for one round. The same object is never drawn more
+ * than twice in one hand, so a hand of three is never three platforms. With probability
+ * `eraserChance`, one of the cards is the eraser.
  */
 export function drawOffer(rng: () => number, count: number, eraserChance = 0): CardKind[] {
   const offer: CardKind[] = drawObjects(rng, count);
-  if (count > 0 && rng() < eraserChance) offer[Math.floor(rng() * count)] = "eraser";
+  // With probability eraserChance, one card (at a random position) becomes the eraser.
+  // No extra random number when it can't happen, so hands without an eraser stay as before.
+  if (count > 0 && eraserChance > 0 && rng() < eraserChance) offer[Math.floor(rng() * count)] = "eraser";
   return offer;
 }
 
 function drawObjects(rng: () => number, count: number): ObjectKind[] {
-  const total = OBJECT_KINDS.reduce((s, k) => s + DRAW_WEIGHTS[k], 0);
   const offer: ObjectKind[] = [];
   for (let i = 0; i < count; i++) {
+    const allowed = OBJECT_KINDS.filter((k) => offer.filter((o) => o === k).length < 2);
+    const pool = allowed.length > 0 ? allowed : OBJECT_KINDS;
+    const total = pool.reduce((s, k) => s + DRAW_WEIGHTS[k], 0);
     let r = rng() * total;
-    let picked: ObjectKind = OBJECT_KINDS[0]!;
-    for (const k of OBJECT_KINDS) {
+    let picked: ObjectKind = pool[0]!;
+    for (const k of pool) {
       r -= DRAW_WEIGHTS[k];
       if (r < 0) {
         picked = k;
@@ -100,8 +133,53 @@ export interface RaceResult {
   playerId: string;
   /** Seconds after the race start, or null if the player did not finish. */
   finishTime: number | null;
-  /** Owner of the object that killed this player, if any (the last one touched). */
+  /**
+   * Owner of the object that killed this player, if any (when several hazards touch in the
+   * same step, see findKiller's ranking).
+   */
   killedBy: string | null;
+  /**
+   * Player who pushed this one (stomp or bump) into the object that killed them, shortly
+   * before the death (see TIMING.pushCredit), if any. Optional so a result without it reads
+   * as "nobody pushed".
+   */
+  pushedBy?: string | null;
+}
+
+/**
+ * What one victim is worth at full value to the owner of the trap that killed them:
+ * POINTS.pushKill if the owner pushed them into it themselves (decided 2026-11-25), else
+ * POINTS.kill. A pusher who doesn't own the trap gets nothing: the trap's owner still gets
+ * the kill, so pushing people into others' traps only helps the others. Past killCap, or in
+ * a round nobody finished, a victim is worth POINTS.minKill instead (see killPoints).
+ */
+export function killValue(victim: RaceResult, ownerId: string): number {
+  return victim.pushedBy === ownerId ? POINTS.pushKill : POINTS.kill;
+}
+
+/**
+ * What one owner's victims (results whose killedBy is the owner, the owner excluded) are
+ * worth together: the killCap most valuable at full value, every further one POINTS.minKill;
+ * in a round nobody finished, every one POINTS.minKill. Used by scoreRound and by the
+ * client's kill notices, so both always agree.
+ */
+export function killPoints(
+  victims: readonly RaceResult[],
+  ownerId: string,
+  cfg: GameConfig,
+  nobodyFinished: boolean,
+): { points: number; pushKills: number } {
+  const ranked = victims
+    .map((v) => ({ value: killValue(v, ownerId), pushed: v.pushedBy === ownerId }))
+    .sort((a, b) => b.value - a.value);
+  let points = 0;
+  let pushKills = 0;
+  ranked.forEach((v, i) => {
+    const full = !nobodyFinished && i < cfg.killCap;
+    points += full ? v.value : POINTS.minKill;
+    if (full && v.pushed) pushKills++;
+  });
+  return { points, pushKills };
 }
 
 export interface ScoreLine {
@@ -109,7 +187,12 @@ export interface ScoreLine {
   finish: number;
   first: number;
   onlyOne: number;
+  /** Points from kills: 1, 2 for a push-kill, 0.5 past killCap or when nobody finished. */
   kills: number;
+  /** Push-kills counted at full value (POINTS.pushKill each), so the table can say so. */
+  pushKills: number;
+  /** Other players killed by this player's objects this round; every one of them scores. */
+  victims: number;
   total: number;
 }
 
@@ -118,7 +201,7 @@ export type RoundVerdict =
   | "scored"
   /** Everybody finished: level too easy, nobody scores. */
   | "everyone-finished"
-  /** Nobody finished: level impossible, nobody scores (kills included). */
+  /** Nobody finished: no race points; each trap kill is worth POINTS.minKill. */
   | "nobody-finished";
 
 export interface RoundScore {
@@ -133,27 +216,41 @@ export interface RoundScore {
  */
 export function scoreRound(results: readonly RaceResult[], cfg: GameConfig, soloRules = false): RoundScore {
   const finishers = results.filter((r) => r.finishTime !== null);
-  const zero = (playerId: string): ScoreLine => ({ playerId, finish: 0, first: 0, onlyOne: 0, kills: 0, total: 0 });
+  const nobody = finishers.length === 0;
+  const zero = (playerId: string): ScoreLine => ({
+    playerId,
+    finish: 0,
+    first: 0,
+    onlyOne: 0,
+    kills: 0,
+    pushKills: 0,
+    victims: 0,
+    total: 0,
+  });
 
-  if (finishers.length === 0) return { verdict: "nobody-finished", lines: results.map((r) => zero(r.playerId)) };
-  if (finishers.length === results.length && !soloRules) {
+  // Nobody can die when everyone finished, so no trap kill is lost here.
+  if (!nobody && finishers.length === results.length && !soloRules) {
     return { verdict: "everyone-finished", lines: results.map((r) => zero(r.playerId)) };
   }
 
-  const firstTime = Math.min(...finishers.map((r) => r.finishTime!));
+  const firstTime = nobody ? Infinity : Math.min(...finishers.map((r) => r.finishTime!));
   const lines = results.map((r) => {
     const line = zero(r.playerId);
     if (r.finishTime !== null) {
-      line.finish = 2;
-      if (r.finishTime === firstTime) line.first = 1;
-      if (finishers.length === 1) line.onlyOne = 1;
+      line.finish = POINTS.finish;
+      if (r.finishTime === firstTime) line.first = POINTS.first;
+      if (finishers.length === 1) line.onlyOne = POINTS.onlyOne;
     }
-    const victims = results.filter((v) => v.killedBy === r.playerId && v.playerId !== r.playerId).length;
-    line.kills = Math.min(victims, cfg.killCap);
+    // Dying in your own trap scores nothing; map objects (no owner) and pits have killedBy null.
+    const victims = results.filter((v) => v.killedBy === r.playerId && v.playerId !== r.playerId);
+    const k = killPoints(victims, r.playerId, cfg, nobody);
+    line.kills = k.points;
+    line.pushKills = k.pushKills;
+    line.victims = victims.length;
     line.total = line.finish + line.first + line.onlyOne + line.kills;
     return line;
   });
-  return { verdict: "scored", lines };
+  return { verdict: nobody ? "nobody-finished" : "scored", lines };
 }
 
 /**
