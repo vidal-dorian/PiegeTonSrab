@@ -271,6 +271,8 @@ Neutral (black and white):
 
 The vine was Dorian's own addition. Placing it on an empty cell creates a one-cell solid anchor block with the vine hanging below it (3 or 4 cells long). A player who touches it in mid-air grabs it automatically, keeps their momentum, swings like a pendulum, and lets go by pressing jump. Only one player can hold it at a time; the others pass through. Start with a rigid rope of fixed length, no rope simulation.
 
+Eraser rules (Default, 2026-11-25): the eraser is a card, not an object, and takes the place of one of the round's objects. During placement the player clicks an object placed by another player in an earlier round (never their own, never the level's); it is marked with a cross and can be taken back like any other choice. At the end of placement the session applies all erasers first, in validation order, then the new objects. An eraser is lost if its target was already erased by someone else, or if removing it would cut the path to the finish (a platform, spring or vine can be the only step up, and removing a solid object can open a cannon's line of fire). A hand holds at most one eraser, with a 15% chance (`eraserChance` in the game config), and only once another player's object is in the level, so never in round 1 or in solo. It can be discarded like any card.
+
 First batch to implement (Decided): saw, spikes, cannon, spring, platform, vine. The other nine come after the first playtests with friends.
 
 ## Art direction
@@ -339,7 +341,7 @@ The playtest comes at step 4, before the art, on purpose: use plain rectangles u
 
 - Maximum width of scrolling levels (proposed: about 2 screens, 64 cells).
 - Whether a catch-up bonus is needed for the last-placed player (only if playtests show the leader running away).
-- How rare the eraser should be.
+- How rare the eraser should be (Default: 15% chance per hand, see Eraser rules; tune after playtests).
 - Push credit window: 1.2 s today (`TIMING.pushCredit`). Worth checking in the playtest that pushes into traps feel credited and walk-ins do not.
 - A bump is credited both ways: a victim who runs into a trap owner standing still, then dies in that owner's trap, gives the owner a push-kill (+2). Fixing it needs the other players' velocity, which the clients do not send today.
 - Tutorial floor: a very fast player finishes in about 18.5 s, under the 20 s asked. Raising it means keeping the explanation lines on screen longer, and then the do-nothing run would go past 30 s unless the auto-help delays get shorter.

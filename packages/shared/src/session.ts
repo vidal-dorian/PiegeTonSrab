@@ -9,8 +9,17 @@
  */
 import { parseLevel, type Level, type LevelDefinition } from "./level";
 import { DEFAULT_MOVEMENT } from "./movement/tuning";
-import { canPlaceAt, OBJECT_DEFS, prepareObjects, type Dir, type ObjectKind, type PlacedObject } from "./objects";
-import { PathGuard } from "./reachability";
+import {
+  canPlaceAt,
+  erasableAt,
+  hasErasable,
+  OBJECT_DEFS,
+  prepareObjects,
+  type CardKind,
+  type Dir,
+  type PlacedObject,
+} from "./objects";
+import { erasureKeepsPath, PathGuard } from "./reachability";
 import {
   createRng,
   DEFAULT_GAME_CONFIG,
@@ -59,7 +68,7 @@ interface Player {
   /** Took part in the current game (joined before it started). */
   inGame: boolean;
   // Placement
-  offer: ObjectKind[];
+  offer: CardKind[];
   choice: PlacementChoice[];
   doneAt: number | null;
   // Race
@@ -294,7 +303,8 @@ export class GameSession {
     this.needed = objectsForRound(this.cfg, this.round, this.inGamePlayers().length);
     this.placementEndsAt = this.io.now() + this.cfg.placementTime * 1000;
     for (const p of this.inGamePlayers()) {
-      p.offer = drawOffer(this.rng, this.needed + this.cfg.extraOffered);
+      const eraserChance = hasErasable(this.objects, p.id) ? this.cfg.eraserChance : 0;
+      p.offer = drawOffer(this.rng, this.needed + this.cfg.extraOffered, eraserChance);
       p.choice = [];
       p.doneAt = null;
       this.sendPlacement(p);
@@ -342,7 +352,7 @@ export class GameSession {
       if (i < 0 || !Number.isInteger(o.x) || !Number.isInteger(o.y)) return null;
       available.splice(i, 1);
       const choice: PlacementChoice = { kind: o.kind, x: o.x, y: o.y };
-      if (OBJECT_DEFS[o.kind].rotatable) choice.dir = cleanDir(o.dir);
+      if (o.kind !== "eraser" && OBJECT_DEFS[o.kind].rotatable) choice.dir = cleanDir(o.dir);
       out.push(choice);
     }
     return out;
@@ -357,18 +367,34 @@ export class GameSession {
 
   /**
    * Apply everyone's placements one at a time, in the order players validated (then the
-   * others), refusing any object that is illegal or would cut the last path to the finish.
+   * others). Erasers go first, so they only ever remove objects of earlier rounds; an eraser
+   * is refused if its target is already gone (two players erased the same object) or if
+   * removing it would cut the path. Then objects are added, refusing any that is illegal or
+   * would cut the last path to the finish.
    */
   private endPlacement(): void {
     if (this.phase !== "placement" || !this.level) return;
     this.clearTimers();
     const order = this.inGamePlayers().sort((a, b) => (a.doneAt ?? Infinity) - (b.doneAt ?? Infinity));
-    const guard = new PathGuard(this.level, this.objects, DEFAULT_MOVEMENT);
-    this.refused = new Map();
+    this.refused = new Map(order.map((p) => [p.id, []]));
     this.unplaced = new Map();
+    let remaining = this.objects;
     for (const p of order) {
-      const refused: RefusedObject[] = [];
       for (const c of p.choice) {
+        if (c.kind !== "eraser") continue;
+        const { target } = erasableAt(remaining, c.x, c.y, p.id);
+        if (!target) this.refused.get(p.id)!.push({ kind: "eraser", reason: "gone" });
+        else if (!erasureKeepsPath(this.level, remaining, target, DEFAULT_MOVEMENT)) {
+          this.refused.get(p.id)!.push({ kind: "eraser", reason: "path" });
+        } else remaining = remaining.filter((o) => o !== target);
+      }
+    }
+    // Erasing a solid object can lengthen a cannon line or a vine: measure them again.
+    const guard = new PathGuard(this.level, prepareObjects(this.level, remaining), DEFAULT_MOVEMENT);
+    for (const p of order) {
+      const refused = this.refused.get(p.id)!;
+      for (const c of p.choice) {
+        if (c.kind === "eraser") continue;
         const obj: PlacedObject = { id: this.nextObjectId, kind: c.kind, x: c.x, y: c.y, ownerId: p.id };
         if (c.dir !== undefined) obj.dir = c.dir;
         if (!canPlaceAt(this.level, guard.objects, c.x, c.y)) {
@@ -377,7 +403,6 @@ export class GameSession {
         } else if (guard.tryAdd(obj)) this.nextObjectId++;
         else refused.push({ kind: c.kind, reason: "path" });
       }
-      this.refused.set(p.id, refused);
       // Who did not validate ran out of time: their objects still in hand are lost.
       if (p.doneAt === null) this.unplaced.set(p.id, Math.max(0, this.needed - p.choice.length));
     }

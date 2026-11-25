@@ -15,8 +15,11 @@ import {
   bodiesOverlap,
   buildReachGraph,
   canPlaceAt,
+  cardInfo,
   contactWith,
   DEFAULT_MOVEMENT,
+  erasableAt,
+  erasureKeepsPath,
   isSpawnPadCell,
   OBJECT_DEFS,
   parseLevel,
@@ -28,6 +31,7 @@ import {
   TIMING,
   vinesOf,
   withSolidObjects,
+  type CardKind,
   type Dir,
   type Ghost,
   type Level,
@@ -81,9 +85,15 @@ type Phase = "carousel" | "placement" | "countdown" | "race" | "raceEnd" | "scor
 
 interface Verdict {
   ok: boolean;
-  /** The cell holds one of this round's objects: clicking takes it back. */
+  /** The cell holds one of this round's objects or erasures: clicking takes it back. */
   takeBack: boolean;
   text: string;
+}
+
+/** An object of another player that this player chose to erase this round. */
+interface Erasure {
+  card: number;
+  target: PlacedObject;
 }
 
 export interface GameSceneData {
@@ -108,7 +118,9 @@ export class GameScene extends Phaser.Scene {
   private objects: PlacedObject[] = [];
   // Placement
   private pending: Array<PlacedObject & { card: number }> = [];
-  private offer: Array<{ kind: ObjectKind; used: boolean }> = [];
+  /** Objects of other players this player erases this round (at most one: one eraser per hand). */
+  private erasing: Erasure[] = [];
+  private offer: Array<{ kind: CardKind; used: boolean }> = [];
   private selected: number | null = null;
   private needed = 0;
   private validated = false;
@@ -168,6 +180,8 @@ export class GameScene extends Phaser.Scene {
   private effects!: Effects;
   private gridGfx!: Phaser.GameObjects.Graphics;
   private preview!: Phaser.GameObjects.Graphics;
+  /** Ink crosses over the objects this player erases. */
+  private eraseMarks!: Phaser.GameObjects.Graphics;
   private arrows!: Phaser.GameObjects.Graphics;
   private controls!: InputSource;
   private lastTopBar = "";
@@ -188,6 +202,7 @@ export class GameScene extends Phaser.Scene {
     this.totals = {};
     this.objects = [];
     this.pending = [];
+    this.erasing = [];
     this.blocks = [];
     this.ghosts = new Map();
     this.lastTopBar = "";
@@ -201,6 +216,7 @@ export class GameScene extends Phaser.Scene {
     this.effects = new Effects(this);
     this.objectViews = new ObjectViews(this);
     this.preview = this.add.graphics().setDepth(5);
+    this.eraseMarks = this.add.graphics().setDepth(4);
     this.arrows = this.add.graphics().setDepth(9).setScrollFactor(0);
     this.playerView = new PlayerView(this, this.colorOf(this.link.myId));
     this.player = new LocalPlayer(this.level, this.level, tuning.movement);
@@ -392,15 +408,23 @@ export class GameScene extends Phaser.Scene {
     this.refusal = null;
     // Rebuild our own choice when rejoining in the middle of placement.
     this.pending = [];
+    this.erasing = [];
     for (const c of msg.mine) {
       const card = this.offer.findIndex((o) => !o.used && o.kind === c.kind);
       if (card < 0) continue;
+      if (c.kind === "eraser") {
+        const target = this.objects.find((o) => o.x === c.x && o.y === c.y);
+        if (!target) continue;
+        this.offer[card]!.used = true;
+        this.erasing.push({ card, target });
+        continue;
+      }
       this.offer[card]!.used = true;
       const obj: PlacedObject & { card: number } = { id: this.nextLocalId--, kind: c.kind, x: c.x, y: c.y, ownerId: this.link.myId, card };
       if (c.dir !== undefined) obj.dir = c.dir;
       this.pending.push(obj);
     }
-    this.selected = this.pending.length < this.needed && !this.validated ? this.nextFreeCard() : null;
+    this.selected = this.chosenCount() < this.needed && !this.validated ? this.nextFreeCard() : null;
     for (const g of this.ghosts.values()) g.clear();
     this.player.reset();
     this.rebuildGraph();
@@ -421,19 +445,50 @@ export class GameScene extends Phaser.Scene {
     return rest;
   }
 
+  /** Cards used so far this round: objects placed plus objects marked for erasing. */
+  private chosenCount(): number {
+    return this.pending.length + this.erasing.length;
+  }
+
+  /**
+   * The session's objects minus those this player erases (`erasing` by default), measured
+   * again since erasing a solid object can lengthen a cannon line. The session applies
+   * erasers before new objects, so this is what our pending objects are checked against.
+   */
+  private baseObjects(erasing: readonly Erasure[] = this.erasing): PlacedObject[] {
+    if (erasing.length === 0) return this.objects;
+    const erased = new Set(erasing.map((e) => e.target.id));
+    return prepareObjects(this.level, this.objects.filter((o) => !erased.has(o.id)));
+  }
+
   /**
    * Graph for the hover check. It uses DEFAULT_MOVEMENT, like the server, so the answer on
    * screen matches the server's (tuning panel values only change how this client moves).
    */
   private rebuildGraph(): void {
-    this.graph = buildReachGraph(this.level, [...this.objects, ...this.pending.map((p) => this.plain(p))], DEFAULT_MOVEMENT);
+    this.graph = buildReachGraph(this.level, [...this.baseObjects(), ...this.pending.map((p) => this.plain(p))], DEFAULT_MOVEMENT);
     this.verdicts.clear();
     this.syncObjectViews();
+    this.drawEraseMarks();
+  }
+
+  /** A thick ink cross over each object this player erases. */
+  private drawEraseMarks(): void {
+    this.eraseMarks.clear();
+    this.eraseMarks.lineStyle(6, 0x161616, 1);
+    const m = CELL_PX * 0.18;
+    for (const { target } of this.erasing) {
+      const x = target.x * CELL_PX;
+      const y = target.y * CELL_PX;
+      this.eraseMarks.lineBetween(x + m, y + m, x + CELL_PX - m, y + CELL_PX - m);
+      this.eraseMarks.lineBetween(x + CELL_PX - m, y + m, x + m, y + CELL_PX - m);
+    }
   }
 
   private syncObjectViews(): void {
     const dimmed = new Set<number>([
       ...this.pending.map((p) => p.id),
+      ...this.erasing.map((e) => e.target.id),
       ...this.blocks.filter((b) => !b.active).map((b) => b.block.id),
     ]);
     // During placement, pending objects change cannon lines: measure everything again.
@@ -447,8 +502,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** Direction a placed object of this kind gets right now. */
-  private dirFor(kind: ObjectKind): Dir | undefined {
-    return OBJECT_DEFS[kind].rotatable ? this.placeDir : undefined;
+  private dirFor(kind: CardKind): Dir | undefined {
+    return kind !== "eraser" && OBJECT_DEFS[kind].rotatable ? this.placeDir : undefined;
   }
 
   /** R or right click: turn the cannon under the cursor, or the direction of the next one. */
@@ -486,10 +541,31 @@ export class GameScene extends Phaser.Scene {
    * in this order as it does at the end of placement. One object can make another legal (a
    * platform shielding a cannon's line), so taking back or turning one must keep the rest valid.
    */
-  private wholeHandAccepted(pending: readonly PlacedObject[]): boolean {
-    this.baseGraph ??= buildReachGraph(this.level, this.objects, DEFAULT_MOVEMENT);
-    const guard = new PathGuard(this.level, this.objects, DEFAULT_MOVEMENT, { graph: this.baseGraph });
-    return pending.every((p) => canPlaceAt(this.level, guard.objects, p.x, p.y) && guard.tryAdd(p));
+  private wholeHandAccepted(pending: readonly PlacedObject[], erasing: readonly Erasure[] = this.erasing): boolean {
+    const base = this.baseObjects(erasing);
+    // The cached graph is for the current erasures only.
+    const graph = erasing === this.erasing ? (this.baseGraph ??= buildReachGraph(this.level, base, DEFAULT_MOVEMENT)) : undefined;
+    const guard = new PathGuard(this.level, base, DEFAULT_MOVEMENT, graph ? { graph } : undefined);
+    // An erased object's cell counts as taken, as on screen: the hand never goes there.
+    const taken = (x: number, y: number) => erasing.some((e) => e.target.x === x && e.target.y === y);
+    return pending.every((p) => !taken(p.x, p.y) && canPlaceAt(this.level, guard.objects, p.x, p.y) && guard.tryAdd(p));
+  }
+
+  /** Verdict for the eraser card on the cell (x, y). */
+  private eraserVerdict(x: number, y: number): Verdict {
+    const { target, reason } = erasableAt(this.objects, x, y, this.link.myId);
+    if (!target) return { ok: false, takeBack: false, text: reason };
+    // Like the session: the erasure is checked on the level without our new objects...
+    if (!erasureKeepsPath(this.level, this.baseObjects(), target, DEFAULT_MOVEMENT)) {
+      return { ok: false, takeBack: false, text: "Gommer ça bloquerait le chemin vers l'arrivée" };
+    }
+    // ...then our new objects are added one by one to what is left.
+    const hand = this.pending.map((p) => this.plain(p));
+    if (!this.wholeHandAccepted(hand, [...this.erasing, { card: -1, target }])) {
+      return { ok: false, takeBack: false, text: "Sans cet objet, un de tes objets couperait le chemin : reprends-le d'abord" };
+    }
+    const owner = target.ownerId ? ` de ${this.nameOf(target.ownerId)}` : "";
+    return { ok: true, takeBack: false, text: `Gommer : ${OBJECT_DEFS[target.kind].name}${owner}` };
   }
 
   private verdictAt(x: number, y: number): Verdict {
@@ -506,12 +582,29 @@ export class GameScene extends Phaser.Scene {
       this.verdicts.set(key, v);
       return v;
     }
+    const erasure = this.erasing.find((e) => e.target.x === x && e.target.y === y);
+    if (erasure) {
+      const key = `unerase,${x},${y}`;
+      const cached = this.verdicts.get(key);
+      if (cached) return cached;
+      const hand = this.pending.map((p) => this.plain(p));
+      const v = this.wholeHandAccepted(hand, this.erasing.filter((e) => e !== erasure))
+        ? { ok: true, takeBack: true, text: "Clic : ne plus gommer cet objet" }
+        : { ok: false, takeBack: true, text: "Si cet objet revient, un de tes objets couperait le chemin : reprends-le d'abord" };
+      this.verdicts.set(key, v);
+      return v;
+    }
     const kind = this.selected !== null ? this.offer[this.selected]?.kind : undefined;
     if (!kind) return { ok: false, takeBack: false, text: this.nothingLeft() ? this.idleText() : "Choisis un objet" };
     const dir = this.dirFor(kind);
     const key = `${x},${y},${kind},${dir ?? ""}`;
     const cached = this.verdicts.get(key);
     if (cached) return cached;
+    if (kind === "eraser") {
+      const v = this.eraserVerdict(x, y);
+      this.verdicts.set(key, v);
+      return v;
+    }
 
     const all = [...this.objects, ...this.pending.map((p) => this.plain(p))];
     const l = this.level;
@@ -522,7 +615,15 @@ export class GameScene extends Phaser.Scene {
       v = { ok: false, takeBack: false, text: "Pas sur la zone de départ ni sur l'arrivée" };
     } else if (!canPlaceAt(l, all, x, y)) {
       v = { ok: false, takeBack: false, text: "Case déjà prise" };
-    } else if (!placementKeepsPath(l, all, { id: 0, kind, x, y, ...(dir !== undefined ? { dir } : {}) }, DEFAULT_MOVEMENT, this.graph ?? undefined)) {
+    } else if (
+      !placementKeepsPath(
+        l,
+        [...this.baseObjects(), ...this.pending.map((p) => this.plain(p))],
+        { id: 0, kind, x, y, ...(dir !== undefined ? { dir } : {}) },
+        DEFAULT_MOVEMENT,
+        this.graph ?? undefined,
+      )
+    ) {
       v = {
         ok: false,
         takeBack: false,
@@ -543,21 +644,32 @@ export class GameScene extends Phaser.Scene {
     }
     if (v.takeBack) {
       const i = this.pending.findIndex((p) => p.x === x && p.y === y);
-      const [taken] = this.pending.splice(i, 1);
+      const j = this.erasing.findIndex((e) => e.target.x === x && e.target.y === y);
+      const taken = i >= 0 ? this.pending.splice(i, 1)[0] : j >= 0 ? this.erasing.splice(j, 1)[0] : undefined;
+      if (j >= 0 && i < 0) this.baseGraph = null;
       if (taken) {
         this.offer[taken.card]!.used = false;
         this.discarded.delete(taken.card);
         this.selected = taken.card;
       }
+    } else if (this.selected !== null && this.offer[this.selected]!.kind === "eraser") {
+      const card = this.selected;
+      const { target } = erasableAt(this.objects, x, y, this.link.myId);
+      if (!target) return;
+      this.erasing.push({ card, target });
+      this.baseGraph = null;
+      this.offer[card]!.used = true;
+      this.selected = this.chosenCount() < this.needed ? this.nextFreeCard() : null;
     } else if (this.selected !== null) {
       const card = this.selected;
       const kind = this.offer[card]!.kind;
+      if (kind === "eraser") return;
       const obj: PlacedObject & { card: number } = { id: this.nextLocalId--, kind, x, y, ownerId: this.link.myId, card };
       const dir = this.dirFor(kind);
       if (dir !== undefined) obj.dir = dir;
       this.pending.push(obj);
       this.offer[card]!.used = true;
-      this.selected = this.pending.length < this.needed ? this.nextFreeCard() : null;
+      this.selected = this.chosenCount() < this.needed ? this.nextFreeCard() : null;
     }
     this.sendPlacement(false);
     this.rebuildGraph();
@@ -589,18 +701,18 @@ export class GameScene extends Phaser.Scene {
     const c = this.offer[i];
     if (!c || c.used) return undefined;
     if (this.discarded.has(i)) return "discarded";
-    return this.noRoom.has(c.kind) ? "noRoom" : undefined;
+    return c.kind !== "eraser" && this.noRoom.has(c.kind) ? "noRoom" : undefined;
   }
 
   /** Nothing left to place: everything is placed, discarded or has no room. */
   private nothingLeft(): boolean {
-    return this.pending.length >= this.needed || this.offer.every((c, i) => c.used || this.cardOut(i) !== undefined);
+    return this.chosenCount() >= this.needed || this.offer.every((c, i) => c.used || this.cardOut(i) !== undefined);
   }
 
   private idleText(): string {
     if (this.validated) return "Pose validée : en attente des autres";
-    if (this.pending.length >= this.needed) return "Tout est posé : valide";
-    return this.pending.length > 0 ? "Plus rien à poser : valide la pose" : "Plus rien à poser : valide (tu ne poses rien ce round)";
+    if (this.chosenCount() >= this.needed) return "Tout est posé : valide";
+    return this.chosenCount() > 0 ? "Plus rien à poser : valide la pose" : "Plus rien à poser : valide (tu ne poses rien ce round)";
   }
 
   /**
@@ -611,7 +723,10 @@ export class GameScene extends Phaser.Scene {
   private scanForRoom(): void {
     const gen = ++this.roomGen;
     if (this.phase !== "placement" || this.validated) return;
-    const kinds = [...new Set(this.offer.filter((c, i) => !c.used && !this.discarded.has(i)).map((c) => c.kind))];
+    // The eraser is not searched for: it is only dealt when there is something to erase.
+    const kinds = [
+      ...new Set(this.offer.flatMap((c, i) => (!c.used && !this.discarded.has(i) && c.kind !== "eraser" ? [c.kind] : []))),
+    ];
     if (kinds.length === 0) return;
     if (!this.roomWorker) {
       try {
@@ -625,7 +740,7 @@ export class GameScene extends Phaser.Scene {
     const req: RoomRequest = {
       gen,
       levelIndex: this.levelIndex,
-      objects: [...this.objects, ...this.pending.map((p) => this.plain(p))],
+      objects: [...this.baseObjects(), ...this.pending.map((p) => this.plain(p))],
       kinds,
     };
     this.roomWorker.postMessage(req);
@@ -643,8 +758,8 @@ export class GameScene extends Phaser.Scene {
     }
     // The selected card can't be played any more: move on to the next one.
     if (this.selected !== null && this.cardOut(this.selected) !== undefined) {
-      this.selected = this.pending.length < this.needed ? this.nextFreeCard() : null;
-    } else if (this.selected === null && this.pending.length < this.needed) {
+      this.selected = this.chosenCount() < this.needed ? this.nextFreeCard() : null;
+    } else if (this.selected === null && this.chosenCount() < this.needed) {
       this.selected = this.nextFreeCard();
     }
     this.verdicts.clear();
@@ -655,7 +770,7 @@ export class GameScene extends Phaser.Scene {
   private discardSelected(): void {
     if (this.phase !== "placement" || this.validated || this.selected === null) return;
     this.discarded.add(this.selected);
-    this.selected = this.pending.length < this.needed ? this.nextFreeCard() : null;
+    this.selected = this.chosenCount() < this.needed ? this.nextFreeCard() : null;
     this.verdicts.clear();
     this.renderTray();
   }
@@ -663,7 +778,10 @@ export class GameScene extends Phaser.Scene {
   private sendPlacement(done: boolean): void {
     this.link.send({
       type: "placement",
-      objects: this.pending.map(({ kind, x, y, dir }) => (dir !== undefined ? { kind, x, y, dir } : { kind, x, y })),
+      objects: [
+        ...this.pending.map(({ kind, x, y, dir }) => (dir !== undefined ? { kind, x, y, dir } : { kind, x, y })),
+        ...this.erasing.map(({ target }) => ({ kind: "eraser" as const, x: target.x, y: target.y })),
+      ],
       done,
     });
   }
@@ -678,10 +796,15 @@ export class GameScene extends Phaser.Scene {
     if (this.phase !== "placement" || this.validated || !card) return;
     // Keyboard shortcuts reach cards the tray shows as unavailable: say why nothing happens.
     if (card.used) {
-      overlay.showNotice(`${OBJECT_DEFS[card.kind].name} déjà posé : clique dessus dans le niveau pour le reprendre`, 2500);
+      overlay.showNotice(
+        card.kind === "eraser"
+          ? "Gomme déjà utilisée : clique sur l'objet barré pour la reprendre"
+          : `${OBJECT_DEFS[card.kind].name} déjà posé : clique dessus dans le niveau pour le reprendre`,
+        2500,
+      );
       return;
     }
-    if (this.pending.length >= this.needed) {
+    if (this.chosenCount() >= this.needed) {
       overlay.showNotice("Tout est posé : reprends un objet dans le niveau pour en changer", 2500);
       return;
     }
@@ -689,7 +812,7 @@ export class GameScene extends Phaser.Scene {
       // Taking a discarded card back into the hand.
       this.discarded.delete(i);
       this.scanForRoom();
-    } else if (this.noRoom.has(card.kind)) {
+    } else if (card.kind !== "eraser" && this.noRoom.has(card.kind)) {
       overlay.showNotice(noRoomText(card.kind), 2500);
       return;
     }
@@ -714,11 +837,11 @@ export class GameScene extends Phaser.Scene {
       {
         cards: this.offer.map((c, i) => {
           const placed = this.pending.find((p) => p.card === i);
-          const dir = OBJECT_DEFS[c.kind].rotatable ? (placed?.dir ?? this.placeDir) : undefined;
+          const dir = this.dirFor(c.kind) !== undefined ? (placed?.dir ?? this.placeDir) : undefined;
           return { ...c, arrow: dir !== undefined ? DIR_ARROWS[dir] : undefined, out: this.cardOut(i) };
         }),
         selected: this.validated ? null : this.selected,
-        placed: this.pending.length,
+        placed: this.chosenCount(),
         needed: this.needed,
         canValidate: !this.validated && this.nothingLeft(),
         canDiscard: !this.validated && this.selected !== null,
@@ -779,7 +902,7 @@ export class GameScene extends Phaser.Scene {
     drawDashedRect(this.preview, this.hover.x * CELL_PX + 3, this.hover.y * CELL_PX + 3, CELL_PX - 6, CELL_PX - 6);
     // A cannon about to be placed: show where it would fire.
     const kind = this.selected !== null ? this.offer[this.selected]?.kind : undefined;
-    if (!v.takeBack && kind && OBJECT_DEFS[kind].rotatable) {
+    if (!v.takeBack && kind && kind !== "eraser" && OBJECT_DEFS[kind].rotatable) {
       const all = [...this.objects, ...this.pending.map((p) => this.plain(p))];
       const ghost = prepareObjects(this.level, [...all, { id: 0, kind, x: this.hover.x, y: this.hover.y, dir: this.placeDir }]).pop()!;
       const { x, y } = this.hover;
@@ -821,13 +944,16 @@ export class GameScene extends Phaser.Scene {
     overlay.hideScores();
     this.preview.clear();
     // Objects still in hand when placement ended (named in the "time ran out" message).
-    const inHand = this.phase === "placement" ? this.offer.filter((c) => !c.used).map((c) => c.kind) : [];
+    const inHand =
+      this.phase === "placement" ? this.offer.flatMap((c) => (!c.used && c.kind !== "eraser" ? [c.kind] : [])) : [];
     this.roomGen++;
     this.phase = "countdown";
     this.round = msg.round;
     // Already measured by the session; measured again here so an older session can't break the drawing.
     this.objects = prepareObjects(this.level, msg.objects);
     this.pending = [];
+    this.erasing = [];
+    this.eraseMarks.clear();
     this.blocks = [];
     this.blockRequested = false;
     this.blockPlaced = false;

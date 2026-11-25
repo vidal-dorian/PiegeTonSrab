@@ -2,7 +2,7 @@
  * Game rules: round timing, object draw, scoring and end of game (see HANDOFF.md).
  * Pure functions, so the server can run exactly the same rules in build step 4.
  */
-import { OBJECT_KINDS, type ObjectKind } from "./objects";
+import { OBJECT_KINDS, type CardKind, type ObjectKind } from "./objects";
 
 export interface GameConfig {
   /** Score that ends the game: 10 (short game) or 25 (long game). */
@@ -32,6 +32,11 @@ export interface GameConfig {
    * further victim is worth POINTS.minKill.
    */
   killCap: number;
+  /**
+   * Chance (0 to 1) that one of a player's cards for a round is the eraser instead of an
+   * object. Never more than one per hand, and only when another player's object can be erased.
+   */
+  eraserChance: number;
 }
 
 /** Point values (decided 2026-11-25). The rules screen and the tutorial read them from here. */
@@ -59,6 +64,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   lateOnlyFromPlayers: 5,
   extraOffered: 0,
   killCap: 2,
+  eraserChance: 0.15,
 };
 
 /** Objects each player places in round `round` (1-based) when `players` are in the game. */
@@ -79,7 +85,7 @@ export function createRng(seed: number): () => number {
   };
 }
 
-/** Relative chance of each object in the draw. The eraser (later) will get a low weight. */
+/** Relative chance of each object in the draw. The eraser is drawn apart (GameConfig.eraserChance). */
 export const DRAW_WEIGHTS: Record<ObjectKind, number> = {
   saw: 1,
   spikes: 1,
@@ -90,10 +96,19 @@ export const DRAW_WEIGHTS: Record<ObjectKind, number> = {
 };
 
 /**
- * Random objects drawn for one player for one round. The same object is never drawn more
- * than twice in one hand, so a hand of three is never three platforms.
+ * Random cards drawn for one player for one round. The same object is never drawn more
+ * than twice in one hand, so a hand of three is never three platforms. With probability
+ * `eraserChance`, one of the cards is the eraser.
  */
-export function drawOffer(rng: () => number, count: number): ObjectKind[] {
+export function drawOffer(rng: () => number, count: number, eraserChance = 0): CardKind[] {
+  const offer: CardKind[] = drawObjects(rng, count);
+  // With probability eraserChance, one card (at a random position) becomes the eraser.
+  // No extra random number when it can't happen, so hands without an eraser stay as before.
+  if (count > 0 && eraserChance > 0 && rng() < eraserChance) offer[Math.floor(rng() * count)] = "eraser";
+  return offer;
+}
+
+function drawObjects(rng: () => number, count: number): ObjectKind[] {
   const offer: ObjectKind[] = [];
   for (let i = 0; i < count; i++) {
     const allowed = OBJECT_KINDS.filter((k) => offer.filter((o) => o === k).length < 2);

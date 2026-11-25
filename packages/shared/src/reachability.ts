@@ -36,6 +36,7 @@ import { HAZARD_INSET, SIM_HZ, type MovementTuning } from "./movement/tuning";
 import {
   boxHitsHazard,
   footprintCells,
+  OBJECT_DEFS,
   prepareObjects,
   staticHazards,
   withSolidObjects,
@@ -487,4 +488,23 @@ export function placementKeepsPath(
 function objectFootprint(level: Level, objects: readonly PlacedObject[], candidate: PlacedObject): number[] {
   const prepared = prepareObjects(level, [...objects, candidate]);
   return footprintCells(prepared[prepared.length - 1]!, level.width);
+}
+
+/**
+ * Whether removing `target` keeps the finish reachable. Removing a saw or spikes only frees
+ * cells, but removing a solid object can take away the only step (platform, spring, vine)
+ * or open a cannon's line of fire across the path; the graph rebuild re-measures both.
+ */
+export function erasureKeepsPath(
+  level: Level,
+  objects: readonly PlacedObject[],
+  target: PlacedObject,
+  tuning: MovementTuning,
+  /** The graph for `objects`, if already built. */
+  graph?: ReachGraph,
+): boolean {
+  if (!OBJECT_DEFS[target.kind].solid) return true;
+  // Already blocked (should not happen): don't punish the player, like placementKeepsPath.
+  if (!(graph ?? buildReachGraph(level, objects, tuning)).reachable) return true;
+  return buildReachGraph(level, objects.filter((o) => o.id !== target.id), tuning).reachable;
 }

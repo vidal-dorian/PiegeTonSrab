@@ -48,6 +48,19 @@ export const OBJECT_DEFS: Record<ObjectKind, ObjectDef> = {
 
 export const OBJECT_KINDS = Object.keys(OBJECT_DEFS) as ObjectKind[];
 
+/**
+ * What a player can be dealt in the draw: an object to place, or the eraser, which removes
+ * an object another player placed in an earlier round. Rare (see GameConfig.eraserChance).
+ */
+export type CardKind = ObjectKind | "eraser";
+
+export const ERASER_DEF = { name: "Gomme", family: "neutral", hint: "Enlève un objet d'un autre joueur" } as const;
+
+/** Name, colour family and description shown on a card. */
+export function cardInfo(kind: CardKind): { name: string; family: ObjectFamily; hint: string } {
+  return kind === "eraser" ? ERASER_DEF : OBJECT_DEFS[kind];
+}
+
 /** An object in the level, occupying the cell (x, y). */
 export interface PlacedObject {
   id: number;
@@ -350,4 +363,27 @@ export function canPlaceAt(level: Level, objects: readonly PlacedObject[], x: nu
   if (isSpawnPadCell(level, x, y)) return false;
   if (level.finish && x === level.finish.x && y === level.finish.y) return false;
   return !objects.some((o) => o.x === x && o.y === y);
+}
+
+/**
+ * The object `playerId` may erase at (x, y), or null with the reason (in French, shown to
+ * the player). Only objects placed by other players: not the level's own, not your own.
+ * Whether erasing keeps a path to the finish is checked separately (erasureKeepsPath).
+ */
+export function erasableAt(
+  objects: readonly PlacedObject[],
+  x: number,
+  y: number,
+  playerId: string,
+): { target: PlacedObject; reason: null } | { target: null; reason: string } {
+  const target = objects.find((o) => o.x === x && o.y === y);
+  if (!target) return { target: null, reason: "Rien à gommer ici" };
+  if (target.ownerId === undefined) return { target: null, reason: "Fait partie du niveau" };
+  if (target.ownerId === playerId) return { target: null, reason: "C'est ton objet" };
+  return { target, reason: null };
+}
+
+/** Whether a player has anything to erase, so the eraser is only dealt when it is useful. */
+export function hasErasable(objects: readonly PlacedObject[], playerId: string): boolean {
+  return objects.some((o) => o.ownerId !== undefined && o.ownerId !== playerId);
 }

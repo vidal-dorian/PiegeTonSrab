@@ -57,6 +57,8 @@ const REASONS: Record<RefusedObject["reason"], (pronoun: string, plural: boolean
   path: (pronoun, plural) => `avec les objets des autres, ${pronoun} ${plural ? "auraient" : "aurait"} bloqué le chemin`,
   taken: (_pronoun, plural) => (plural ? "un autre joueur avait déjà pris ces cases" : "un autre joueur avait déjà pris la case"),
   invalid: () => "rien ne peut être posé là",
+  // Only erasers are refused for this reason; they get their own sentence (see refusedText).
+  gone: () => "l'objet avait déjà disparu",
 };
 
 /**
@@ -66,13 +68,22 @@ const REASONS: Record<RefusedObject["reason"], (pronoun: string, plural: boolean
 export function refusedText(refused: readonly RefusedObject[]): string[] {
   const out: string[] = [];
   for (const reason of ["path", "taken", "invalid"] as const) {
-    const kinds = refused.filter((r) => r.reason === reason).map((r) => r.kind);
+    const kinds = refused.filter((r) => r.reason === reason).flatMap((r) => (r.kind === "eraser" ? [] : [r.kind]));
     if (kinds.length === 0) continue;
     const s = subject(kinds);
     const verb = s.plural ? "ont été refusé" : "a été refusé";
     const agree = (s.feminine ? "e" : "") + (s.plural ? "s" : "");
     const pronoun = s.plural ? (s.feminine ? "elles" : "ils") : s.feminine ? "elle" : "il";
     out.push(`${s.text} ${verb}${agree} : ${REASONS[reason](pronoun, s.plural)}.`);
+  }
+  // At most one eraser per hand.
+  const eraser = refused.find((r) => r.kind === "eraser");
+  if (eraser) {
+    out.push(
+      eraser.reason === "gone"
+        ? "Ta Gomme a été perdue : un autre joueur avait déjà gommé cet objet."
+        : "Ta Gomme a été perdue : enlever cet objet aurait bloqué le chemin.",
+    );
   }
   return out;
 }

@@ -6,7 +6,7 @@
  * protocol can be read in this one file. Times are server times in milliseconds
  * (Date.now() on the server) unless the name says otherwise.
  */
-import type { Dir, ObjectKind, PlacedObject } from "./objects";
+import type { CardKind, Dir, PlacedObject } from "./objects";
 import type { RoundVerdict, ScoreLine } from "./rules";
 
 export const SERVER_PORT = 2567;
@@ -99,19 +99,23 @@ export interface Ghost extends PlayerPose {
   status: RaceStatus;
 }
 
-/** A placement as chosen on the client: the server assigns ids and owners. */
+/**
+ * A placement as chosen on the client: the server assigns ids and owners.
+ * For the eraser, (x, y) is the cell of the object to remove.
+ */
 export interface PlacementChoice {
-  kind: ObjectKind;
+  kind: CardKind;
   x: number;
   y: number;
   /** Rotatable objects only (cannon). */
   dir?: Dir;
 }
 
-/** One of a player's objects that the session refused at the end of placement. */
+/** One of a player's cards that the session refused at the end of placement. */
 export interface RefusedObject {
-  kind: ObjectKind;
-  reason: "path" | "taken" | "invalid";
+  kind: CardKind;
+  /** "gone": an eraser whose target another player erased first. */
+  reason: "path" | "taken" | "invalid" | "gone";
 }
 
 // --- Server to client ---------------------------------------------------------
@@ -123,7 +127,7 @@ export type ServerMessage =
       type: "placement";
       round: number;
       needed: number;
-      offer: ObjectKind[];
+      offer: CardKind[];
       endsAt: number;
       objects: PlacedObject[];
       /** Your own choice so far, when rejoining in the middle of placement. */
@@ -141,8 +145,9 @@ export type ServerMessage =
       refused: number;
       /**
        * Your objects refused at the end of placement, and why: "path" (together with the others'
-       * objects it would have cut the last path to the finish), "taken" (a player who validated
-       * before you put something on that cell), "invalid" (a cell where nothing can go).
+       * objects it would have cut the last path to the finish; for an eraser, removing its target
+       * would), "taken" (a player who validated before you put something on that cell),
+       * "invalid" (a cell where nothing can go), "gone" (an eraser whose target was already erased).
        */
       refusedObjects?: RefusedObject[];
       /** Objects you had still not placed when the placement time ran out (0 if you validated). */

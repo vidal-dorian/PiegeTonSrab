@@ -263,6 +263,8 @@
   outline-offset: 2px;
 }
 .card.used { opacity: 0.35; cursor: default; box-shadow: none; transform: none; }
+/* The eraser is rare: a dashed outline makes it stand out in the hand. */
+.card.rare { border-style: dashed; }
 .card.used .name { text-decoration: line-through 2px; }
 /* No room left for this object, or the player discarded it: a rubber stamp across the card. */
 .card.out { box-shadow: none; transform: none; background: var(--hatch), var(--surface); }
