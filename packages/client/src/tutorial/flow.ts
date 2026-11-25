@@ -11,6 +11,17 @@
  *
  * Text conventions: "[Q]" is drawn as a key cap, "+2" as an orange points badge (hud.ts).
  */
+import { POINTS } from "@game/shared";
+import { formatPoints } from "../ui/points";
+
+/**
+ * The "+N" bursts the tutorial scene shows: reaching the flag, and the rival dying in the
+ * player's trap. Read from POINTS, like the end card, so they can't drift from scoreRound.
+ */
+export const TUTORIAL_BURSTS = {
+  flag: `+${formatPoints(POINTS.finish)}`,
+  kill: `+${formatPoints(POINTS.kill)}`,
+} as const;
 
 export type StepId = "move" | "trap" | "stomp" | "flag";
 export type GoalId = "marker" | "place" | "rivalDies" | "stomp" | "flag";
@@ -218,7 +229,7 @@ export type PromptToken = { kind: "text" | "key" | "points"; text: string };
 /** Split a prompt into plain text, key caps and points badges (drawn by hud.ts). */
 export function tokenizePrompt(text: string): PromptToken[] {
   const tokens: PromptToken[] = [];
-  const re = /\[([^\]]+)\]|(\+\d+)/g;
+  const re = /\[([^\]]+)\]|(\+\d+(?:,\d+)?)/g;
   let last = 0;
   for (let m = re.exec(text); m; m = re.exec(text)) {
     if (m.index > last) tokens.push({ kind: "text", text: text.slice(last, m.index) });

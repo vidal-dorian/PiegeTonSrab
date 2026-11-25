@@ -31,7 +31,7 @@ import { PlayerView, PLAYER_COLORS } from "../render/playerView";
 import { Stains } from "../render/stains";
 import { LocalPlayer, STEP } from "../sim/localPlayer";
 import { tuning } from "../tuningStore";
-import { TutorialFlow, type FlowEvent, type GoalId } from "../tutorial/flow";
+import { TutorialFlow, TUTORIAL_BURSTS, type FlowEvent, type GoalId } from "../tutorial/flow";
 import { TutorialHud } from "../tutorial/hud";
 import { CHECKPOINTS, isLaneCell, TUTO, TUTORIAL_LEVEL, type Cell } from "../tutorial/level";
 import { ScriptedRival, type RivalDeath } from "../tutorial/rival";
@@ -249,7 +249,7 @@ export class TutorialScene extends Phaser.Scene {
       const f = TUTO.flag;
       if (c.x < f.x + 1 && c.x + m.bodyWidth > f.x && c.y < f.y + 1 && c.y + m.bodyHeight > f.y) {
         const p = this.player.centre();
-        this.effects.pof(p.x, p.y - m.bodyHeight / 2, "+2");
+        this.effects.pof(p.x, p.y - m.bodyHeight / 2, TUTORIAL_BURSTS.flag);
         this.handle(this.flow.reach("flag"));
       }
     }
@@ -319,7 +319,7 @@ export class TutorialScene extends Phaser.Scene {
     this.rival.kill();
     if (!death.fell) this.stains.add(p.x, p.y, RIVAL_COLOR);
     // In the player's trap: the trap owner scores, which is the lesson.
-    if (death.killer?.ownerId === ME) this.effects.pof(p.x, p.y - 0.4, "+1");
+    if (death.killer?.ownerId === ME) this.effects.pof(p.x, p.y - 0.4, TUTORIAL_BURSTS.kill);
     this.handle(this.flow.reach("rivalDies"));
   }
 

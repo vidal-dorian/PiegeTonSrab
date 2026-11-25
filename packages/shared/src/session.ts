@@ -32,6 +32,7 @@ import {
   type PlacementChoice,
   type PlayerPose,
   type RaceStatus,
+  type RefusedObject,
   type ServerMessage,
 } from "./protocol";
 import { RACE_LEVELS } from "./levelList";
@@ -91,8 +92,12 @@ export class GameSession {
   private placementEndsAt = 0;
   private raceStartsAt = 0;
   private raceEndsAt = 0;
+  /** When endRace ran: earlier than raceEndsAt when the race ended because nobody was running. */
+  private raceClosedAt = 0;
   private raceGuard: PathGuard | null = null;
-  private refused = new Map<string, number>();
+  /** Each player's objects refused at the end of placement, and how many they never placed. */
+  private refused = new Map<string, RefusedObject[]>();
+  private unplaced = new Map<string, number>();
   /** Vine id -> player holding it. */
   private vineHolders = new Map<number, string>();
   /** "stomper>victim" -> time of the last accepted stomp. */
@@ -115,9 +120,11 @@ export class GameSession {
   /** Returns an error message (in French, shown to the player) or null if the player joined. */
   addPlayer(id: string, rawName: string): string | null {
     if (this.phase !== "lobby") return "La partie a déjà commencé.";
-    if (this.players.size >= MAX_PLAYERS) return "Le salon est plein (4 joueurs).";
+    if (this.players.size >= MAX_PLAYERS) return `Le salon est plein (${MAX_PLAYERS} joueurs).`;
+    // The colour index is also the player's spawn seat (spawnCell, level.ts): unique in the
+    // room, so each body starts on its own cell of the spawn pad. Clients read it from the lobby.
     const used = new Set([...this.players.values()].map((p) => p.color));
-    const color = [0, 1, 2, 3].find((c) => !used.has(c)) ?? 0;
+    const color = Array.from({ length: MAX_PLAYERS }, (_, i) => i).find((c) => !used.has(c)) ?? 0;
     const name = cleanName(rawName) || `Joueur ${this.players.size + 1}`;
     this.players.set(id, {
       id,
@@ -162,6 +169,11 @@ export class GameSession {
     const p = this.players.get(id);
     if (!p) return;
     p.connected = connected;
+    // Back during the race: the client restarts the character from spawn, so that run counts
+    // again (a death in someone's trap scores for them).
+    if (connected && (this.phase === "countdown" || this.phase === "race") && p.inGame && p.status === "out") {
+      p.status = "running";
+    }
     if (connected) this.resync(id);
     else this.onPlayerGone(p);
     this.broadcastLobby();
@@ -279,7 +291,7 @@ export class GameSession {
     this.clearTimers();
     this.phase = "placement";
     this.round++;
-    this.needed = objectsForRound(this.cfg, this.round);
+    this.needed = objectsForRound(this.cfg, this.round, this.inGamePlayers().length);
     this.placementEndsAt = this.io.now() + this.cfg.placementTime * 1000;
     for (const p of this.inGamePlayers()) {
       p.offer = drawOffer(this.rng, this.needed + this.cfg.extraOffered);
@@ -309,7 +321,11 @@ export class GameSession {
     const choice = this.cleanChoice(p, msg.objects);
     if (!choice) return;
     p.choice = choice;
-    if (msg.done && choice.length === this.needed) {
+    // A player may validate with fewer objects than needed: the client discards an object that
+    // has no accepted cell left on a crowded map (or that the player gave up on), so nobody
+    // waits for the timer because of it. Missing objects only cost that player their own
+    // traps; they cannot hurt anyone else, so there is nothing to check.
+    if (msg.done) {
       p.doneAt = this.io.now();
       this.broadcastPlacedStatus();
       if (this.inGamePlayers().every((q) => !q.connected || q.doneAt !== null)) this.endPlacement();
@@ -349,13 +365,21 @@ export class GameSession {
     const order = this.inGamePlayers().sort((a, b) => (a.doneAt ?? Infinity) - (b.doneAt ?? Infinity));
     const guard = new PathGuard(this.level, this.objects, DEFAULT_MOVEMENT);
     this.refused = new Map();
+    this.unplaced = new Map();
     for (const p of order) {
+      const refused: RefusedObject[] = [];
       for (const c of p.choice) {
         const obj: PlacedObject = { id: this.nextObjectId, kind: c.kind, x: c.x, y: c.y, ownerId: p.id };
         if (c.dir !== undefined) obj.dir = c.dir;
-        if (canPlaceAt(this.level, guard.objects, c.x, c.y) && guard.tryAdd(obj)) this.nextObjectId++;
-        else this.refused.set(p.id, (this.refused.get(p.id) ?? 0) + 1);
+        if (!canPlaceAt(this.level, guard.objects, c.x, c.y)) {
+          const taken = guard.objects.some((o) => o.x === c.x && o.y === c.y);
+          refused.push({ kind: c.kind, reason: taken ? "taken" : "invalid" });
+        } else if (guard.tryAdd(obj)) this.nextObjectId++;
+        else refused.push({ kind: c.kind, reason: "path" });
       }
+      this.refused.set(p.id, refused);
+      // Who did not validate ran out of time: their objects still in hand are lost.
+      if (p.doneAt === null) this.unplaced.set(p.id, Math.max(0, this.needed - p.choice.length));
     }
     // Cannon lines and vine ropes depend on everything around them: measure them now.
     this.objects = prepareObjects(this.level, guard.objects);
@@ -393,9 +417,17 @@ export class GameSession {
       type: "countdown",
       round: this.round,
       objects: this.objects,
-      refused: this.refused.get(p.id) ?? 0,
+      refused: this.refused.get(p.id)?.length ?? 0,
+      refusedObjects: this.refused.get(p.id) ?? [],
+      unplaced: this.unplaced.get(p.id) ?? 0,
       raceStartsAt: this.raceStartsAt,
       raceEndsAt: this.raceEndsAt,
+      // A player rejoining mid-race resumes as the session has them (a dead player watches),
+      // and their kill notices count the deaths they missed.
+      status: p.status,
+      deaths: this.inGamePlayers()
+        .filter((q) => q.status === "dead" && q.killedBy !== null)
+        .map((q) => ({ id: q.id, killerOwner: q.killedBy!, pushedBy: q.pushedBy })),
     });
   }
 
@@ -414,10 +446,14 @@ export class GameSession {
   }
 
   private onDied(p: Player, msg: ClientMessageOf<"died">): void {
-    if (!this.raceRunning() || p.status !== "running") return;
+    if (!this.acceptsRaceReport(p)) return;
     p.status = "dead";
-    // The client says which object killed it; the kill goes to that object's owner.
-    const killer = msg.killerId === null ? undefined : this.objects.find((o) => o.id === msg.killerId);
+    // The client says which object killed it; the kill goes to that object's owner. A fall
+    // or an object that cannot kill credits nobody.
+    const killer =
+      msg.fell || msg.killerId === null
+        ? undefined
+        : this.objects.find((o) => o.id === msg.killerId && OBJECT_DEFS[o.kind].family === "kill");
     p.killedBy = killer?.ownerId ?? null;
     p.pushedBy = killer ? this.checkPusher(p, msg.pushedBy) : null;
     this.releaseVines(p.id);
@@ -452,7 +488,7 @@ export class GameSession {
   }
 
   private onFinished(p: Player, msg: ClientMessageOf<"finished">): void {
-    if (!this.raceRunning() || p.status !== "running") return;
+    if (!this.acceptsRaceReport(p)) return;
     p.status = "finished";
     p.finishTime = Math.min(Math.max(num(msg.time), 0), this.cfg.raceTime);
     this.releaseVines(p.id);
@@ -550,6 +586,17 @@ export class GameSession {
     return this.phase === "race" || this.phase === "countdown";
   }
 
+  /**
+   * Whether a death or finish from this player still counts: during the race, or up to
+   * TIMING.lateReport after it closed (the report was on its way). "out" only ever means a
+   * player who dropped, so a death they sent just before dropping still counts.
+   */
+  private acceptsRaceReport(p: Player): boolean {
+    const late = this.io.now() - Math.min(this.raceClosedAt, this.raceEndsAt) <= TIMING.lateReport;
+    const open = this.raceRunning() || (this.phase === "raceEnd" && late);
+    return open && (p.status === "running" || p.status === "out");
+  }
+
   private checkRaceDone(): void {
     if (this.phase !== "race") return;
     if (!this.inGamePlayers().some((p) => p.status === "running")) this.endRace();
@@ -559,6 +606,7 @@ export class GameSession {
     if (this.phase !== "race") return;
     this.clearTimers();
     this.phase = "raceEnd";
+    this.raceClosedAt = this.io.now();
     this.broadcastGhosts();
     this.later(() => this.showScore(), TIMING.raceEndPause);
   }

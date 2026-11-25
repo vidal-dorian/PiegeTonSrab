@@ -17,10 +17,12 @@ import {
   canPlaceAt,
   contactWith,
   DEFAULT_MOVEMENT,
+  isSpawnPadCell,
   OBJECT_DEFS,
   parseLevel,
   PathGuard,
   placementKeepsPath,
+  POINTS,
   prepareObjects,
   RACE_LEVELS,
   TIMING,
@@ -49,8 +51,12 @@ import { ObjectViews } from "../render/objectViews";
 import { PlayerView, PLAYER_COLORS } from "../render/playerView";
 import { Stains } from "../render/stains";
 import { LocalPlayer } from "../sim/localPlayer";
+import { RoundKills, statusAfterOwnReport, statusFromCountdown, type MyStatus } from "../sim/raceResume";
 import { tuning } from "../tuningStore";
-import { overlay, type TopBarState } from "../ui/overlay";
+import type { RoomReply, RoomRequest } from "../sim/placementRoomProtocol";
+import { noRoomText, refusedText, unplacedText } from "../ui/feedback";
+import { overlay, type CardOut, type TopBarState } from "../ui/overlay";
+import { formatPoints, trapCell } from "../ui/points";
 import { carouselScreen } from "../ui/screens";
 
 const MAX_FRAME_TIME = 0.25;
@@ -64,9 +70,14 @@ const STOMP_REPEAT = TIMING.stompCooldown / 1000;
 const LOCAL_ID_START = -1_000_000;
 /** If our simulated clock falls this far behind the round clock (frozen tab), jump it forward, seconds. */
 const MAX_CLOCK_LAG = 0.1;
+/** How long the dashed preview shakes in red after a refused click, milliseconds. */
+const REFUSAL_SHAKE_MS = 450;
+/** The "vine already taken" notice is repeated at most this often for the same vine, milliseconds. */
+const VINE_NOTICE_MS = 2000;
+/** How long the end-of-placement messages stay on screen, milliseconds. */
+const PLACEMENT_RESULT_MS = 6500;
 
 type Phase = "carousel" | "placement" | "countdown" | "race" | "raceEnd" | "score" | "over";
-type MyStatus = "running" | "dead" | "finished" | "timeout";
 
 interface Verdict {
   ok: boolean;
@@ -89,6 +100,8 @@ export class GameScene extends Phaser.Scene {
   private phase: Phase = "carousel";
   private round = 0;
   private totals: Record<string, number> = {};
+  /** Other players killed by each trap owner this round, so a kill notice shows its real gain. */
+  private roundKills = new RoundKills();
   private targetScore = 10;
 
   /** Objects validated by the session (all players). */
@@ -101,6 +114,18 @@ export class GameScene extends Phaser.Scene {
   private validated = false;
   private doneIds: string[] = [];
   private endsAt = 0;
+  private levelIndex = 0;
+  /** Cards the player discarded ("Défausser"); clicking one takes it back into the hand. */
+  private discarded = new Set<number>();
+  /** Kinds with no accepted cell left anywhere on the map (their cards are discarded). */
+  private noRoom = new Set<ObjectKind>();
+  /** Kinds already announced as having no room this round (the notice is shown once). */
+  private announcedNoRoom = new Set<ObjectKind>();
+  /** Searches for room off the main thread (placementRoom.worker.ts); null if workers are unavailable. */
+  private roomWorker: Worker | null = null;
+  private roomGen = 0;
+  /** Last refused click: the dashed preview shakes in red there for a moment. */
+  private refusal: { x: number; y: number; at: number } | null = null;
   private graph: ReachGraph | null = null;
   /** Graph for the session's objects only (fixed during placement), reused by order checks. */
   private baseGraph: ReachGraph | null = null;
@@ -117,7 +142,15 @@ export class GameScene extends Phaser.Scene {
   private myStatus: MyStatus = "running";
   private poseTimer = 0;
   private blocks: Array<{ block: PlacedObject; appearsAt: number; active: boolean }> = [];
+  /** A block request is waiting for the session's answer, or our block was accepted. */
   private blockRequested = false;
+  private blockPlaced = false;
+  /** Cell of the last block request, to show a refusal there. */
+  private blockCell: { x: number; y: number } | null = null;
+  /** When we last said that a vine was taken, per vine (performance.now()). */
+  private vineNoticeAt = new Map<number, number>();
+  /** The "over" message, kept to show the end screen again if the host changes. */
+  private overMsg: ServerMessageOf<"over"> | null = null;
   private spectating: string | null = null;
   /** Vine id -> player holding it, as last told by the session. */
   private vineHolders = new Map<number, string>();
@@ -148,7 +181,8 @@ export class GameScene extends Phaser.Scene {
     this.link = data.link;
     this.lobby = data.lobby;
     this.targetScore = data.lobby?.targetScore ?? 10;
-    this.level = parseLevel(RACE_LEVELS[data.start.levelIndex] ?? RACE_LEVELS[0]!);
+    this.levelIndex = RACE_LEVELS[data.start.levelIndex] ? data.start.levelIndex : 0;
+    this.level = parseLevel(RACE_LEVELS[this.levelIndex]!);
     this.phase = "carousel";
     this.round = 0;
     this.totals = {};
@@ -159,6 +193,8 @@ export class GameScene extends Phaser.Scene {
     this.lastTopBar = "";
     this.cleanup = [];
     this.myStatus = "running";
+    this.overMsg = null;
+    this.roomGen = 0;
 
     this.gridGfx = drawLevel(this, this.level).grid;
     this.stains = new Stains(this);
@@ -168,11 +204,23 @@ export class GameScene extends Phaser.Scene {
     this.arrows = this.add.graphics().setDepth(9).setScrollFactor(0);
     this.playerView = new PlayerView(this, this.colorOf(this.link.myId));
     this.player = new LocalPlayer(this.level, this.level, tuning.movement);
+    this.player.selfId = this.link.myId;
+    this.player.seat = this.seatOf(this.link.myId);
+    this.player.reset();
     this.vineHolders = new Map();
     this.leaderId = null;
     this.player.canHoldVine = (id) => {
       const holder = this.vineHolders.get(id);
-      return holder === undefined || holder === this.link.myId;
+      const free = holder === undefined || holder === this.link.myId;
+      // Touching a vine someone else holds does nothing: say why, once in a while.
+      if (!free && this.phase === "race") {
+        const now = performance.now();
+        if (now - (this.vineNoticeAt.get(id) ?? -Infinity) > VINE_NOTICE_MS) {
+          this.vineNoticeAt.set(id, now);
+          overlay.showNotice(`Liane déjà prise par ${this.nameOf(holder!)}`, 1500);
+        }
+      }
+      return free;
     };
     this.player.onVine = (id, hold) => {
       if (hold) this.vineHolders.set(id, this.link.myId);
@@ -206,6 +254,8 @@ export class GameScene extends Phaser.Scene {
       for (const fn of this.cleanup) fn();
       for (const g of this.ghosts.values()) g.destroy();
       this.objectViews.destroy();
+      this.roomWorker?.terminate();
+      this.roomWorker = null;
       carouselScreen.hide();
       overlay.hideAll();
     });
@@ -228,14 +278,21 @@ export class GameScene extends Phaser.Scene {
 
   private onMessage(msg: ServerMessage): void {
     switch (msg.type) {
-      case "lobby":
+      case "lobby": {
+        const hostBefore = this.lobby?.hostId;
         this.lobby = msg.lobby;
         this.targetScore = msg.lobby.targetScore;
+        this.player.seat = this.seatOf(this.link.myId);
         // Back to the lobby after the end of a game (online).
         if (!msg.lobby.inGame && this.phase === "over" && this.link.online) {
           this.scene.start("lobby", { link: this.link, lobby: msg.lobby });
+        } else if (this.phase === "over" && this.overMsg && hostBefore !== msg.lobby.hostId && this.link.online) {
+          // The host left: the new host needs the "Rejouer" button, or nobody could restart.
+          this.showGameOver(this.overMsg);
+          if (msg.lobby.hostId === this.link.myId) overlay.showNotice("L'hôte est parti : tu es le nouvel hôte", 4000);
         }
         break;
+      }
       case "gameStart":
         // A new game in the same room ("Rejouer"), or a reconnection. The restart happens on the
         // next frame: detach now so the messages that follow wait in the link for the new scene.
@@ -259,24 +316,29 @@ export class GameScene extends Phaser.Scene {
         break;
       case "playerDied":
         if (msg.id !== this.link.myId) this.stains.add(msg.x, msg.y, this.colorOf(msg.id));
+        else this.ownReport("dead");
         if (msg.id === this.spectating) this.pickSpectateTarget(1);
         this.announceKill(msg);
         break;
       case "playerFinished":
         if (msg.id !== this.link.myId) overlay.showNotice(`${this.nameOf(msg.id)} est arrivé en ${msg.time.toFixed(2)} s`);
+        else this.ownReport("finished");
         if (msg.id === this.spectating) this.pickSpectateTarget(1);
         break;
       case "block":
         this.blocks.push({ block: msg.block, appearsAt: msg.appearsAt, active: false });
         if (msg.block.ownerId === this.link.myId) {
           this.blockRequested = true;
+          this.blockPlaced = true;
           this.preview.clear();
         }
         this.syncObjectViews();
         break;
       case "blockRefused":
         this.blockRequested = false;
-        overlay.showNotice(msg.reason);
+        // Said where the player clicked; the notice is for a refusal with no cell to point at.
+        if (this.blockCell && this.phase === "race") this.showRefusal(this.blockCell.x, this.blockCell.y, msg.reason);
+        else overlay.showNotice(msg.reason);
         break;
       case "stomped":
         this.onStomped(msg.by, msg.victim);
@@ -284,9 +346,11 @@ export class GameScene extends Phaser.Scene {
       case "vine":
         if (msg.holder === null) this.vineHolders.delete(msg.id);
         else this.vineHolders.set(msg.id, msg.holder);
-        // Someone else got there first: let go.
+        // Someone else got there first: let go, and say so (otherwise the fall looks like a bug).
         if (msg.holder !== null && msg.holder !== this.link.myId && this.player.controller.swing?.vineId === msg.id) {
           this.player.letGo();
+          this.vineNoticeAt.set(msg.id, performance.now());
+          overlay.showNotice(`${this.nameOf(msg.holder)} a attrapé la liane avant toi`, 1800);
         }
         break;
       case "score":
@@ -322,6 +386,10 @@ export class GameScene extends Phaser.Scene {
     this.nextLocalId = LOCAL_ID_START;
     this.baseGraph = null;
     this.offer = msg.offer.map((kind) => ({ kind, used: false }));
+    this.discarded = new Set();
+    this.noRoom = new Set();
+    this.announcedNoRoom = new Set();
+    this.refusal = null;
     // Rebuild our own choice when rejoining in the middle of placement.
     this.pending = [];
     for (const c of msg.mine) {
@@ -336,6 +404,7 @@ export class GameScene extends Phaser.Scene {
     for (const g of this.ghosts.values()) g.clear();
     this.player.reset();
     this.rebuildGraph();
+    this.scanForRoom();
     overlay.setHelp("Clic : poser ou reprendre · 1 à 3 : choisir l'objet · R ou clic droit : tourner le canon · Échap : quitter");
     this.renderTray();
     this.updateTopBar();
@@ -391,7 +460,8 @@ export class GameScene extends Phaser.Scene {
     if (target) {
       // Turning a placed cannon must keep the path open, with the whole hand applied in order.
       let d = target.dir ?? 2;
-      for (let i = 0; i < 3; i++) {
+      let turned = false;
+      for (let i = 0; i < 3 && !turned; i++) {
         d = next(d);
         const hand = this.pending.map((p) => (p === target ? { ...this.plain(p), dir: d } : this.plain(p)));
         if (this.wholeHandAccepted(hand)) {
@@ -399,9 +469,11 @@ export class GameScene extends Phaser.Scene {
           this.placeDir = d;
           this.sendPlacement(false);
           this.rebuildGraph();
-          break;
+          this.scanForRoom();
+          turned = true;
         }
       }
+      if (!turned) this.showRefusal(target.x, target.y, "Tourné autrement, il bloquerait le chemin");
     } else {
       this.placeDir = next(this.placeDir);
       this.verdicts.clear();
@@ -435,9 +507,7 @@ export class GameScene extends Phaser.Scene {
       return v;
     }
     const kind = this.selected !== null ? this.offer[this.selected]?.kind : undefined;
-    if (!kind) {
-      return { ok: false, takeBack: false, text: this.pending.length >= this.needed ? "Tout est posé : valide" : "Choisis un objet" };
-    }
+    if (!kind) return { ok: false, takeBack: false, text: this.nothingLeft() ? this.idleText() : "Choisis un objet" };
     const dir = this.dirFor(kind);
     const key = `${x},${y},${kind},${dir ?? ""}`;
     const cached = this.verdicts.get(key);
@@ -448,8 +518,8 @@ export class GameScene extends Phaser.Scene {
     let v: Verdict;
     if (x < 0 || x >= l.width || y < 0 || y >= l.height || l.solid[y * l.width + x]) {
       v = { ok: false, takeBack: false, text: "Pas dans le décor" };
-    } else if ((x === l.start.x && y === l.start.y) || (l.finish && x === l.finish.x && y === l.finish.y)) {
-      v = { ok: false, takeBack: false, text: "Pas sur le départ ni sur l'arrivée" };
+    } else if (isSpawnPadCell(l, x, y) || (l.finish && x === l.finish.x && y === l.finish.y)) {
+      v = { ok: false, takeBack: false, text: "Pas sur la zone de départ ni sur l'arrivée" };
     } else if (!canPlaceAt(l, all, x, y)) {
       v = { ok: false, takeBack: false, text: "Case déjà prise" };
     } else if (!placementKeepsPath(l, all, { id: 0, kind, x, y, ...(dir !== undefined ? { dir } : {}) }, DEFAULT_MOVEMENT, this.graph ?? undefined)) {
@@ -467,12 +537,16 @@ export class GameScene extends Phaser.Scene {
 
   private clickPlacementCell(x: number, y: number): void {
     const v = this.verdictAt(x, y);
-    if (!v.ok) return;
+    if (!v.ok) {
+      this.showRefusal(x, y, v.text);
+      return;
+    }
     if (v.takeBack) {
       const i = this.pending.findIndex((p) => p.x === x && p.y === y);
       const [taken] = this.pending.splice(i, 1);
       if (taken) {
         this.offer[taken.card]!.used = false;
+        this.discarded.delete(taken.card);
         this.selected = taken.card;
       }
     } else if (this.selected !== null) {
@@ -487,6 +561,102 @@ export class GameScene extends Phaser.Scene {
     }
     this.sendPlacement(false);
     this.rebuildGraph();
+    this.scanForRoom();
+    this.renderTray();
+  }
+
+  /**
+   * A refused action at a cell: the reason floats right above it for a moment and the dashed
+   * preview there shakes in red, so the player sees at once that the click did not work.
+   */
+  private showRefusal(x: number, y: number, text: string): void {
+    this.refusal = { x, y, at: this.time.now };
+    const p = this.cellToClient(x, y);
+    overlay.floatLabel(text, p.x, p.y);
+  }
+
+  /** Top centre of a cell, in page (CSS) pixels. */
+  private cellToClient(x: number, y: number): { x: number; y: number } {
+    const cam = this.cameras.main;
+    const rect = this.game.canvas.getBoundingClientRect();
+    const gx = ((x + 0.5) * CELL_PX - cam.worldView.x) * cam.zoom;
+    const gy = (y * CELL_PX - cam.worldView.y) * cam.zoom;
+    return { x: rect.left + (gx * rect.width) / this.scale.width, y: rect.top + (gy * rect.height) / this.scale.height };
+  }
+
+  /** Why a card can't be played right now, if it can't ("Plus de place", "Défaussé"). */
+  private cardOut(i: number): CardOut | undefined {
+    const c = this.offer[i];
+    if (!c || c.used) return undefined;
+    if (this.discarded.has(i)) return "discarded";
+    return this.noRoom.has(c.kind) ? "noRoom" : undefined;
+  }
+
+  /** Nothing left to place: everything is placed, discarded or has no room. */
+  private nothingLeft(): boolean {
+    return this.pending.length >= this.needed || this.offer.every((c, i) => c.used || this.cardOut(i) !== undefined);
+  }
+
+  private idleText(): string {
+    if (this.validated) return "Pose validée : en attente des autres";
+    if (this.pending.length >= this.needed) return "Tout est posé : valide";
+    return this.pending.length > 0 ? "Plus rien à poser : valide la pose" : "Plus rien à poser : valide (tu ne poses rien ce round)";
+  }
+
+  /**
+   * Ask the worker whether each kind still in hand has a cell left where the session would
+   * accept it, with the map as it is now (our own pending objects included). Called whenever
+   * those change; a newer request makes the worker drop the older one.
+   */
+  private scanForRoom(): void {
+    const gen = ++this.roomGen;
+    if (this.phase !== "placement" || this.validated) return;
+    const kinds = [...new Set(this.offer.filter((c, i) => !c.used && !this.discarded.has(i)).map((c) => c.kind))];
+    if (kinds.length === 0) return;
+    if (!this.roomWorker) {
+      try {
+        this.roomWorker = new Worker(new URL("../sim/placementRoom.worker.ts", import.meta.url), { type: "module" });
+        this.roomWorker.onmessage = (e: MessageEvent<RoomReply>) => this.onRoomReply(e.data);
+      } catch {
+        // No workers: no automatic discard. "Défausser" still lets the player go on.
+        return;
+      }
+    }
+    const req: RoomRequest = {
+      gen,
+      levelIndex: this.levelIndex,
+      objects: [...this.objects, ...this.pending.map((p) => this.plain(p))],
+      kinds,
+    };
+    this.roomWorker.postMessage(req);
+  }
+
+  private onRoomReply(r: RoomReply): void {
+    if (r.gen !== this.roomGen || this.phase !== "placement" || this.validated) return;
+    const had = this.noRoom.has(r.kind);
+    if (r.room) this.noRoom.delete(r.kind);
+    else this.noRoom.add(r.kind);
+    if (had === !r.room) return;
+    if (!r.room && !this.announcedNoRoom.has(r.kind)) {
+      this.announcedNoRoom.add(r.kind);
+      overlay.showNotice(noRoomText(r.kind), 4000);
+    }
+    // The selected card can't be played any more: move on to the next one.
+    if (this.selected !== null && this.cardOut(this.selected) !== undefined) {
+      this.selected = this.pending.length < this.needed ? this.nextFreeCard() : null;
+    } else if (this.selected === null && this.pending.length < this.needed) {
+      this.selected = this.nextFreeCard();
+    }
+    this.verdicts.clear();
+    this.renderTray();
+  }
+
+  /** "Défausser": give up the selected object for this round. */
+  private discardSelected(): void {
+    if (this.phase !== "placement" || this.validated || this.selected === null) return;
+    this.discarded.add(this.selected);
+    this.selected = this.pending.length < this.needed ? this.nextFreeCard() : null;
+    this.verdicts.clear();
     this.renderTray();
   }
 
@@ -499,24 +669,38 @@ export class GameScene extends Phaser.Scene {
   }
 
   private nextFreeCard(): number | null {
-    const i = this.offer.findIndex((c) => !c.used);
+    const i = this.offer.findIndex((c, j) => !c.used && this.cardOut(j) === undefined);
     return i >= 0 ? i : null;
   }
 
   private selectCard(i: number): void {
     const card = this.offer[i];
-    if (this.phase !== "placement" || this.validated || !card || card.used || this.pending.length >= this.needed) return;
+    if (this.phase !== "placement" || this.validated || !card) return;
+    // Keyboard shortcuts reach cards the tray shows as unavailable: say why nothing happens.
+    if (card.used) {
+      overlay.showNotice(`${OBJECT_DEFS[card.kind].name} déjà posé : clique dessus dans le niveau pour le reprendre`, 2500);
+      return;
+    }
+    if (this.pending.length >= this.needed) {
+      overlay.showNotice("Tout est posé : reprends un objet dans le niveau pour en changer", 2500);
+      return;
+    }
+    if (this.discarded.has(i)) {
+      // Taking a discarded card back into the hand.
+      this.discarded.delete(i);
+      this.scanForRoom();
+    } else if (this.noRoom.has(card.kind)) {
+      overlay.showNotice(noRoomText(card.kind), 2500);
+      return;
+    }
     this.selected = i;
+    this.verdicts.clear();
     this.renderTray();
   }
 
   private currentHint(): { text: string; bad: boolean } {
     const v = this.hover ? this.verdictAt(this.hover.x, this.hover.y) : null;
-    const idle = this.validated
-      ? "Pose validée : en attente des autres"
-      : this.pending.length >= this.needed
-        ? "Tout est posé : valide"
-        : "Survole le niveau pour poser";
+    const idle = this.validated || this.nothingLeft() ? this.idleText() : "Survole le niveau pour poser";
     return { text: v?.text ?? idle, bad: v !== null && !v.ok && !this.validated };
   }
 
@@ -531,11 +715,13 @@ export class GameScene extends Phaser.Scene {
         cards: this.offer.map((c, i) => {
           const placed = this.pending.find((p) => p.card === i);
           const dir = OBJECT_DEFS[c.kind].rotatable ? (placed?.dir ?? this.placeDir) : undefined;
-          return { ...c, arrow: dir !== undefined ? DIR_ARROWS[dir] : undefined };
+          return { ...c, arrow: dir !== undefined ? DIR_ARROWS[dir] : undefined, out: this.cardOut(i) };
         }),
         selected: this.validated ? null : this.selected,
         placed: this.pending.length,
         needed: this.needed,
+        canValidate: !this.validated && this.nothingLeft(),
+        canDiscard: !this.validated && this.selected !== null,
         hint: hint.text,
         hintBad: hint.bad,
         others,
@@ -543,9 +729,11 @@ export class GameScene extends Phaser.Scene {
       },
       {
         onSelect: (i) => this.selectCard(i),
+        onDiscard: () => this.discardSelected(),
         onValidate: () => {
-          if (this.validated || this.pending.length < this.needed) return;
+          if (this.validated || !this.nothingLeft()) return;
           this.validated = true;
+          this.roomGen++;
           this.sendPlacement(true);
           this.preview.clear();
           this.renderTray();
@@ -559,9 +747,32 @@ export class GameScene extends Phaser.Scene {
     overlay.setTrayHint(hint.text, hint.bad);
   }
 
+  /** The red shake after a refused click; returns whether it is still going on. */
+  private drawRefusal(): boolean {
+    const r = this.refusal;
+    if (!r) return false;
+    const age = this.time.now - r.at;
+    if (age > REFUSAL_SHAKE_MS) {
+      this.refusal = null;
+      return false;
+    }
+    const fade = 1 - age / REFUSAL_SHAKE_MS;
+    const dx = Math.sin(age * 0.07) * 5 * fade;
+    const x = r.x * CELL_PX + dx;
+    const y = r.y * CELL_PX;
+    this.preview.fillStyle(0xb3361a, 0.3 * fade);
+    this.preview.fillRect(x + 3, y + 3, CELL_PX - 6, CELL_PX - 6);
+    this.preview.lineStyle(5, 0xb3361a, 1);
+    drawDashedRect(this.preview, x + 3, y + 3, CELL_PX - 6, CELL_PX - 6);
+    return true;
+  }
+
   private drawPlacementPreview(): void {
     this.preview.clear();
+    const shaking = this.drawRefusal();
     if (!this.hover || this.validated) return;
+    // The refused cell shakes on its own; don't draw the still preview over it.
+    if (shaking && this.refusal && this.refusal.x === this.hover.x && this.refusal.y === this.hover.y) return;
     const v = this.verdictAt(this.hover.x, this.hover.y);
     const color = v.takeBack && v.ok ? 0x161616 : v.ok ? 0xf07a2e : 0xb3361a;
     this.preview.lineStyle(4, color, 1);
@@ -609,6 +820,9 @@ export class GameScene extends Phaser.Scene {
     overlay.hideTray();
     overlay.hideScores();
     this.preview.clear();
+    // Objects still in hand when placement ended (named in the "time ran out" message).
+    const inHand = this.phase === "placement" ? this.offer.filter((c) => !c.used).map((c) => c.kind) : [];
+    this.roomGen++;
     this.phase = "countdown";
     this.round = msg.round;
     // Already measured by the session; measured again here so an older session can't break the drawing.
@@ -616,8 +830,14 @@ export class GameScene extends Phaser.Scene {
     this.pending = [];
     this.blocks = [];
     this.blockRequested = false;
+    this.blockPlaced = false;
+    this.blockCell = null;
+    this.refusal = null;
+    this.vineNoticeAt.clear();
+    this.roundKills.reset(msg.deaths);
     this.spectating = null;
-    this.myStatus = "running";
+    // Rejoining mid-race: a run the session already counts as over stays over (we watch).
+    this.myStatus = statusFromCountdown(msg.status);
     this.vineHolders.clear();
     this.touching.clear();
     this.lastStompAt.clear();
@@ -632,13 +852,15 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.setZoom(1);
     this.followCam.snapTo(this.cameraTarget());
     overlay.showBanner("Prêt ?");
-    overlay.setHelp("Q/A ← · D → · Espace/Z/↑ saut · Échap : quitter");
-    if (msg.refused > 0) {
-      overlay.showNotice(
-        `${msg.refused} de tes objets refusé${msg.refused > 1 ? "s" : ""} : avec ceux des autres, ils auraient bloqué le chemin.`,
-        5000,
-      );
-    }
+    overlay.setHelp("Q/A ← · D → · Espace/Z/↑ saut · S/↓ lâcher la liane · Échap : quitter");
+    // What became of our objects, named: refused ones and why, and those never placed in time.
+    const lines = msg.refusedObjects
+      ? refusedText(msg.refusedObjects)
+      : msg.refused > 0
+        ? [`${msg.refused} de tes objets refusé${msg.refused > 1 ? "s" : ""} : avec ceux des autres, ils auraient bloqué le chemin.`]
+        : [];
+    if (msg.unplaced) lines.push(unplacedText(msg.unplaced, inHand));
+    if (lines.length > 0) overlay.showNotice(lines.join("\n"), PLACEMENT_RESULT_MS);
   }
 
   private startRace(): void {
@@ -647,10 +869,29 @@ export class GameScene extends Phaser.Scene {
     this.poseTimer = 0;
     // Drop keys pressed during the countdown.
     this.controls.takeStepInput();
+    if (this.myStatus !== "running") {
+      // Rejoined a race our run is already over in: we watch.
+      overlay.hideBanner();
+      return;
+    }
     overlay.showBanner("Partez !");
     this.time.delayedCall(600, () => {
       if (this.phase === "race" && this.myStatus === "running") overlay.hideBanner();
     });
+  }
+
+  /**
+   * The session reports our own death or finish. Normally we sent it and already stopped. If
+   * we are still running, it is a report sent while offline that reached the session after we
+   * rejoined: the session counts that run, so this one is over (it would count for nothing).
+   */
+  private ownReport(report: "dead" | "finished"): void {
+    if (this.phase !== "race" && this.phase !== "countdown") return;
+    const next = statusAfterOwnReport(this.myStatus, report);
+    if (next === this.myStatus) return;
+    this.myStatus = next;
+    overlay.showNotice(report === "dead" ? "Tu es mort pendant la coupure" : "Tu es arrivé pendant la coupure", 2500);
+    this.pickSpectateTarget(0);
   }
 
   /** Round clock (seconds since the race started), from the server's clock. */
@@ -671,7 +912,7 @@ export class GameScene extends Phaser.Scene {
         const c = this.player.centre();
         if (!outcome.fell) this.stains.add(c.x, c.y, this.colorOf(this.link.myId));
         // Pushed into a trap shortly before: say by whom (push-kill). Pits never count.
-        const pushedBy = outcome.killer ? this.player.creditedPusher() : null;
+        const pushedBy = outcome.killer ? this.player.creditedPusher(outcome.killer.ownerId) : null;
         this.link.send({ type: "died", killerId: outcome.killer?.id ?? null, x: c.x, y: c.y, fell: outcome.fell, pushedBy });
         this.myStatus = "dead";
         overlay.showBanner(outcome.killer ? `Touché : ${OBJECT_DEFS[outcome.killer.kind].name}` : "Tombé !", true);
@@ -766,9 +1007,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Tell everyone who died in whose trap, and who pushed them in. A push into the pusher's
-   * own trap is the big one (worth 2): it gets a "+2" burst where the victim died. Pits and
-   * map objects score nothing and the victim already has its own banner, so they stay quiet.
+   * Tell everyone who died in whose trap, and who pushed them in, with what the kill earns
+   * the trap's owner ("+1", "+2" for a push by the owner, "+0,5" past killCap) and a burst
+   * of that gain where the victim died. The gain assumes a scored round: if nobody finishes,
+   * the table later shows 0,5 and its verdict line says why. Pits and map objects score
+   * nothing and the victim already has its own banner, so they stay quiet.
    */
   private announceKill(msg: ServerMessageOf<"playerDied">): void {
     const owner = msg.killerOwner;
@@ -780,20 +1023,24 @@ export class GameScene extends Phaser.Scene {
     let text: string;
     if (owner === victim) {
       text = victim === me ? "Tu es mort dans ton propre piège !" : `${name(victim)} est mort dans son propre piège !`;
-    } else if (pusher === owner) {
-      if (owner === me) text = `Tu as poussé ${name(victim)} dans ton piège ! +2`;
-      else if (victim === me) text = `${name(owner)} t'a poussé dans son piège ! +2`;
-      else text = `${name(owner)} a poussé ${name(victim)} dans son piège ! +2`;
-      this.effects.pof(msg.x, msg.y - 0.6, "+2");
-    } else {
-      // The owner gets the kill (1 point); someone else pushing the victim in gets nothing.
-      const trap = owner === me ? "ton piège" : `le piège de ${name(owner)}`;
-      if (pusher === me) text = `Tu as poussé ${name(victim)} dans ${trap}`;
-      else if (pusher && victim === me) text = `${name(pusher)} t'a poussé dans ${trap}`;
-      else if (pusher) text = `${name(pusher)} a poussé ${name(victim)} dans ${trap}`;
-      else if (victim === me) text = `Tu es mort dans ${trap}`;
-      else text = `${name(victim)} est mort dans ${trap}`;
+      overlay.showNotice(text, 2500);
+      return;
     }
+    const plus = `+${formatPoints(this.roundKills.add({ id: victim, killerOwner: owner, pushedBy: pusher }) ?? 0)}`;
+    if (pusher === owner) {
+      if (owner === me) text = `Tu as poussé ${name(victim)} dans ton piège ! ${plus}`;
+      else if (victim === me) text = `${name(owner)} t'a poussé dans son piège ! ${plus}`;
+      else text = `${name(owner)} a poussé ${name(victim)} dans son piège ! ${plus}`;
+    } else {
+      // The owner gets the kill; someone else pushing the victim in gets nothing.
+      const trap = owner === me ? "ton piège" : `le piège de ${name(owner)}`;
+      if (pusher === me) text = `Tu as poussé ${name(victim)} dans ${trap} ${plus}`;
+      else if (pusher && victim === me) text = `${name(pusher)} t'a poussé dans ${trap} ${plus}`;
+      else if (pusher) text = `${name(pusher)} a poussé ${name(victim)} dans ${trap} ${plus}`;
+      else if (victim === me) text = `Tu es mort dans ${trap} ${plus}`;
+      else text = `${name(victim)} est mort dans ${trap} ${plus}`;
+    }
+    this.effects.pof(msg.x, msg.y - 0.6, plus);
     overlay.showNotice(text, 2500);
   }
 
@@ -873,17 +1120,48 @@ export class GameScene extends Phaser.Scene {
   private updateSpectatorHelp(): void {
     if (this.myStatus === "running") return;
     if (this.spectating && !this.livingGhosts().some((g) => g.id === this.spectating)) this.pickSpectateTarget(1);
+    // Rejoined as a spectator before any ghost arrived: watch someone once they do.
+    else if (!this.spectating) this.pickSpectateTarget(0);
     const parts: string[] = [];
     if (this.spectating) parts.push(`Tu regardes ${this.nameOf(this.spectating)} · ←/→ pour changer`);
-    if (this.myStatus === "dead" && !this.blockRequested) parts.push("Clic : poser ton bloc (1 par round)");
+    if (this.myStatus === "dead" && !this.blockPlaced) parts.push("Clic : poser ton bloc (1 par round)");
     overlay.setHelp(parts.join(" · ") || "Échap : quitter");
+  }
+
+  /** Why a dead player's block can't go on this cell, as far as this client can tell (null: try it). */
+  private blockVerdict(x: number, y: number): string | null {
+    const l = this.level;
+    if (x < 0 || x >= l.width || y < 0 || y >= l.height || l.solid[y * l.width + x]) return "Pas dans le décor";
+    if (isSpawnPadCell(l, x, y) || (l.finish && x === l.finish.x && y === l.finish.y)) return "Pas sur la zone de départ ni sur l'arrivée";
+    if (!canPlaceAt(l, this.allObjects(), x, y)) return "Case occupée";
+    return null;
+  }
+
+  /** A dead player clicks the level to drop their block. */
+  private clickBlockCell(x: number, y: number): void {
+    if (this.blockPlaced) {
+      this.showRefusal(x, y, "Un seul bloc par round");
+      return;
+    }
+    if (this.blockRequested) return; // waiting for the session's answer
+    const why = this.blockVerdict(x, y);
+    if (why) {
+      this.showRefusal(x, y, why);
+      return;
+    }
+    this.blockRequested = true;
+    this.blockCell = { x, y };
+    this.link.send({ type: "block", x, y });
   }
 
   private drawBlockPreview(): void {
     this.preview.clear();
-    if (this.phase !== "race" || this.myStatus !== "dead" || this.blockRequested || !this.hover) return;
+    if (this.phase !== "race" || this.myStatus !== "dead") return;
+    const shaking = this.drawRefusal();
+    if (this.blockRequested || !this.hover) return;
     const { x, y } = this.hover;
-    const ok = canPlaceAt(this.level, this.allObjects(), x, y);
+    if (shaking && this.refusal && this.refusal.x === x && this.refusal.y === y) return;
+    const ok = this.blockVerdict(x, y) === null;
     this.preview.lineStyle(3, ok ? 0x161616 : 0xb3361a, 1);
     drawDashedRect(this.preview, x * CELL_PX + 3, y * CELL_PX + 3, CELL_PX - 6, CELL_PX - 6);
   }
@@ -923,8 +1201,9 @@ export class GameScene extends Phaser.Scene {
     overlay.hideBanner();
     overlay.setHelp("");
     let verdict: string;
-    if (msg.verdict === "nobody-finished") verdict = "Personne n'est arrivé : aucun point ce round.";
-    else if (msg.verdict === "everyone-finished") verdict = "Tout le monde est arrivé : niveau trop facile, aucun point.";
+    if (msg.verdict === "nobody-finished") {
+      verdict = `Personne n'est arrivé : seuls les kills comptent, ${formatPoints(POINTS.minKill)} chacun.`;
+    } else if (msg.verdict === "everyone-finished") verdict = "Tout le monde est arrivé : niveau trop facile, aucun point.";
     else verdict = msg.lines.length === 1 ? "En solo, la règle « tout le monde arrive = 0 point » est ignorée." : "";
     overlay.showScores({
       title: `Fin du round ${msg.round} · ${this.level.name}`,
@@ -933,13 +1212,12 @@ export class GameScene extends Phaser.Scene {
       rows: msg.lines.map((l) => ({
         name: this.nameOf(l.playerId),
         cells: [
-          String(l.finish),
-          String(l.first),
-          String(l.onlyOne),
-          // Kill points; push-kills (2 points each) are pointed out so a "3" with one victim makes sense.
-          l.pushKills > 0 ? `${l.kills} (${l.pushKills} poussé${l.pushKills > 1 ? "s" : ""})` : String(l.kills),
-          String(l.total),
-          String(msg.totals[l.playerId] ?? 0),
+          formatPoints(l.finish),
+          formatPoints(l.first),
+          formatPoints(l.onlyOne),
+          trapCell(l),
+          formatPoints(l.total),
+          formatPoints(msg.totals[l.playerId] ?? 0),
         ],
       })),
     });
@@ -947,6 +1225,7 @@ export class GameScene extends Phaser.Scene {
 
   private showGameOver(msg: ServerMessageOf<"over">): void {
     this.phase = "over";
+    this.overMsg = msg;
     overlay.setTopBar(null);
     overlay.setHelp("");
     const isHost = !this.link.online || this.lobby?.hostId === this.link.myId;
@@ -968,7 +1247,7 @@ export class GameScene extends Phaser.Scene {
       headers: ["Points"],
       rows: Object.entries(msg.totals)
         .sort((a, b) => b[1] - a[1])
-        .map(([id, s]) => ({ name: this.nameOf(id), cells: [String(s)] })),
+        .map(([id, s]) => ({ name: this.nameOf(id), cells: [formatPoints(s)] })),
       actions,
     });
   }
@@ -1117,10 +1396,8 @@ export class GameScene extends Phaser.Scene {
       const cell = cellAt(e);
       if (!cell) return;
       if (this.phase === "placement" && !this.validated) this.clickPlacementCell(cell.x, cell.y);
-      else if (this.phase === "race" && this.myStatus === "dead" && !this.blockRequested) {
-        this.blockRequested = true;
-        this.link.send({ type: "block", x: cell.x, y: cell.y });
-      }
+      else if (this.phase === "placement") this.showRefusal(cell.x, cell.y, "Pose déjà validée : en attente des autres");
+      else if (this.phase === "race" && this.myStatus === "dead") this.clickBlockCell(cell.x, cell.y);
     };
     const menu = (e: MouseEvent) => e.preventDefault();
     canvas.addEventListener("pointermove", move);
@@ -1139,6 +1416,14 @@ export class GameScene extends Phaser.Scene {
 
   private nameOf(id: string): string {
     return this.lobby?.players.find((p) => p.id === id)?.name ?? (id === this.link.myId ? "Toi" : "?");
+  }
+
+  /**
+   * Spawn seat of a player: their colour index, which the session hands out uniquely (0..4)
+   * in order of arrival, so it doubles as a free spawn cell on the pad. 0 when unknown.
+   */
+  private seatOf(id: string): number {
+    return this.lobby?.players.find((p) => p.id === id)?.color ?? 0;
   }
 
   private colorOf(id: string): number {

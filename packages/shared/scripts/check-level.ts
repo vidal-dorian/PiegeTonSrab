@@ -11,7 +11,12 @@
  * - counts "critical cells": empty cells where a single saw would be refused because it
  *   would cut the last path. Many critical cells mean a single-lane level where placement
  *   is mostly forbidden; a good level has alternatives, so few cells are critical;
- * - prints the map with reachable standing cells (·) and critical cells (!).
+ * - checks the spawn pad (level.ts, spawnPadProblems): the 5 cells of the S row centred on
+ *   S must be empty floor on solid ground, with 2 empty rows above them, so 5 players can
+ *   start side by side;
+ * - prints the map with reachable standing cells (·), critical cells (!) and the pad (_).
+ *
+ * Exits non-zero if any level fails to parse, has no path to the finish or a broken pad.
  */
 import { readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -20,9 +25,11 @@ import {
   buildReachGraph,
   canPlaceAt,
   DEFAULT_MOVEMENT,
+  isSpawnPadCell,
   parseLevel,
   placementKeepsPath,
   prepareObjects,
+  spawnPadProblems,
   type LevelDefinition,
   type PlacedObject,
 } from "../src/index";
@@ -47,6 +54,10 @@ function check(def: LevelDefinition): boolean {
   const nodes = graph.edges.size;
   console.log(`\n=== ${def.name}  (${level.width} x ${level.height}, ${objects.length} map objects)`);
   console.log(`reachable: ${graph.reachable ? "YES" : "NO"}   graph: ${nodes} standing cells, built in ${ms.toFixed(0)} ms`);
+
+  const padProblems = spawnPadProblems(level);
+  console.log(`spawn pad: ${padProblems.length === 0 ? "OK" : `BROKEN (${padProblems.length} problems)`}`);
+  for (const p of padProblems) console.log(`  - ${p}`);
 
   const critical = new Set<number>();
   let free = 0;
@@ -77,13 +88,14 @@ function check(def: LevelDefinition): boolean {
       else if (level.finish && x === level.finish.x && y === level.finish.y) line += "F";
       else if (o) line += o.kind === "cannon" ? [">", "U", "<", "A"][o.dir ?? 2]! : charOf[o.kind]!;
       else if (critical.has(k)) line += "!";
+      else if (isSpawnPadCell(level, x, y)) line += "_";
       else if (graph.edges.has(k)) line += "·";
       else line += " ";
     }
     lines.push(line);
   }
   console.log(lines.join("\n"));
-  return graph.reachable;
+  return graph.reachable && padProblems.length === 0;
 }
 
 const args = process.argv.slice(2);

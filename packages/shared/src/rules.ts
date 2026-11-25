@@ -17,16 +17,33 @@ export interface GameConfig {
   /** Rounds 1..switchAfterRound use objectsEarly; later rounds use objectsLate. */
   switchAfterRound: number;
   /**
+   * From this many players on, every round uses objectsLate, round 1 included. Objects pile up
+   * on one map for the whole game, so a full room would otherwise fill it about 25 % faster
+   * than 4 players do (decided 2026-11-25: 2 objects from round 1 at 5 players).
+   */
+  lateOnlyFromPlayers: number;
+  /**
    * How many more objects are drawn than placed. 0 (decided 2026-11-24): every player gets
    * exactly the objects they must place, drawn at random, so nobody picks their favourite.
    */
   extraOffered: number;
   /**
-   * Maximum number of victims that count for one player per round. The most valuable
-   * victims count first, so with push-kills (2 points each) this is up to 2 * killCap points.
+   * Victims that count at full value for one player per round, most valuable first; each
+   * further victim is worth POINTS.minKill.
    */
   killCap: number;
 }
+
+/** Point values (decided 2026-11-25). The rules screen and the tutorial read them from here. */
+export const POINTS = {
+  finish: 2,
+  first: 1,
+  onlyOne: 1,
+  kill: 1,
+  pushKill: 2,
+  /** A trap kill is never worth less: victims past killCap, and every victim in a round nobody finished. */
+  minKill: 0.5,
+} as const;
 
 export const SHORT_GAME = 10;
 export const LONG_GAME = 25;
@@ -39,12 +56,14 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   objectsEarly: 3,
   objectsLate: 2,
   switchAfterRound: 3,
+  lateOnlyFromPlayers: 5,
   extraOffered: 0,
   killCap: 2,
 };
 
-/** Objects each player places in round `round` (1-based). */
-export function objectsForRound(cfg: GameConfig, round: number): number {
+/** Objects each player places in round `round` (1-based) when `players` are in the game. */
+export function objectsForRound(cfg: GameConfig, round: number, players: number): number {
+  if (players >= cfg.lateOnlyFromPlayers) return cfg.objectsLate;
   return round <= cfg.switchAfterRound ? cfg.objectsEarly : cfg.objectsLate;
 }
 
@@ -99,7 +118,10 @@ export interface RaceResult {
   playerId: string;
   /** Seconds after the race start, or null if the player did not finish. */
   finishTime: number | null;
-  /** Owner of the object that killed this player, if any (the last one touched). */
+  /**
+   * Owner of the object that killed this player, if any (when several hazards touch in the
+   * same step, see findKiller's ranking).
+   */
   killedBy: string | null;
   /**
    * Player who pushed this one (stomp or bump) into the object that killed them, shortly
@@ -110,13 +132,39 @@ export interface RaceResult {
 }
 
 /**
- * What one victim is worth to the owner of the trap that killed them: 2 if the owner pushed
- * them into it themselves (decided 2026-11-25), else 1. A pusher who doesn't own the trap
- * gets nothing: the trap's owner still gets the kill, so pushing people into others' traps
- * only helps the others.
+ * What one victim is worth at full value to the owner of the trap that killed them:
+ * POINTS.pushKill if the owner pushed them into it themselves (decided 2026-11-25), else
+ * POINTS.kill. A pusher who doesn't own the trap gets nothing: the trap's owner still gets
+ * the kill, so pushing people into others' traps only helps the others. Past killCap, or in
+ * a round nobody finished, a victim is worth POINTS.minKill instead (see killPoints).
  */
 export function killValue(victim: RaceResult, ownerId: string): number {
-  return victim.pushedBy === ownerId ? 2 : 1;
+  return victim.pushedBy === ownerId ? POINTS.pushKill : POINTS.kill;
+}
+
+/**
+ * What one owner's victims (results whose killedBy is the owner, the owner excluded) are
+ * worth together: the killCap most valuable at full value, every further one POINTS.minKill;
+ * in a round nobody finished, every one POINTS.minKill. Used by scoreRound and by the
+ * client's kill notices, so both always agree.
+ */
+export function killPoints(
+  victims: readonly RaceResult[],
+  ownerId: string,
+  cfg: GameConfig,
+  nobodyFinished: boolean,
+): { points: number; pushKills: number } {
+  const ranked = victims
+    .map((v) => ({ value: killValue(v, ownerId), pushed: v.pushedBy === ownerId }))
+    .sort((a, b) => b.value - a.value);
+  let points = 0;
+  let pushKills = 0;
+  ranked.forEach((v, i) => {
+    const full = !nobodyFinished && i < cfg.killCap;
+    points += full ? v.value : POINTS.minKill;
+    if (full && v.pushed) pushKills++;
+  });
+  return { points, pushKills };
 }
 
 export interface ScoreLine {
@@ -124,10 +172,12 @@ export interface ScoreLine {
   finish: number;
   first: number;
   onlyOne: number;
-  /** Points from kills (plain kills 1, push-kills 2), after the cap. */
+  /** Points from kills: 1, 2 for a push-kill, 0.5 past killCap or when nobody finished. */
   kills: number;
-  /** How many of the counted kills were push-kills (worth 2 each), so the table can say so. */
+  /** Push-kills counted at full value (POINTS.pushKill each), so the table can say so. */
   pushKills: number;
+  /** Other players killed by this player's objects this round; every one of them scores. */
+  victims: number;
   total: number;
 }
 
@@ -136,7 +186,7 @@ export type RoundVerdict =
   | "scored"
   /** Everybody finished: level too easy, nobody scores. */
   | "everyone-finished"
-  /** Nobody finished: level impossible, nobody scores (kills included). */
+  /** Nobody finished: no race points; each trap kill is worth POINTS.minKill. */
   | "nobody-finished";
 
 export interface RoundScore {
@@ -151,33 +201,41 @@ export interface RoundScore {
  */
 export function scoreRound(results: readonly RaceResult[], cfg: GameConfig, soloRules = false): RoundScore {
   const finishers = results.filter((r) => r.finishTime !== null);
-  const zero = (playerId: string): ScoreLine => ({ playerId, finish: 0, first: 0, onlyOne: 0, kills: 0, pushKills: 0, total: 0 });
+  const nobody = finishers.length === 0;
+  const zero = (playerId: string): ScoreLine => ({
+    playerId,
+    finish: 0,
+    first: 0,
+    onlyOne: 0,
+    kills: 0,
+    pushKills: 0,
+    victims: 0,
+    total: 0,
+  });
 
-  if (finishers.length === 0) return { verdict: "nobody-finished", lines: results.map((r) => zero(r.playerId)) };
-  if (finishers.length === results.length && !soloRules) {
+  // Nobody can die when everyone finished, so no trap kill is lost here.
+  if (!nobody && finishers.length === results.length && !soloRules) {
     return { verdict: "everyone-finished", lines: results.map((r) => zero(r.playerId)) };
   }
 
-  const firstTime = Math.min(...finishers.map((r) => r.finishTime!));
+  const firstTime = nobody ? Infinity : Math.min(...finishers.map((r) => r.finishTime!));
   const lines = results.map((r) => {
     const line = zero(r.playerId);
     if (r.finishTime !== null) {
-      line.finish = 2;
-      if (r.finishTime === firstTime) line.first = 1;
-      if (finishers.length === 1) line.onlyOne = 1;
+      line.finish = POINTS.finish;
+      if (r.finishTime === firstTime) line.first = POINTS.first;
+      if (finishers.length === 1) line.onlyOne = POINTS.onlyOne;
     }
     // Dying in your own trap scores nothing; map objects (no owner) and pits have killedBy null.
-    const values = results
-      .filter((v) => v.killedBy === r.playerId && v.playerId !== r.playerId)
-      .map((v) => killValue(v, r.playerId))
-      .sort((a, b) => b - a)
-      .slice(0, cfg.killCap);
-    line.kills = values.reduce((s, v) => s + v, 0);
-    line.pushKills = values.filter((v) => v === 2).length;
+    const victims = results.filter((v) => v.killedBy === r.playerId && v.playerId !== r.playerId);
+    const k = killPoints(victims, r.playerId, cfg, nobody);
+    line.kills = k.points;
+    line.pushKills = k.pushKills;
+    line.victims = victims.length;
     line.total = line.finish + line.first + line.onlyOne + line.kills;
     return line;
   });
-  return { verdict: "scored", lines };
+  return { verdict: nobody ? "nobody-finished" : "scored", lines };
 }
 
 /**

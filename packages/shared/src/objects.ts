@@ -8,7 +8,7 @@
  *
  * First batch (build steps 2 and 5): saw, spikes, platform, cannon, spring, vine.
  */
-import { cellSpan, type Level } from "./level";
+import { cellSpan, isSpawnPadCell, type Level } from "./level";
 
 export type ObjectKind = "saw" | "spikes" | "platform" | "cannon" | "spring" | "vine";
 
@@ -42,7 +42,7 @@ export const OBJECT_DEFS: Record<ObjectKind, ObjectDef> = {
   spikes: { kind: "spikes", family: "kill", name: "Pics", hint: "Tue qui atterrit dessus", solid: false, rotatable: false },
   cannon: { kind: "cannon", family: "kill", name: "Canon", hint: "Tire un boulet toutes les 2 s", solid: true, rotatable: true },
   spring: { kind: "spring", family: "help", name: "Ressort", hint: "Fait rebondir très haut", solid: true, rotatable: false },
-  vine: { kind: "vine", family: "help", name: "Liane", hint: "S'y accrocher, Saut pour lâcher", solid: true, rotatable: false },
+  vine: { kind: "vine", family: "help", name: "Liane", hint: "S'y accrocher · Saut pour sauter, S ou ↓ pour lâcher", solid: true, rotatable: false },
   platform: { kind: "platform", family: "neutral", name: "Plateforme", hint: "Un bloc solide", solid: true, rotatable: false },
 };
 
@@ -217,14 +217,49 @@ export function boxHitsHazard(box: Box, hz: Hazard, vy: number): boolean {
   return box.x < hz.x + hz.w && box.x + box.w > hz.x && box.y < hz.y + hz.h && box.y + box.h > hz.y;
 }
 
-/** The first object whose hazards touch the box at round time `t`, or null. */
-export function findKiller(objects: readonly PlacedObject[], box: Box, vy: number, t: number): PlacedObject | null {
+/** Who is dying and who pushed them, so findKiller can credit the right trap when several touch. */
+export interface KillerPrefs {
+  victimId?: string | null;
+  /** Players who recently pushed the victim (see TIMING.pushCredit). */
+  pusherIds?: readonly string[];
+}
+
+/**
+ * The object that kills a body touching hazards at round time `t`, or null. When several
+ * touch in the same step: a trap of a recent pusher, then a trap of any other player, then
+ * map objects and the victim's own traps; within a rank the hazard whose centre is closest
+ * to the body's centre, then the newest object (highest id).
+ */
+export function findKiller(
+  objects: readonly PlacedObject[],
+  box: Box,
+  vy: number,
+  t: number,
+  prefs: KillerPrefs = {},
+): PlacedObject | null {
+  const cx = box.x + box.w / 2;
+  const cy = box.y + box.h / 2;
+  let best: PlacedObject | null = null;
+  let bestRank = Infinity;
+  let bestDist = Infinity;
   for (const obj of objects) {
     for (const hz of hazardsOf(obj, t)) {
-      if (boxHitsHazard(box, hz, vy)) return obj;
+      if (!boxHitsHazard(box, hz, vy)) continue;
+      const o = obj.ownerId;
+      const rank = o && o !== prefs.victimId ? (prefs.pusherIds?.includes(o) ? 0 : 1) : 2;
+      const hx = hz.shape === "circle" ? hz.cx : hz.x + hz.w / 2;
+      const hy = hz.shape === "circle" ? hz.cy : hz.y + hz.h / 2;
+      const d = (hx - cx) ** 2 + (hy - cy) ** 2;
+      const better =
+        rank < bestRank || (rank === bestRank && (d < bestDist || (d === bestDist && obj.id > best!.id)));
+      if (better) {
+        best = obj;
+        bestRank = rank;
+        bestDist = d;
+      }
     }
   }
-  return null;
+  return best;
 }
 
 /**
@@ -303,13 +338,16 @@ export function vinesOf(objects: readonly PlacedObject[]): Vine[] {
 }
 
 /**
- * Basic placement rule: inside the level, on an empty cell, not on the start or the finish,
- * not on another object. The "finish must stay reachable" check is in reachability.ts.
+ * Basic placement rule: inside the level, on an empty cell, not on the spawn pad (the start
+ * and the cells around it where the other seats spawn, see level.ts) nor the finish, not on
+ * another object. The "finish must stay reachable" check is in reachability.ts.
+ * Every placement goes through here (round placement, its preview, dead players' blocks,
+ * practice mode), which is what keeps the pad free for the whole game.
  */
 export function canPlaceAt(level: Level, objects: readonly PlacedObject[], x: number, y: number): boolean {
   if (x < 0 || x >= level.width || y < 0 || y >= level.height) return false;
   if (level.solid[y * level.width + x]) return false;
-  if (x === level.start.x && y === level.start.y) return false;
+  if (isSpawnPadCell(level, x, y)) return false;
   if (level.finish && x === level.finish.x && y === level.finish.y) return false;
   return !objects.some((o) => o.x === x && o.y === y);
 }

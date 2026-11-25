@@ -5,6 +5,8 @@
  * It is laid over the canvas rectangle (not the window) and scaled with it, so the prompt
  * always sits over the empty sky rows of the level whatever the window shape.
  */
+import { POINTS } from "@game/shared";
+import { formatPoints } from "../ui/points";
 import { tokenizePrompt } from "./flow";
 import "./tutorial.css";
 
@@ -17,10 +19,10 @@ export interface HudActions {
 
 /** Points recap on the end card (the full rules are on the menu's rules screen). */
 const RECAP: Array<[string, string]> = [
-  ["+2", "arrivée"],
-  ["+1", "premier arrivé"],
-  ["+1", "rival tué par ton piège"],
-  ["+2", "rival poussé dans ton piège"],
+  [`+${formatPoints(POINTS.finish)}`, "arrivée"],
+  [`+${formatPoints(POINTS.first)}`, "premier arrivé"],
+  [`+${formatPoints(POINTS.kill)}`, "rival tué par ton piège"],
+  [`+${formatPoints(POINTS.pushKill)}`, "rival poussé dans ton piège"],
 ];
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text = ""): HTMLElementTagNameMap[K] {

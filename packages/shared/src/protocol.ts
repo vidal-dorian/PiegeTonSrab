@@ -11,8 +11,13 @@ import type { RoundVerdict, ScoreLine } from "./rules";
 
 export const SERVER_PORT = 2567;
 export const ROOM_NAME = "game";
-export const MAX_PLAYERS = 4;
+export const MAX_PLAYERS = 5;
 export const MAX_NAME_LENGTH = 16;
+/**
+ * Error code of a join the session refused (game already started, room full): the client
+ * shows the error's message, written in French for the player, instead of "server down".
+ */
+export const JOIN_REFUSED_CODE = 4210;
 
 /** Timings of the parts of a game that are not in GameConfig, milliseconds. */
 export const TIMING = {
@@ -45,6 +50,8 @@ export const TIMING = {
    * so walking into a trap afterwards is their own doing.
    */
   pushCredit: 1200,
+  /** A death or finish detected just before the race end may arrive this long after it (network latency). */
+  lateReport: 500,
 } as const;
 
 /**
@@ -57,7 +64,7 @@ export const STOMP_MAX_DISTANCE = 3;
 export interface LobbyPlayer {
   id: string;
   name: string;
-  /** Index in the player colour list: 0 black, 1 white, 2 blue, 3 green. */
+  /** Index in the player colour list: 0 black, 1 white, 2 blue, 3 green, 4 purple. */
   color: number;
   connected: boolean;
 }
@@ -80,6 +87,13 @@ export interface PlayerPose {
 
 export type RaceStatus = "running" | "dead" | "finished" | "out";
 
+/** A death in an object owned by a player, as the playerDied message reports it. */
+export interface TrapDeath {
+  id: string;
+  killerOwner: string;
+  pushedBy: string | null;
+}
+
 export interface Ghost extends PlayerPose {
   id: string;
   status: RaceStatus;
@@ -92,6 +106,12 @@ export interface PlacementChoice {
   y: number;
   /** Rotatable objects only (cannon). */
   dir?: Dir;
+}
+
+/** One of a player's objects that the session refused at the end of placement. */
+export interface RefusedObject {
+  kind: ObjectKind;
+  reason: "path" | "taken" | "invalid";
 }
 
 // --- Server to client ---------------------------------------------------------
@@ -117,10 +137,28 @@ export type ServerMessage =
       type: "countdown";
       round: number;
       objects: PlacedObject[];
-      /** How many of your objects were refused because, together with the others', they cut the path. */
+      /** How many of your objects were refused at the end of placement (same as refusedObjects.length). */
       refused: number;
+      /**
+       * Your objects refused at the end of placement, and why: "path" (together with the others'
+       * objects it would have cut the last path to the finish), "taken" (a player who validated
+       * before you put something on that cell), "invalid" (a cell where nothing can go).
+       */
+      refusedObjects?: RefusedObject[];
+      /** Objects you had still not placed when the placement time ran out (0 if you validated). */
+      unplaced?: number;
       raceStartsAt: number;
       raceEndsAt: number;
+      /**
+       * Your race status on the server. Matters when rejoining mid-race: "dead" or "finished"
+       * means your run is over and you watch; otherwise you run (again) from the spawn.
+       */
+      status?: RaceStatus;
+      /**
+       * This round's deaths in someone's trap so far (rejoining mid-race), so the kill notices
+       * that follow count the owner's earlier victims, like the score does.
+       */
+      deaths?: TrapDeath[];
     }
   | { type: "ghosts"; t: number; players: Ghost[] }
   /**
@@ -153,7 +191,10 @@ export type ServerMessage =
 export type ClientMessage =
   | { type: "setTarget"; targetScore: number }
   | { type: "start" }
-  /** Current choice during placement; `done` when the player pressed "Valider la pose". */
+  /**
+   * Current choice during placement; `done` when the player pressed "Valider la pose". A
+   * validated choice may hold fewer objects than needed (the others were discarded).
+   */
   | { type: "placement"; objects: PlacementChoice[]; done: boolean }
   | ({ type: "pose" } & PlayerPose)
   /**

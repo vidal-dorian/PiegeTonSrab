@@ -288,7 +288,7 @@ export class SoloScene extends Phaser.Scene {
     if (!debugView.showHud) return;
     const best = bestTimes.get(this.level.name);
     this.hud.setText([
-      "Q/A ← · D → · Espace/Z/↑ saut · R recommencer · N niveau suivant · Échap menu",
+      "Q/A ← · D → · Espace/Z/↑ saut · S/↓ lâcher la liane · R recommencer · N niveau suivant · Échap menu",
       `${this.level.name} · temps ${this.player.time.toFixed(2)} s · record ${best !== undefined ? best.toFixed(2) + " s" : "-"} · morts ${this.deaths}`,
       this.editor.status(),
     ]);

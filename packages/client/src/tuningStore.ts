@@ -1,6 +1,8 @@
 /**
  * The live tuning object shared by the scene and the tuning panel.
  * Changes made in the panel are kept in localStorage so they survive a page reload.
+ * Production builds have no panel and always play with the defaults: values a player saved
+ * with an older build that still had the panel are ignored and cleared.
  * localStorage can be unavailable (private window, blocked storage): every access is guarded.
  */
 import { cloneTuning, DEFAULT_TUNING, type Tuning } from "./config";
@@ -9,6 +11,14 @@ const STORAGE_KEY = "tuning-v1";
 
 function load(): Tuning {
   const t = cloneTuning(DEFAULT_TUNING);
+  if (!import.meta.env.DEV) {
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // Nothing to clear.
+    }
+    return t;
+  }
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return t;

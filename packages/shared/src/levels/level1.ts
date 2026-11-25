@@ -9,6 +9,15 @@ import type { LevelDefinition } from "../level";
  *   left wall, and a spring at its foot throws ground runners up to the same ledge.
  * - From the top: down to the ground and over a small pit, or across a high platform, to F.
  * One built-in object (the spring), no built-in hazards.
+ *
+ * At 5 players: the spawn floor is 9 cells wide, and every section keeps a low and a high
+ * lane so one trap never forces single file. The chimney section, where all routes meet to
+ * cross the tall wall, has four ways up (the chimney, the spring, the high lane onto the
+ * ledge, and the steps at its left from the ground), so it stays open as objects pile up.
+ * The finish platform is 7 wide with open sky above it, room for 5 arrivals and for traps.
+ * Stress test (5 players, 5 seeds): about 30 % refusals and 15 % critical cells at round 10,
+ * the route about 1.45x its empty length; the map is left as tuned for 4 players because
+ * it already holds at 5 (a wider chimney ledge was tried and gained nothing reliable).
  */
 export const level1: LevelDefinition = {
   name: "Le Parc",

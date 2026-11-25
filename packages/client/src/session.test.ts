@@ -3,6 +3,7 @@ import {
   buildReachGraph,
   DEFAULT_MOVEMENT,
   GameSession,
+  MAX_PLAYERS,
   parseLevel,
   TIMING,
   type LevelDefinition,
@@ -10,6 +11,7 @@ import {
   type ServerMessage,
   type SessionIO,
 } from "@game/shared";
+import { PLAYER_COLORS } from "./render/playerColors";
 
 /** Fake clock and network: timers run when the test advances time. */
 class FakeIO implements SessionIO {
@@ -90,13 +92,17 @@ function toPlacement(io: FakeIO, s: GameSession, ids: string[]) {
 }
 
 describe("GameSession", () => {
+  it("has one player colour per seat", () => {
+    expect(PLAYER_COLORS.length).toBe(MAX_PLAYERS);
+  });
+
   it("lobby: colours, host, full room, only the host starts", () => {
     const { io, s } = setup();
-    for (const id of ["a", "b", "c", "d"]) expect(s.addPlayer(id, `  ${id.toUpperCase()}  `)).toBeNull();
-    expect(s.addPlayer("e", "E")).toMatch(/plein/);
+    for (const id of ["a", "b", "c", "d", "e"]) expect(s.addPlayer(id, `  ${id.toUpperCase()}  `)).toBeNull();
+    expect(s.addPlayer("f", "F")).toMatch(/plein \(5 joueurs\)/);
     const lobby = io.last("lobby")!.lobby;
     expect(lobby.hostId).toBe("a");
-    expect(lobby.players.map((p) => [p.name, p.color])).toEqual([["A", 0], ["B", 1], ["C", 2], ["D", 3]]);
+    expect(lobby.players.map((p) => [p.name, p.color])).toEqual([["A", 0], ["B", 1], ["C", 2], ["D", 3], ["E", 4]]);
     s.handle("b", { type: "start" });
     expect(io.last("gameStart")).toBeUndefined();
     s.handle("a", { type: "start" });
@@ -224,7 +230,77 @@ describe("GameSession", () => {
     s.handle("a", { type: "placement", objects: choose(io.last("placement", "a")!.offer, UPPER_SAW, 3), done: true });
     s.handle("b", { type: "placement", objects: choose(io.last("placement", "b")!.offer, LOWER_SAW, 12), done: true });
     expect(io.last("countdown", "a")!.refused).toBe(0);
+    expect(io.last("countdown", "a")!.refusedObjects).toEqual([]);
     expect(io.last("countdown", "b")!.refused).toBe(1);
+    // The refused object is named, with the reason, so the player is told which one and why.
+    const bKiller = io.last("placement", "b")!.offer.find(isTrap)!;
+    expect(io.last("countdown", "b")!.refusedObjects).toEqual([{ kind: bKiller, reason: "path" }]);
+    expect(io.last("countdown", "b")!.unplaced).toBe(0);
+  });
+
+  it("a validated player may hold fewer objects than needed; nobody waits for the timer", () => {
+    const { io, s } = setup();
+    s.addPlayer("a", "A");
+    s.addPlayer("b", "B");
+    toPlacement(io, s, ["a", "b"]);
+    const pa = io.last("placement", "a")!;
+    // "a" keeps one object (the others had no room, or were discarded); "b" places nothing.
+    s.handle("a", { type: "placement", objects: [{ kind: pa.offer[0]!, x: 4, y: 0 }], done: true });
+    expect(io.last("placedStatus")!.done).toEqual(["a"]);
+    expect(io.last("countdown")).toBeUndefined();
+    s.handle("b", { type: "placement", objects: [], done: true });
+    // Everyone validated: the countdown starts at once, not after 35 s.
+    const cd = io.last("countdown", "a")!;
+    expect(cd).toBeDefined();
+    expect(cd.objects.filter((o) => o.ownerId === "a")).toHaveLength(1);
+    expect(cd.objects.filter((o) => o.ownerId === "b")).toHaveLength(0);
+    // Validating with fewer objects is a choice, not a timeout.
+    expect(io.last("countdown", "a")!.unplaced).toBe(0);
+    expect(io.last("countdown", "b")!.unplaced).toBe(0);
+  });
+
+  it("refuses more objects than needed, and validated choices can't change", () => {
+    const { io, s } = setup();
+    s.addPlayer("a", "A");
+    s.addPlayer("b", "B");
+    toPlacement(io, s, ["a", "b"]);
+    const pa = io.last("placement", "a")!;
+    const tooMany = [...pa.offer, pa.offer[0]!].map((kind, i) => ({ kind, x: 3 + i, y: 0 }));
+    s.handle("a", { type: "placement", objects: tooMany, done: true });
+    expect(io.last("placedStatus")!.done).toEqual([]);
+    s.handle("a", { type: "placement", objects: [], done: true });
+    s.handle("a", { type: "placement", objects: pa.offer.map((kind, i) => ({ kind, x: 3 + i, y: 0 })), done: false });
+    io.advance(35_000 + TIMING.placementGrace);
+    expect(io.last("countdown", "a")!.objects.filter((o) => o.ownerId === "a")).toHaveLength(0);
+  });
+
+  it("tells who ran out of time how many objects they never placed, and names cells already taken", () => {
+    const { io, s } = setup();
+    s.addPlayer("a", "A");
+    s.addPlayer("b", "B");
+    toPlacement(io, s, ["a", "b"]);
+    const pa = io.last("placement", "a")!;
+    const pb = io.last("placement", "b")!;
+    // "b" validates first with an object on (5, 0); "a" put one on the same cell and one
+    // elsewhere, but never validated.
+    s.handle("b", { type: "placement", objects: [{ kind: pb.offer[0]!, x: 5, y: 0 }], done: true });
+    s.handle("a", {
+      type: "placement",
+      objects: [
+        { kind: pa.offer[0]!, x: 5, y: 0 },
+        { kind: pa.offer[1]!, x: 8, y: 0 },
+      ],
+      done: false,
+    });
+    io.advance(35_000 + TIMING.placementGrace);
+    const ca = io.last("countdown", "a")!;
+    expect(ca.unplaced).toBe(1);
+    expect(ca.refusedObjects).toEqual([{ kind: pa.offer[0]!, reason: "taken" }]);
+    expect(ca.refused).toBe(1);
+    expect(ca.objects.filter((o) => o.ownerId === "a")).toHaveLength(1);
+    const cb = io.last("countdown", "b")!;
+    expect(cb.unplaced).toBe(0);
+    expect(cb.refusedObjects).toEqual([]);
   });
 
   it("dead players place one block, never next to a living player", () => {

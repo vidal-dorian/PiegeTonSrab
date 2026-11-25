@@ -1,7 +1,7 @@
 /**
  * Build step 5 objects (cannon, spring, vine), the random draw and contacts between players.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   bodiesOverlap,
   buildReachGraph,
@@ -31,6 +31,7 @@ import {
   type SessionIO,
   type StepInput,
 } from "@game/shared";
+import { InputSource } from "./input";
 
 const tuning = { ...DEFAULT_MOVEMENT };
 const DT = 1 / 120;
@@ -196,6 +197,162 @@ describe("vine", () => {
     c.y = 3.5;
     c.grounded = false;
     expect(c.tryGrabVine(vinesOf(objects), () => false)).toBeNull();
+  });
+
+  /** A body hanging from vine 9, swung for `seconds`. */
+  function hanging(seconds = 0.3): { c: CharacterController; vines: ReturnType<typeof vinesOf> } {
+    const objects = prepareObjects(room, [vineObj]);
+    const vines = vinesOf(objects);
+    const c = new CharacterController(withSolidObjects(room, objects), tuning);
+    c.x = 7.8;
+    c.y = 3.5;
+    c.vx = 6;
+    c.vy = 0;
+    c.grounded = false;
+    expect(c.tryGrabVine(vines, () => true)?.id).toBe(9);
+    run(c, seconds);
+    expect(c.swing).not.toBeNull();
+    return { c, vines };
+  }
+
+  it("Down lets go keeping the momentum, with no push upwards and no steering lock", () => {
+    const { c } = hanging();
+    const vx = c.vx;
+    const vy = c.vy;
+    c.step(DT, { ...idle, down: true });
+    expect(c.swing).toBeNull();
+    expect(Math.sign(c.vx)).toBe(Math.sign(vx));
+    expect(c.vy).toBeGreaterThanOrEqual(vy - 1e-6); // gravity only, nothing upwards
+    // Steering answers on the very next step.
+    const before = c.vx;
+    c.step(DT, { ...idle, left: true });
+    expect(c.vx).toBeLessThan(before);
+  });
+
+  it("a single Down tap is enough: the dropped vine is not grabbed again on the way down", () => {
+    // Short rope swinging upwards: without the rule this regrabs vine 9 about 41 steps later.
+    const objects = prepareObjects(room, [vineObj]);
+    const vines = vinesOf(objects);
+    const c = new CharacterController(withSolidObjects(room, objects), tuning);
+    c.x = 8.4;
+    c.y = 2.15;
+    c.vx = -7;
+    c.vy = 0;
+    c.grounded = false;
+    expect(c.tryGrabVine(vines, () => true)?.id).toBe(9);
+    for (let i = 0; i < 90; i++) c.step(DT, { ...idle, left: true });
+    expect(c.swing).not.toBeNull();
+    c.step(DT, { ...idle, down: true });
+    expect(c.swing).toBeNull();
+    for (let i = 0; i < 240 && !c.grounded; i++) {
+      c.step(DT, idle);
+      expect(c.tryGrabVine(vines, () => true)).toBeNull();
+    }
+    expect(c.grounded).toBe(true);
+  });
+
+  it("a Down tap far out on the swing, then steering back, does not regrab the vine before landing", () => {
+    // Review finding: the body is far off the rope axis (out of the narrow grab strip) when it
+    // lets go, so the old rule forgot the dropped vine on the next call and regrabbed it 0.35 s later.
+    const objects = prepareObjects(room, [vineObj]);
+    const vines = vinesOf(objects);
+    const c = new CharacterController(withSolidObjects(room, objects), tuning);
+    c.x = 7.8;
+    c.y = 4;
+    c.vx = 6;
+    c.vy = 0;
+    c.grounded = false;
+    expect(c.tryGrabVine(vines, () => true)?.id).toBe(9);
+    // Pump with the swing.
+    for (let i = 0; i < 30; i++) {
+      c.step(DT, { ...idle, left: c.swing!.omega < 0, right: c.swing!.omega > 0 });
+      c.tryGrabVine(vines, () => true);
+    }
+    expect(Math.abs(c.x + tuning.bodyWidth / 2 - vines[0]!.ax)).toBeGreaterThan(1);
+    c.step(DT, { ...idle, down: true });
+    expect(c.swing).toBeNull();
+    for (let i = 0; i < 600 && !c.grounded; i++) {
+      expect(c.tryGrabVine(vines, () => true)).toBeNull();
+      c.step(DT, { ...idle, left: true });
+    }
+    expect(c.grounded).toBe(true);
+  });
+
+  it("holding Down prevents grabbing a vine", () => {
+    const objects = prepareObjects(room, [vineObj]);
+    const vines = vinesOf(objects);
+    const c = new CharacterController(withSolidObjects(room, objects), tuning);
+    c.x = 8.1;
+    c.y = 3.5;
+    c.vx = 0;
+    c.vy = 0;
+    c.grounded = false;
+    c.step(DT, { ...idle, down: true });
+    expect(c.grounded).toBe(false);
+    expect(c.tryGrabVine(vines, () => true)).toBeNull();
+    c.step(DT, idle);
+    expect(c.tryGrabVine(vines, () => true)?.id).toBe(9);
+  });
+
+  it("the dropped vine can be grabbed again once the body has left its reach", () => {
+    const { c, vines } = hanging();
+    c.step(DT, { ...idle, down: true });
+    expect(c.swing).toBeNull();
+    // Let the regrab delay run out, still in reach: the dropped vine is skipped.
+    const placeInReach = () => {
+      c.x = 8.1;
+      c.y = 3.5;
+      c.vx = 0;
+      c.vy = 0;
+      c.grounded = false;
+    };
+    for (let i = 0; i < Math.round(0.4 / DT); i++) {
+      c.step(DT, idle);
+      placeInReach();
+    }
+    expect(c.tryGrabVine(vines, () => true)).toBeNull();
+    // Out of reach (past anything the rope can sweep), then back: grabbable again.
+    c.x += 6;
+    expect(c.tryGrabVine(vines, () => true)).toBeNull();
+    placeInReach();
+    expect(c.tryGrabVine(vines, () => true)?.id).toBe(9);
+  });
+
+  it("Down wins over Jump in the same step", () => {
+    const { c } = hanging();
+    const vy = c.vy;
+    c.step(DT, { ...idle, down: true, jumpPressed: true, jumpHeld: true });
+    expect(c.swing).toBeNull();
+    expect(c.vy).toBeGreaterThanOrEqual(vy - 1e-6);
+    // No jump kept in the buffer either.
+    c.step(DT, { ...idle, jumpHeld: true });
+    expect(c.vy).toBeGreaterThanOrEqual(vy - 1e-6);
+  });
+
+  it("a Down tap shorter than a step still reaches the next step, once", () => {
+    const handlers = new Map<string, (e: unknown) => void>();
+    vi.stubGlobal("window", {
+      addEventListener: (type: string, fn: (e: unknown) => void) => handlers.set(type, fn),
+      removeEventListener: () => {},
+    });
+    vi.stubGlobal("navigator", { getGamepads: () => [] });
+    vi.stubGlobal("HTMLInputElement", class {});
+    vi.stubGlobal("HTMLTextAreaElement", class {});
+    try {
+      const input = new InputSource();
+      const key = (type: string, code: string) =>
+        handlers.get(type)!({ code, repeat: false, target: null, preventDefault: () => {} });
+      key("keydown", "KeyS");
+      key("keyup", "KeyS");
+      expect(input.takeStepInput().down).toBe(true);
+      expect(input.takeStepInput().down).toBe(false);
+      key("keydown", "ArrowDown");
+      expect(input.takeStepInput().down).toBe(true);
+      expect(input.takeStepInput().down).toBe(true); // still held
+      input.destroy();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 
