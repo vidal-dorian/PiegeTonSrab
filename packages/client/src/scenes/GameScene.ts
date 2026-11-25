@@ -210,7 +210,8 @@ export class GameScene extends Phaser.Scene {
     this.level = parseLevel(RACE_LEVELS[this.levelIndex]!);
     this.phase = "carousel";
     this.round = 0;
-    this.totals = {};
+    // Scores so far: a player joining a running game again gets them with the gameStart.
+    this.totals = { ...(data.start.totals ?? {}) };
     this.objects = [];
     this.pending = [];
     this.erasing = [];
@@ -273,7 +274,7 @@ export class GameScene extends Phaser.Scene {
     this.link.onStatus = (status) => {
       if (status === "lost") overlay.showNotice("Connexion perdue, reconnexion…", 0);
       else if (status === "back") overlay.showNotice("Reconnecté");
-      else this.quit("Déconnecté du serveur.");
+      else this.quit(this.link.closeMessage ?? "Déconnecté du serveur.");
     };
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.handlerGen++;
@@ -335,8 +336,14 @@ export class GameScene extends Phaser.Scene {
           this.showGameOver(this.overMsg);
           if (msg.lobby.hostId === this.link.myId) overlay.showNotice("L'hôte est parti : tu es le nouvel hôte", 4000);
         }
+        this.dropGhostsNotIn(msg.lobby.players.map((p) => p.id));
+        // Names and "done" marks in the tray come from the lobby.
+        if (this.phase === "placement") this.renderTray();
         break;
       }
+      case "renamed":
+        this.renamePlayer(msg.from, msg.to);
+        break;
       case "gameStart":
         // A new game in the same room ("Rejouer"), or a reconnection. The restart happens on the
         // next frame: detach now so the messages that follow wait in the link for the new scene.
@@ -409,6 +416,45 @@ export class GameScene extends Phaser.Scene {
       case "pong":
         break;
     }
+  }
+
+  /**
+   * A player came back into the game under a new connection id: everything this scene keeps
+   * by player id follows. Their ghost is dropped (a new one comes with the new id) instead of
+   * staying frozen where they were.
+   */
+  private renamePlayer(from: string, to: string): void {
+    const r = (id: string) => (id === from ? to : id);
+    if (this.lobby) {
+      this.lobby = { ...this.lobby, hostId: r(this.lobby.hostId), players: this.lobby.players.map((p) => ({ ...p, id: r(p.id) })) };
+    }
+    this.totals = Object.fromEntries(Object.entries(this.totals).map(([id, v]) => [r(id), v]));
+    if (this.overMsg) {
+      const totals = Object.fromEntries(Object.entries(this.overMsg.totals).map(([id, v]) => [r(id), v]));
+      this.overMsg = { ...this.overMsg, winner: r(this.overMsg.winner), totals };
+    }
+    this.dropGhost(from);
+    this.touching.delete(from);
+    this.lastStompAt.delete(from);
+    for (const [vine, holder] of this.vineHolders) this.vineHolders.set(vine, r(holder));
+    if (this.spectating === from) this.spectating = null;
+    this.doneIds = this.doneIds.map(r);
+    this.roundKills.rename(from, to);
+    for (const o of this.objects) if (o.ownerId === from) o.ownerId = to;
+    for (const b of this.blocks) if (b.block.ownerId === from) b.block.ownerId = to;
+    this.updateCrowns();
+    this.syncObjectViews();
+    if (this.phase === "placement") this.renderTray();
+  }
+
+  private dropGhost(id: string): void {
+    this.ghosts.get(id)?.destroy();
+    this.ghosts.delete(id);
+  }
+
+  /** Ghosts of players no longer in the room (taken back under another id, left in the lobby). */
+  private dropGhostsNotIn(ids: readonly string[]): void {
+    for (const id of [...this.ghosts.keys()]) if (!ids.includes(id)) this.dropGhost(id);
   }
 
   // --- Placement ---------------------------------------------------------------------
@@ -1349,6 +1395,9 @@ export class GameScene extends Phaser.Scene {
   // --- Score and end of game -------------------------------------------------------------
 
   private showScore(msg: ServerMessageOf<"score">): void {
+    // Rejoining on the score screen comes right after a gameStart: no carousel then.
+    carouselScreen.hide();
+    this.cameras.main.setAlpha(1);
     this.phase = "score";
     this.totals = msg.totals;
     this.updateCrowns();
@@ -1378,6 +1427,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showGameOver(msg: ServerMessageOf<"over">): void {
+    carouselScreen.hide();
+    this.cameras.main.setAlpha(1);
     this.phase = "over";
     this.overMsg = msg;
     overlay.setTopBar(null);
@@ -1521,10 +1572,10 @@ export class GameScene extends Phaser.Scene {
         return;
       }
       this.escapeAt = now;
-      overlay.showNotice(
-        this.link.online ? "Appuie encore sur Échap pour quitter la partie" : "Appuie encore sur Échap pour revenir au menu",
-        ESCAPE_CONFIRM_MS,
-      );
+      const reminder = this.link.online ? "Appuie encore sur Échap pour quitter la partie" : "Appuie encore sur Échap pour revenir au menu";
+      // While the connection is down, the "connection lost" notice must stay on screen.
+      if (this.link.isLost) overlay.showNotice(`Connexion perdue, reconnexion…\n${reminder}`, 0);
+      else overlay.showNotice(reminder, ESCAPE_CONFIRM_MS);
       return;
     }
     const digit = /^Digit([1-9])$/.exec(code);

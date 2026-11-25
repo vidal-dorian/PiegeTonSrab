@@ -33,6 +33,17 @@ export function statusAfterOwnReport(current: MyStatus, report: "dead" | "finish
 export class RoundKills {
   private victims = new Map<string, RaceResult[]>();
 
+  /** A player came back under a new id (see the "renamed" message). */
+  rename(from: string, to: string): void {
+    const r = (id: string | null) => (id === from ? to : id);
+    this.victims = new Map(
+      [...this.victims].map(([owner, list]) => [
+        r(owner)!,
+        list.map((v) => ({ ...v, playerId: r(v.playerId)!, killedBy: r(v.killedBy), pushedBy: r(v.pushedBy ?? null) })),
+      ]),
+    );
+  }
+
   reset(deaths: readonly TrapDeath[] = []): void {
     this.victims.clear();
     for (const d of deaths) this.add(d);

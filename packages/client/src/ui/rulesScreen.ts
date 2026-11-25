@@ -134,7 +134,7 @@ function buildContent(): HTMLElement[] {
         { left: "Clic", right: "Poser ou reprendre un objet" },
         { left: "1, 2, 3", right: "Choisir l'objet à poser" },
         { left: "R ou clic droit", right: "Tourner le canon" },
-        { left: "Échap", right: "Quitter la partie" },
+        { left: "Échap ×2", right: "Quitter la partie" },
       ],
       "rules-keys",
     ),

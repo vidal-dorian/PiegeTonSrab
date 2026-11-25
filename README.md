@@ -44,7 +44,7 @@ the tab or loses the connection for more than 30 s comes back by joining the roo
 In the tutorial: Enter or "Étape suivante" skips a step, Escape or "Passer le tuto" goes back to the menu.
 Free practice has an editor (E, then 1-6 to pick an object, T to turn a cannon, click) to place objects by hand.
 
-Controls: Q/A left, D right, Space, Z/W or Up jump, S or Down drop a vine, Escape back to the menu, gamepad supported.
+Controls: Q/A left, D right, Space, Z/W or Up jump, S or Down drop a vine, Escape twice to quit a game (once in practice and the tutorial), gamepad supported.
 During placement: click to place or take back, 1-3 to pick which of your drawn objects goes next, R or right click
 to turn a cannon (the dashed red line shows where it fires). Clicking a refused cell says why. A card with no
 accepted cell left is stamped "Plus de place" and discarded; "Défausser" discards the selected card by hand
