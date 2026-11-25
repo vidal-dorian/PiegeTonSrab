@@ -33,7 +33,7 @@ Default:
 - Draw: each player is offered random objects and keeps as many as they place this round (see below). Proposed: offer the number to keep plus 2 (4 offered for 2 kept, 5 for 3).
 - Placement is simultaneous and hidden: players see who has finished placing, never where.
 - Placement rules: an object cannot be placed on the start, on the finish, or on top of another object.
-- Players per room: 2 to 4. The game is designed for 3 or 4; with 2 it still works but traps matter less.
+- Players per room: 2 to 5 (raised from 4 by Dorian on 2026-11-25). The game is designed for 3 to 5; with 2 it still works but traps matter less.
 - The level starts with no player-placed objects.
 - Levels are hand-made at first.
 
@@ -81,7 +81,7 @@ Defaults added while building step 4 (2026-11-24), not yet discussed with Dorian
 
 - Colyseus is used for rooms, connections and reconnection only. Its automatic state sync is not used: every exchange is an explicit message, all listed in `packages/shared/src/protocol.ts`.
 - All game logic (lobby, rounds, placement checks, scoring) is one network-free class, `GameSession`, in the shared package. The server room only plugs it into Colyseus, and the offline solo mode runs the same class in the browser.
-- A room is joined with a 4-letter code (no I or O) or a link `?salon=CODE`. Up to 4 players, colours by order of arrival (black, white, blue, green). The first player is the host and picks 10 or 25 points; if the host leaves, the next player becomes host.
+- A room is joined with a 4-letter code (no I or O) or a link `?salon=CODE`. Up to 5 players (`MAX_PLAYERS`), colours by order of arrival (black, white, blue, green, purple; `packages/client/src/render/playerColors.ts`, one colour per seat). The first player is the host and picks 10 or 25 points; if the host leaves, the next player becomes host.
 - The host can start alone; the solo scoring exception then applies. This is meant for testing.
 - Nobody can join a game in progress. A dropped player has 30 seconds to reconnect and gets the current phase back.
 - Placement checks on the client and on the server both use `DEFAULT_MOVEMENT`, so tuning-panel values must be pasted there before they count for the server.
@@ -259,7 +259,7 @@ Network model (Decided):
 
 Known limits Dorian has been told about: the Raspberry Pi is a single point of failure, latency depends on the route through Cloudflare, and Phaser 4 is recent (first stable release in April 2026), so many online tutorials still target version 3. Check the current Phaser 4 and Colyseus documentation instead of relying on memory.
 
-Colyseus was accepted with one reservation: it is an abstraction layer, which goes against Dorian's preference. If it gets in the way, a plain WebSocket server is an acceptable replacement for four players. Ask before switching.
+Colyseus was accepted with one reservation: it is an abstraction layer, which goes against Dorian's preference. If it gets in the way, a plain WebSocket server is an acceptable replacement for five players. Ask before switching.
 
 ## Build order
 

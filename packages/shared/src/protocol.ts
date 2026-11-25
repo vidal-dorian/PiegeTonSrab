@@ -11,7 +11,7 @@ import type { RoundVerdict, ScoreLine } from "./rules";
 
 export const SERVER_PORT = 2567;
 export const ROOM_NAME = "game";
-export const MAX_PLAYERS = 4;
+export const MAX_PLAYERS = 5;
 export const MAX_NAME_LENGTH = 16;
 
 /** Timings of the parts of a game that are not in GameConfig, milliseconds. */
@@ -57,7 +57,7 @@ export const STOMP_MAX_DISTANCE = 3;
 export interface LobbyPlayer {
   id: string;
   name: string;
-  /** Index in the player colour list: 0 black, 1 white, 2 blue, 3 green. */
+  /** Index in the player colour list: 0 black, 1 white, 2 blue, 3 green, 4 purple. */
   color: number;
   connected: boolean;
 }

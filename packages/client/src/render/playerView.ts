@@ -10,8 +10,7 @@ import { CELL_PX } from "../config";
 import { tuning } from "../tuningStore";
 import { INK, ORANGE, OUTLINE, WHITE } from "./levelView";
 
-/** Player colours from the art direction: black, white, blue, green. Never orange or red. */
-export const PLAYER_COLORS = [0x161616, 0xffffff, 0x2b59c3, 0x3fa35c] as const;
+export { PLAYER_COLORS } from "./playerColors";
 
 const BLOB_SHADOW_X = 3;
 const BLOB_SHADOW_Y = 4;

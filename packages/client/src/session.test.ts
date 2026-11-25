@@ -3,6 +3,7 @@ import {
   buildReachGraph,
   DEFAULT_MOVEMENT,
   GameSession,
+  MAX_PLAYERS,
   parseLevel,
   TIMING,
   type LevelDefinition,
@@ -10,6 +11,7 @@ import {
   type ServerMessage,
   type SessionIO,
 } from "@game/shared";
+import { PLAYER_COLORS } from "./render/playerColors";
 
 /** Fake clock and network: timers run when the test advances time. */
 class FakeIO implements SessionIO {
@@ -90,13 +92,17 @@ function toPlacement(io: FakeIO, s: GameSession, ids: string[]) {
 }
 
 describe("GameSession", () => {
+  it("has one player colour per seat", () => {
+    expect(PLAYER_COLORS.length).toBe(MAX_PLAYERS);
+  });
+
   it("lobby: colours, host, full room, only the host starts", () => {
     const { io, s } = setup();
-    for (const id of ["a", "b", "c", "d"]) expect(s.addPlayer(id, `  ${id.toUpperCase()}  `)).toBeNull();
-    expect(s.addPlayer("e", "E")).toMatch(/plein/);
+    for (const id of ["a", "b", "c", "d", "e"]) expect(s.addPlayer(id, `  ${id.toUpperCase()}  `)).toBeNull();
+    expect(s.addPlayer("f", "F")).toMatch(/plein \(5 joueurs\)/);
     const lobby = io.last("lobby")!.lobby;
     expect(lobby.hostId).toBe("a");
-    expect(lobby.players.map((p) => [p.name, p.color])).toEqual([["A", 0], ["B", 1], ["C", 2], ["D", 3]]);
+    expect(lobby.players.map((p) => [p.name, p.color])).toEqual([["A", 0], ["B", 1], ["C", 2], ["D", 3], ["E", 4]]);
     s.handle("b", { type: "start" });
     expect(io.last("gameStart")).toBeUndefined();
     s.handle("a", { type: "start" });

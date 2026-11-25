@@ -115,9 +115,9 @@ export class GameSession {
   /** Returns an error message (in French, shown to the player) or null if the player joined. */
   addPlayer(id: string, rawName: string): string | null {
     if (this.phase !== "lobby") return "La partie a déjà commencé.";
-    if (this.players.size >= MAX_PLAYERS) return "Le salon est plein (4 joueurs).";
+    if (this.players.size >= MAX_PLAYERS) return `Le salon est plein (${MAX_PLAYERS} joueurs).`;
     const used = new Set([...this.players.values()].map((p) => p.color));
-    const color = [0, 1, 2, 3].find((c) => !used.has(c)) ?? 0;
+    const color = Array.from({ length: MAX_PLAYERS }, (_, i) => i).find((c) => !used.has(c)) ?? 0;
     const name = cleanName(rawName) || `Joueur ${this.players.size + 1}`;
     this.players.set(id, {
       id,
