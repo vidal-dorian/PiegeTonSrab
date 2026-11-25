@@ -32,6 +32,12 @@ export class LocalPlayer {
   prevY = 0;
   private accumulator = 0;
 
+  /**
+   * Which spawn cell this character uses on the spawn pad: the player's colour index online
+   * (unique per room), 0 offline, in practice and in the tutorial. Read on every reset.
+   */
+  seat = 0;
+
   /** Vines in the level, and whether this player may grab one (someone else may hold it). */
   vines: readonly Vine[] = [];
   canHoldVine: (vineId: number) => boolean = () => true;
@@ -56,9 +62,9 @@ export class LocalPlayer {
     this.reset();
   }
 
-  /** Back to the start, clock at zero. */
+  /** Back to this seat's spawn cell, clock at zero. */
   reset(): void {
-    this.controller.respawn();
+    this.controller.respawn(this.seat);
     this.syncVine();
     this.prevX = this.controller.x;
     this.prevY = this.controller.y;

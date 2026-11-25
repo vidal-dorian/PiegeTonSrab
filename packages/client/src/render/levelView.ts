@@ -8,7 +8,7 @@
  * object, because the debug panel can hide it.
  */
 import Phaser from "phaser";
-import type { Level } from "@game/shared";
+import { SPAWN_SEAT_OFFSETS, spawnCell, type Level } from "@game/shared";
 import { CELL_PX } from "../config";
 
 /**
@@ -70,7 +70,7 @@ export function drawLevel(scene: Phaser.Scene, level: Level): LevelView {
   if (ctx) {
     ctx.translate(MARGIN_SIDE, MARGIN_TOP);
     drawTerrain(ctx, level);
-    drawStart(ctx, level.start.x, level.start.y);
+    drawStart(ctx, level);
     if (level.finish) drawFinish(ctx, level.finish.x, level.finish.y);
   }
   const key = `terrain-${++textureCounter}`;
@@ -239,12 +239,20 @@ function drawTerrain(ctx: CanvasRenderingContext2D, level: Level): void {
 
 // --- Start and finish ------------------------------------------------------------------
 
-function drawStart(ctx: CanvasRenderingContext2D, cx: number, cy: number): void {
+/**
+ * The start mat runs under every seat's spawn cell (spawnCell, level.ts), so the whole spawn
+ * pad reads as the start; on a map with a broken pad it shrinks back to the S cell.
+ */
+function drawStart(ctx: CanvasRenderingContext2D, level: Level): void {
+  const { x: cx, y: cy } = level.start;
+  const seatXs = SPAWN_SEAT_OFFSETS.map((_, seat) => spawnCell(level, seat).x);
+  const x0 = Math.min(...seatXs);
+  const cells = Math.max(...seatXs) - x0 + 1;
   const x = cx * CELL_PX;
   const bottom = (cy + 1) * CELL_PX;
-  // A little mat on the ground, then a handwritten note above it.
-  const w = CELL_PX * 1.1;
-  const mx = x + (CELL_PX - w) / 2;
+  // A mat on the ground, then a handwritten note above it.
+  const w = CELL_PX * (cells + 0.1);
+  const mx = x0 * CELL_PX + (CELL_PX * cells - w) / 2;
   const my = bottom - 7;
   ctx.save();
   ctx.lineJoin = "round";
@@ -262,8 +270,9 @@ function drawStart(ctx: CanvasRenderingContext2D, cx: number, cy: number): void 
   // Dashes across the mat.
   ctx.lineWidth = 2;
   ctx.beginPath();
-  for (let i = 1; i < 4; i++) {
-    const sx = mx + (w * i) / 4;
+  const dashes = 3 * cells + 1;
+  for (let i = 1; i < dashes; i++) {
+    const sx = mx + (w * i) / dashes;
     ctx.moveTo(sx - 2, my + 5);
     ctx.lineTo(sx + 2, my + 2);
   }

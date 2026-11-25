@@ -17,6 +17,7 @@ import {
   canPlaceAt,
   contactWith,
   DEFAULT_MOVEMENT,
+  isSpawnPadCell,
   OBJECT_DEFS,
   parseLevel,
   PathGuard,
@@ -168,6 +169,8 @@ export class GameScene extends Phaser.Scene {
     this.arrows = this.add.graphics().setDepth(9).setScrollFactor(0);
     this.playerView = new PlayerView(this, this.colorOf(this.link.myId));
     this.player = new LocalPlayer(this.level, this.level, tuning.movement);
+    this.player.seat = this.seatOf(this.link.myId);
+    this.player.reset();
     this.vineHolders = new Map();
     this.leaderId = null;
     this.player.canHoldVine = (id) => {
@@ -231,6 +234,7 @@ export class GameScene extends Phaser.Scene {
       case "lobby":
         this.lobby = msg.lobby;
         this.targetScore = msg.lobby.targetScore;
+        this.player.seat = this.seatOf(this.link.myId);
         // Back to the lobby after the end of a game (online).
         if (!msg.lobby.inGame && this.phase === "over" && this.link.online) {
           this.scene.start("lobby", { link: this.link, lobby: msg.lobby });
@@ -448,8 +452,8 @@ export class GameScene extends Phaser.Scene {
     let v: Verdict;
     if (x < 0 || x >= l.width || y < 0 || y >= l.height || l.solid[y * l.width + x]) {
       v = { ok: false, takeBack: false, text: "Pas dans le décor" };
-    } else if ((x === l.start.x && y === l.start.y) || (l.finish && x === l.finish.x && y === l.finish.y)) {
-      v = { ok: false, takeBack: false, text: "Pas sur le départ ni sur l'arrivée" };
+    } else if (isSpawnPadCell(l, x, y) || (l.finish && x === l.finish.x && y === l.finish.y)) {
+      v = { ok: false, takeBack: false, text: "Pas sur la zone de départ ni sur l'arrivée" };
     } else if (!canPlaceAt(l, all, x, y)) {
       v = { ok: false, takeBack: false, text: "Case déjà prise" };
     } else if (!placementKeepsPath(l, all, { id: 0, kind, x, y, ...(dir !== undefined ? { dir } : {}) }, DEFAULT_MOVEMENT, this.graph ?? undefined)) {
@@ -1139,6 +1143,14 @@ export class GameScene extends Phaser.Scene {
 
   private nameOf(id: string): string {
     return this.lobby?.players.find((p) => p.id === id)?.name ?? (id === this.link.myId ? "Toi" : "?");
+  }
+
+  /**
+   * Spawn seat of a player: their colour index, which the session hands out uniquely (0..4)
+   * in order of arrival, so it doubles as a free spawn cell on the pad. 0 when unknown.
+   */
+  private seatOf(id: string): number {
+    return this.lobby?.players.find((p) => p.id === id)?.color ?? 0;
   }
 
   private colorOf(id: string): number {

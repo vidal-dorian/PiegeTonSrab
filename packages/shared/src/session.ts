@@ -116,6 +116,8 @@ export class GameSession {
   addPlayer(id: string, rawName: string): string | null {
     if (this.phase !== "lobby") return "La partie a déjà commencé.";
     if (this.players.size >= MAX_PLAYERS) return `Le salon est plein (${MAX_PLAYERS} joueurs).`;
+    // The colour index is also the player's spawn seat (spawnCell, level.ts): unique in the
+    // room, so each body starts on its own cell of the spawn pad. Clients read it from the lobby.
     const used = new Set([...this.players.values()].map((p) => p.color));
     const color = Array.from({ length: MAX_PLAYERS }, (_, i) => i).find((c) => !used.has(c)) ?? 0;
     const name = cleanName(rawName) || `Joueur ${this.players.size + 1}`;

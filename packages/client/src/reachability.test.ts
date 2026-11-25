@@ -32,7 +32,7 @@ describe("reachability", () => {
       const objects = prepareObjects(level, level.initialObjects);
       expect(timed(def.name, () => buildReachGraph(level, objects, tuning)).reachable, def.name).toBe(true);
     }
-  });
+  }, 30_000); // builds the reach graph of every map: ~3.5 s here, slower on a busy CI runner
 
   it("the test level is finishable (needs the wall-jump shaft)", () => {
     const level = parseLevel(testLevel);

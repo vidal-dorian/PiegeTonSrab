@@ -5,7 +5,7 @@
  * which makes it testable and keeps the feel identical at any frame rate.
  * Units are cells and seconds; y grows downwards, so a negative vy means moving up.
  */
-import { boxOverlapsSolid, cellSpan, isBouncyCell, isSolidCell, type Level } from "../level";
+import { boxOverlapsSolid, cellSpan, isBouncyCell, isSolidCell, spawnCell, type Level } from "../level";
 import { VINE_GRAB_HALF_WIDTH, type Vine } from "../objects";
 import { deriveMovement, type DerivedMovement, type MovementTuning } from "./tuning";
 
@@ -99,8 +99,14 @@ export class CharacterController {
     this.senseContacts();
   }
 
-  respawn(): void {
-    this.standInCell(this.level.start.x, this.level.start.y);
+  /**
+   * Stand on this seat's spawn cell (see spawnCell in level.ts): each player has their own
+   * cell on the spawn pad so up to five bodies start side by side, not stacked on S.
+   * Seat 0 is S itself.
+   */
+  respawn(seat = 0): void {
+    const cell = spawnCell(this.level, seat);
+    this.standInCell(cell.x, cell.y);
   }
 
   /** Put the character standing still on the bottom of a cell, centred, with every timer cleared. */

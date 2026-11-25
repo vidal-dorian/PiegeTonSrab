@@ -8,7 +8,7 @@
  *
  * First batch (build steps 2 and 5): saw, spikes, platform, cannon, spring, vine.
  */
-import { cellSpan, type Level } from "./level";
+import { cellSpan, isSpawnPadCell, type Level } from "./level";
 
 export type ObjectKind = "saw" | "spikes" | "platform" | "cannon" | "spring" | "vine";
 
@@ -303,13 +303,16 @@ export function vinesOf(objects: readonly PlacedObject[]): Vine[] {
 }
 
 /**
- * Basic placement rule: inside the level, on an empty cell, not on the start or the finish,
- * not on another object. The "finish must stay reachable" check is in reachability.ts.
+ * Basic placement rule: inside the level, on an empty cell, not on the spawn pad (the start
+ * and the cells around it where the other seats spawn, see level.ts) nor the finish, not on
+ * another object. The "finish must stay reachable" check is in reachability.ts.
+ * Every placement goes through here (round placement, its preview, dead players' blocks,
+ * practice mode), which is what keeps the pad free for the whole game.
  */
 export function canPlaceAt(level: Level, objects: readonly PlacedObject[], x: number, y: number): boolean {
   if (x < 0 || x >= level.width || y < 0 || y >= level.height) return false;
   if (level.solid[y * level.width + x]) return false;
-  if (x === level.start.x && y === level.start.y) return false;
+  if (isSpawnPadCell(level, x, y)) return false;
   if (level.finish && x === level.finish.x && y === level.finish.y) return false;
   return !objects.some((o) => o.x === x && o.y === y);
 }
