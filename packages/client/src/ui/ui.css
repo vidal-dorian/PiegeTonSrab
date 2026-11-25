@@ -264,7 +264,28 @@
 }
 .card.used { opacity: 0.35; cursor: default; box-shadow: none; transform: none; }
 .card.used .name { text-decoration: line-through 2px; }
+/* No room left for this object, or the player discarded it: a rubber stamp across the card. */
+.card.out { box-shadow: none; transform: none; background: var(--hatch), var(--surface); }
+.card.out > :not(.stamp) { opacity: 0.4; }
+.card.noRoom { cursor: default; }
+.card .stamp {
+  position: absolute;
+  top: 44%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-12deg);
+  padding: 2px 8px;
+  font-family: var(--font-marker);
+  font-size: 15px;
+  line-height: 1.1;
+  white-space: nowrap;
+  color: var(--red);
+  background: var(--surface);
+  border: 2.5px solid var(--red);
+  border-radius: 6px;
+}
+.card.discarded .stamp { color: var(--ink); border-color: var(--ink); }
 .ui-tray .row { display: flex; gap: 14px; align-items: center; font-size: 14px; font-weight: 500; }
+.ui-button.small { font-size: 14px; padding: 6px 12px; box-shadow: var(--shadow-small); }
 .ui-tray .hint { min-height: 1.25em; font-size: 14px; }
 .ui-tray .hint.bad { font-weight: 700; text-decoration: underline wavy var(--ink) 1px; text-underline-offset: 4px; }
 .ui-tray .hint.bad::before { content: "✗ "; }
@@ -353,6 +374,35 @@
   box-sizing: border-box;
   border-radius: 10px;
   overflow-wrap: anywhere;
+  /* The end-of-placement message has one line per reason. */
+  white-space: pre-line;
+  text-align: center;
+}
+
+/* Why a click was refused, written right above the cell, then floating up and fading. */
+.ui-float {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  max-width: 240px;
+  width: max-content;
+  padding: 4px 10px 3px;
+  font-family: var(--font-marker);
+  font-size: 15px;
+  line-height: 1.2;
+  text-align: center;
+  color: var(--surface);
+  background: var(--ink);
+  border-radius: 8px;
+  box-shadow: 2px 3px 0 var(--red);
+  pointer-events: none;
+  animation: ui-float 1.6s ease-out forwards;
+}
+@keyframes ui-float {
+  0% { transform: translate(-50%, -80%) rotate(-2deg) scale(0.7); opacity: 0; }
+  10% { transform: translate(-50%, -110%) rotate(-2deg) scale(1.05); opacity: 1; }
+  18% { transform: translate(-50%, -105%) rotate(-2deg) scale(1); }
+  70% { transform: translate(-50%, -125%) rotate(-2deg); opacity: 1; }
+  100% { transform: translate(-50%, -150%) rotate(-2deg); opacity: 0; }
 }
 
 /* --- Menu form ------------------------------------------------------------------------- */

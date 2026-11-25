@@ -32,6 +32,7 @@ import {
   type PlacementChoice,
   type PlayerPose,
   type RaceStatus,
+  type RefusedObject,
   type ServerMessage,
 } from "./protocol";
 import { RACE_LEVELS } from "./levelList";
@@ -92,7 +93,9 @@ export class GameSession {
   private raceStartsAt = 0;
   private raceEndsAt = 0;
   private raceGuard: PathGuard | null = null;
-  private refused = new Map<string, number>();
+  /** Each player's objects refused at the end of placement, and how many they never placed. */
+  private refused = new Map<string, RefusedObject[]>();
+  private unplaced = new Map<string, number>();
   /** Vine id -> player holding it. */
   private vineHolders = new Map<number, string>();
   /** "stomper>victim" -> time of the last accepted stomp. */
@@ -311,7 +314,11 @@ export class GameSession {
     const choice = this.cleanChoice(p, msg.objects);
     if (!choice) return;
     p.choice = choice;
-    if (msg.done && choice.length === this.needed) {
+    // A player may validate with fewer objects than needed: the client discards an object that
+    // has no accepted cell left on a crowded map (or that the player gave up on), so nobody
+    // waits for the timer because of it. Missing objects only cost that player their own
+    // traps; they cannot hurt anyone else, so there is nothing to check.
+    if (msg.done) {
       p.doneAt = this.io.now();
       this.broadcastPlacedStatus();
       if (this.inGamePlayers().every((q) => !q.connected || q.doneAt !== null)) this.endPlacement();
@@ -351,13 +358,21 @@ export class GameSession {
     const order = this.inGamePlayers().sort((a, b) => (a.doneAt ?? Infinity) - (b.doneAt ?? Infinity));
     const guard = new PathGuard(this.level, this.objects, DEFAULT_MOVEMENT);
     this.refused = new Map();
+    this.unplaced = new Map();
     for (const p of order) {
+      const refused: RefusedObject[] = [];
       for (const c of p.choice) {
         const obj: PlacedObject = { id: this.nextObjectId, kind: c.kind, x: c.x, y: c.y, ownerId: p.id };
         if (c.dir !== undefined) obj.dir = c.dir;
-        if (canPlaceAt(this.level, guard.objects, c.x, c.y) && guard.tryAdd(obj)) this.nextObjectId++;
-        else this.refused.set(p.id, (this.refused.get(p.id) ?? 0) + 1);
+        if (!canPlaceAt(this.level, guard.objects, c.x, c.y)) {
+          const taken = guard.objects.some((o) => o.x === c.x && o.y === c.y);
+          refused.push({ kind: c.kind, reason: taken ? "taken" : "invalid" });
+        } else if (guard.tryAdd(obj)) this.nextObjectId++;
+        else refused.push({ kind: c.kind, reason: "path" });
       }
+      this.refused.set(p.id, refused);
+      // Who did not validate ran out of time: their objects still in hand are lost.
+      if (p.doneAt === null) this.unplaced.set(p.id, Math.max(0, this.needed - p.choice.length));
     }
     // Cannon lines and vine ropes depend on everything around them: measure them now.
     this.objects = prepareObjects(this.level, guard.objects);
@@ -395,7 +410,9 @@ export class GameSession {
       type: "countdown",
       round: this.round,
       objects: this.objects,
-      refused: this.refused.get(p.id) ?? 0,
+      refused: this.refused.get(p.id)?.length ?? 0,
+      refusedObjects: this.refused.get(p.id) ?? [],
+      unplaced: this.unplaced.get(p.id) ?? 0,
       raceStartsAt: this.raceStartsAt,
       raceEndsAt: this.raceEndsAt,
     });

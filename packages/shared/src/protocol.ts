@@ -13,6 +13,11 @@ export const SERVER_PORT = 2567;
 export const ROOM_NAME = "game";
 export const MAX_PLAYERS = 5;
 export const MAX_NAME_LENGTH = 16;
+/**
+ * Error code of a join the session refused (game already started, room full): the client
+ * shows the error's message, written in French for the player, instead of "server down".
+ */
+export const JOIN_REFUSED_CODE = 4210;
 
 /** Timings of the parts of a game that are not in GameConfig, milliseconds. */
 export const TIMING = {
@@ -94,6 +99,12 @@ export interface PlacementChoice {
   dir?: Dir;
 }
 
+/** One of a player's objects that the session refused at the end of placement. */
+export interface RefusedObject {
+  kind: ObjectKind;
+  reason: "path" | "taken" | "invalid";
+}
+
 // --- Server to client ---------------------------------------------------------
 
 export type ServerMessage =
@@ -117,8 +128,16 @@ export type ServerMessage =
       type: "countdown";
       round: number;
       objects: PlacedObject[];
-      /** How many of your objects were refused because, together with the others', they cut the path. */
+      /** How many of your objects were refused at the end of placement (same as refusedObjects.length). */
       refused: number;
+      /**
+       * Your objects refused at the end of placement, and why: "path" (together with the others'
+       * objects it would have cut the last path to the finish), "taken" (a player who validated
+       * before you put something on that cell), "invalid" (a cell where nothing can go).
+       */
+      refusedObjects?: RefusedObject[];
+      /** Objects you had still not placed when the placement time ran out (0 if you validated). */
+      unplaced?: number;
       raceStartsAt: number;
       raceEndsAt: number;
     }
@@ -153,7 +172,10 @@ export type ServerMessage =
 export type ClientMessage =
   | { type: "setTarget"; targetScore: number }
   | { type: "start" }
-  /** Current choice during placement; `done` when the player pressed "Valider la pose". */
+  /**
+   * Current choice during placement; `done` when the player pressed "Valider la pose". A
+   * validated choice may hold fewer objects than needed (the others were discarded).
+   */
   | { type: "placement"; objects: PlacementChoice[]; done: boolean }
   | ({ type: "pose" } & PlayerPose)
   /**

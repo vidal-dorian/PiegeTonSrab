@@ -30,8 +30,13 @@ export class LobbyScene extends Phaser.Scene {
     };
     this.link.setHandler((msg) => {
       if (msg.type === "lobby") {
+        const hostBefore = this.lobby?.hostId;
         this.lobby = msg.lobby;
         this.render();
+        // The host left: whoever takes over must know the start button is theirs now.
+        if (hostBefore && hostBefore !== msg.lobby.hostId && msg.lobby.hostId === this.link.myId) {
+          overlay.showNotice("L'hôte est parti : tu es le nouvel hôte, à toi de lancer la partie", 4000);
+        }
       } else if (msg.type === "gameStart") {
         this.link.setHandler(null);
         lobbyScreen.hide();

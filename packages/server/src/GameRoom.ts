@@ -2,8 +2,8 @@
  * Colyseus room: a thin adapter between the network and GameSession (packages/shared),
  * which holds all of the game logic. This file only maps Colyseus events to session calls.
  */
-import { Room, type Client } from "@colyseus/core";
-import { GameSession, MAX_PLAYERS, type ClientMessage, type ServerMessage } from "@game/shared";
+import { Room, ServerError, type Client } from "@colyseus/core";
+import { GameSession, JOIN_REFUSED_CODE, MAX_PLAYERS, type ClientMessage, type ServerMessage } from "@game/shared";
 
 /** Seconds a dropped player has to come back before being removed. */
 const RECONNECT_SECONDS = 30;
@@ -53,10 +53,9 @@ export class GameRoom extends Room {
 
   override onJoin(client: Client, options?: { name?: string }): void {
     const error = this.session.addPlayer(client.sessionId, options?.name ?? "");
-    if (error) {
-      client.send("error", { type: "error", message: error });
-      client.leave();
-    }
+    // Refuse the join itself: a message sent from here never reaches the client (it has not
+    // finished joining), and the player would only see a closed connection.
+    if (error) throw new ServerError(JOIN_REFUSED_CODE, error);
   }
 
   override onDrop(client: Client): void {
