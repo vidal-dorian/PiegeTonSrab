@@ -1,6 +1,5 @@
 import Phaser from "phaser";
 import { CELL_PX, VIEW_CELLS_X, VIEW_CELLS_Y } from "./config";
-import { createTuningPanel } from "./debug/tuningPanel";
 import { GameScene } from "./scenes/GameScene";
 import { LobbyScene } from "./scenes/LobbyScene";
 import { MenuScene } from "./scenes/MenuScene";
@@ -50,11 +49,18 @@ function startGame(): void {
   // Dev builds only: lets browser tests start a scene and read its state (window.game.scene...).
   if (import.meta.env.DEV) (window as unknown as { game?: Phaser.Game }).game = game;
 
-  createTuningPanel(() => {
-    for (const scene of game.scene.getScenes(true)) {
-      if ("applyTuning" in scene && typeof scene.applyTuning === "function") scene.applyTuning();
-    }
-  });
+  // The live tuning panel (Tab) is a development tool: in a real game it would let anyone change
+  // their own gravity, speed or jump height. Dev builds only, loaded on demand so neither the
+  // panel nor Tweakpane is in the production bundle.
+  if (import.meta.env.DEV) {
+    void import("./debug/tuningPanel").then(({ createTuningPanel }) =>
+      createTuningPanel(() => {
+        for (const scene of game.scene.getScenes(true)) {
+          if ("applyTuning" in scene && typeof scene.applyTuning === "function") scene.applyTuning();
+        }
+      }),
+    );
+  }
 }
 
 void waitForFonts().then(startGame);
