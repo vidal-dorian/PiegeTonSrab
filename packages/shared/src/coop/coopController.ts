@@ -161,7 +161,7 @@ export class CoopController extends CharacterController {
     let limit = dx;
     let hit = false;
     for (const c of space.colliders) {
-      if (c.mode !== "solid" || c.body === this.index) continue;
+      if (c.off || c.mode !== "solid" || c.body === this.index) continue;
       if (!spansOverlap(this.y, h, c.y, c.h)) continue;
       // Already overlapping (it appeared on us, or Ruben is sliding off): let them separate.
       if (boxesOverlap(x0, this.y, w, h, c)) continue;
@@ -197,7 +197,7 @@ export class CoopController extends CharacterController {
     let limit = dy;
     let hit: BoxCollider | null = null;
     for (const c of space.colliders) {
-      if (c.body === this.index) continue;
+      if (c.off || c.body === this.index) continue;
       if (!spansOverlap(this.x, w, c.x, c.w)) continue;
       if (boxesOverlap(this.x, y0, w, h, c)) continue;
       if (dy > 0) {
@@ -210,7 +210,7 @@ export class CoopController extends CharacterController {
       } else {
         if (c.mode !== "solid") continue;
         // Moving up never bumps into what stands on us: the world carries it along instead.
-        if (c.body !== NO_BODY && space.ridesOn(c.body, this.index)) continue;
+        if (c.node >= 0 && space.ridesOn(c.node, this.index)) continue;
         const gap = c.y + c.h - y0;
         if (gap <= EPS && gap > limit) {
           limit = Math.min(0, gap);
@@ -254,7 +254,7 @@ export class CoopController extends CharacterController {
     const feet = this.y + this.tuning.bodyHeight;
     let best: BoxCollider | null = null;
     for (const c of space.colliders) {
-      if (c.body === this.index) continue;
+      if (c.off || c.body === this.index) continue;
       if (!spansOverlap(this.x, w, c.x, c.w)) continue;
       if (c.body !== NO_BODY && !space.canStandOn(this.index, c.body)) continue;
       const gap = c.y - feet;

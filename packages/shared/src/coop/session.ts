@@ -34,6 +34,7 @@ import {
   type CoopServerMessage,
 } from "./protocol";
 import { encodeWorld } from "./snapshot";
+import { coopTitles } from "./titles";
 import { CoopWorld } from "./world";
 
 export interface CoopSessionIO {
@@ -387,8 +388,8 @@ export class CoopSession {
       this.startsAt += ((target - world.tick - MAX_CATCH_UP) * 1000) / COOP_HZ;
       target = world.tick + MAX_CATCH_UP;
     }
-    while (world.tick < target) this.step(world, now);
-    if (now - this.lastSnapAt >= COOP_SNAPSHOT_MS - 1) this.sendSnapshot();
+    while (world.tick < target && this.world === world) this.step(world, now);
+    if (this.world === world && now - this.lastSnapAt >= COOP_SNAPSHOT_MS - 1) this.sendSnapshot();
   }
 
   private step(world: CoopWorld, now: number): void {
@@ -426,10 +427,29 @@ export class CoopSession {
     }
     world.step(bits);
     for (const e of world.events) {
-      if (e.kind === "death") this.events.push({ kind: "death", tick: world.tick, victim: e.victim, cause: e.cause, x: e.x, y: e.y });
-      else if (e.kind === "restart") this.events.push({ kind: "restart", tick: world.tick, attempt: e.attempt, by: restartBy });
-      else if (e.kind === "squash") this.events.push({ kind: "squash", tick: world.tick, body: e.body, by: e.by });
+      if (e.kind === "restart") this.events.push({ kind: "restart", tick: world.tick, attempt: e.attempt, by: restartBy });
+      else this.events.push({ ...e, tick: world.tick });
     }
+    if (world.won) this.cleared(world);
+  }
+
+  /** Everybody is through the door: the end-of-level card, then the host picks the next level. */
+  private cleared(world: CoopWorld): void {
+    this.sendSnapshot();
+    const def = this.levels[this.levelIndex]!;
+    this.io.broadcast({
+      type: "coopCleared",
+      index: this.levelIndex,
+      levelId: def.id,
+      seats: this.seats,
+      attempts: world.attempt,
+      seconds: Math.round(world.tick / COOP_HZ),
+      titles: coopTitles(world.stats),
+    });
+    const next = Math.min(this.levelIndex + 1, this.levels.length - 1);
+    this.stopLevel("select");
+    this.levelIndex = next;
+    this.broadcastLobby();
   }
 
   private sendSnapshot(): void {

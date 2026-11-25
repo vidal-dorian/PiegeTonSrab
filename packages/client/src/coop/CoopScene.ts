@@ -23,6 +23,7 @@ import {
   type CoopLevel,
   type CoopLevelDef,
   type CoopLobbyInfo,
+  type CoopEvent,
   type CoopServerMessage,
   type CoopWorldState,
 } from "@game/shared/coop";
@@ -79,11 +80,8 @@ export type CoopSceneData =
       onExit: (message?: string) => void;
     };
 
-/** Something to show that the world reported (effects, notices). */
-type ShownEvent =
-  | { kind: "death"; victim: number; cause: "fall" | "hazard"; x: number; y: number }
-  | { kind: "restart"; attempt: number; by: string | null }
-  | { kind: "squash"; body: number };
+/** Something to show that the world reported (effects, notices): the world's events, a restart says who held R. */
+type ShownEvent = Exclude<CoopEvent, { kind: "restart" }> | { kind: "restart"; attempt: number; by: string | null };
 
 interface Box {
   x: number;
@@ -138,9 +136,8 @@ class LocalDriver implements Driver {
       }
       this.world.step(bits);
       for (const e of this.world.events) {
-        if (e.kind === "death") this.events.push(e);
-        else if (e.kind === "restart") this.events.push({ kind: "restart", attempt: e.attempt, by: null });
-        else if (e.kind === "squash") this.events.push({ kind: "squash", body: e.body });
+        if (e.kind === "restart") this.events.push({ kind: "restart", attempt: e.attempt, by: null });
+        else this.events.push(e);
       }
       if (this.world.events.some((e) => e.kind === "restart")) this.snapshotPrev();
     }
@@ -208,12 +205,11 @@ class OnlineDriver implements Driver {
     this.snaps.push({ tick, state });
     if (this.snaps.length > 40) this.snaps.shift();
     for (const e of events) {
-      const key = `${e.kind}:${e.tick}:${"victim" in e ? e.victim : "body" in e ? e.body : ""}`;
+      const key = JSON.stringify(e);
       if (this.seen.has(key)) continue;
       this.seen.add(key);
-      if (e.kind === "death") this.events.push({ kind: "death", victim: e.victim, cause: e.cause, x: e.x, y: e.y });
-      else if (e.kind === "restart") this.events.push({ kind: "restart", attempt: e.attempt, by: e.by });
-      else this.events.push({ kind: "squash", body: e.body });
+      const { tick: _tick, ...shown } = e;
+      this.events.push(shown as ShownEvent);
     }
   }
 

@@ -1,27 +1,35 @@
 /**
- * The co-op world: every player's body, the rope between them and the level, advanced in fixed
- * steps from everyone's inputs. The same class runs on the server (the referee: deaths, victory),
- * on every client (display, prediction), in the dev tool and in the test bots.
+ * The co-op world: every player's body, the rope between them and the level with its things
+ * (props.ts), advanced in fixed steps from everyone's inputs. The same class runs on the server
+ * (the referee: deaths, victory, titles), on every client (display, prediction), in the dev tool
+ * and in the test bots.
  *
  * One step, in this order:
- * 1. Bodies move bottom-up (whoever stands on someone moves after them): each is first carried
- *    by what it stands on, then takes its own step (run, jump, gravity, collisions).
- * 2. The rope pulls the chain back together (rope.ts).
- * 3. Ruben slides off any friend he landed on: nobody can carry him.
- * 4. Deaths: a body in a hazard or below the level freezes the world for a moment, then the whole
- *    level restarts for everyone.
+ * 1. Somebody inside the door who presses ↓ comes out.
+ * 2. Platforms, seesaws and balances move (props.moveKinematic).
+ * 3. Bodies and crates ("nodes") move bottom-up (whoever stands on someone moves after them):
+ *    each is first carried by what it stands on, then takes its own step.
+ * 4. The rope pulls the chain back together (rope.ts); Ruben slides off any friend he landed on.
+ * 5. Weights are measured; a hard landing on a seesaw fires it; plates, gates, the key, the door,
+ *    terminals... react (props.interact).
+ * 6. Deaths: a body in a hazard or below the level freezes the world for a moment, then the whole
+ *    level restarts for everyone. Everybody inside the door: the level is won.
  *
  * Determinism: no Math.sin/cos/random/Date in here, arrays in a fixed order (body index = place
  * in the chain), so the same inputs give the same bits on every machine (see detMath.ts).
+ *
+ * The referee's bookkeeping (who caused which death, the end-of-level titles) is not part of the
+ * saved state: only the server's world, which never loads a snapshot, keeps it meaningfully.
  */
 import { HAZARD_INSET } from "../movement/tuning";
 import { boxHitsHazard, hazardsOf } from "../objects";
-import { boxesOverlap, EPS, NO_BODY, type BoxCollider, type CoopSpace } from "./colliders";
+import { boxesOverlap, EPS, OBJECT_COLLIDER_BASE, type BoxCollider, type CoopSpace, type Support } from "./colliders";
 import { CoopController, type CoopBodyState } from "./coopController";
 import { COOP, COOP_DT, COOP_MOVEMENT, DEATH_FREEZE_STEPS } from "./coopTuning";
 import { Fnv32 } from "./detMath";
 import { decodeInput, type CoopInput } from "./inputBits";
 import type { CoopLevel } from "./levelFormat";
+import { CoopProps, crateLaunchSpeed, type CoopCrate, type PropEvent, type PropsHost } from "./props";
 import { solveRope, type RopeHost, type RopeLinkState } from "./rope";
 
 export interface CoopPlayer {
@@ -30,57 +38,132 @@ export interface CoopPlayer {
   isRuben: boolean;
 }
 
-export type DeathCause = "fall" | "hazard";
+export type DeathCause = "fall" | "hazard" | "deadline";
+
+/** Why a death is someone's fault: they took the floor away, pulled the rope, let go of a plate, fired the seesaw. */
+export type BlameWhy = "self" | "ground" | "rope" | "plate" | "switch" | "catapult";
 
 export type CoopEvent =
-  | { kind: "death"; victim: number; cause: DeathCause; x: number; y: number }
+  | {
+      kind: "death";
+      victim: number;
+      cause: DeathCause;
+      x: number;
+      y: number;
+      /** Who caused it (the victim itself when it was its own fault). */
+      blame: number;
+      why: BlameWhy;
+      /** The victim carried the key. */
+      withKey: boolean;
+    }
   | { kind: "restart"; attempt: number }
   | { kind: "squash"; body: number; by: number }
-  | { kind: "land"; body: number; speed: number };
+  | { kind: "win" }
+  | PropEvent;
 
 export interface CoopWorldState {
   tick: number;
+  /** Steps since the current attempt started. */
+  levelTick: number;
   attempt: number;
   dying: number;
   victim: number;
+  won: boolean;
   bodies: CoopBodyState[];
   /** Friends Ruben was overlapping at the end of the step (to report a squash only once). */
   squashing: boolean[];
+  /** Bodies inside the door. */
+  inside: boolean[];
+  /** The props' state (props.ts save/load). */
+  props: number[];
+}
+
+/** What the referee counts for the end-of-level titles, per body, over every attempt. */
+export interface CoopStats {
+  /** Deaths of others this body caused. */
+  caused: number[];
+  /** Deaths that were this body's own fault. */
+  own: number[];
+  /** Friends caught on the rope (they hung from this body and got back on their feet). */
+  catches: number[];
+  /** Seconds with someone standing on this body's head. */
+  carried: number[];
+  /** Seconds hanging from the rope. */
+  hung: number[];
+  /** Seconds standing on plates. */
+  plates: number[];
+  /** Died carrying the key. */
+  kamikaze: number[];
+  /** Who opened the door in the winning attempt (-1 none), who entered it first. */
+  opener: number;
+  firstIn: number;
 }
 
 const NO_INPUT_BITS = 0;
+/** A death is blamed on whoever took the floor away up to this long before, seconds. */
+const GROUND_BLAME_S = 1.5;
+/** ... or on whoever pulled the victim by the rope (at least ROPE_BLAME_CELLS) up to this long before. */
+const ROPE_BLAME_S = 1;
+const ROPE_BLAME_CELLS = 0.3;
+/** Hanging at least this long, then standing again, counts as a catch for the anchor, seconds. */
+const CATCH_MIN_S = 0.4;
 
-export class CoopWorld implements CoopSpace, RopeHost {
+export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
   readonly bodies: CoopController[] = [];
+  readonly props: CoopProps;
   /** Rope links after the last step. */
   readonly rope: RopeLinkState[] = [];
   /** Body indices in rope order (index order: friends in seat order, Ruben last). */
   readonly chain: number[] = [];
   /** Steps since the level started (all attempts included). */
   tick = 0;
+  /** Steps since the current attempt started (the platforms' clock). */
+  levelTick = 0;
   /** 1 for the first try; each death or restart adds one. */
   attempt = 1;
   /** Steps left of the death freeze; 0 while playing. */
   dying = 0;
   /** Who died, during the freeze; -1 otherwise. */
   victim = -1;
-  /** What happened during the last step (deaths, squashes...), for effects and the referee. */
+  /** Everybody went through the door: the world stops. */
+  won = false;
+  /** Bodies inside the door: fixed points of the rope, out of the game until they come out. */
+  inside: boolean[] = [];
+  /** What happened during the last step (deaths, squashes, the key...), for effects and the referee. */
   events: CoopEvent[] = [];
+  readonly stats: CoopStats;
 
-  /** One solid box per body, kept in step with the bodies, then the objects' colliders. */
+  /** One solid box per body, kept in step with the bodies, then the props' colliders. */
   readonly colliders: BoxCollider[] = [];
   private inputs: CoopInput[] = [];
   private pendingRestart = false;
   private squashing: boolean[] = [];
+  /** Nodes (bodies, then crates) in bottom-up order. */
   private order: number[] = [];
   /** Each body's y before its own step, this step (the haul speed counts every rise from there). */
   private stepStartY: number[] = [];
+  /** Weight of each node (with what it carries), and what stands on each collider (by index). */
+  private weights: number[] = [];
+  private loads: number[] = [];
+  private standers: number[][] = [];
+  // Referee bookkeeping (not saved).
+  private groundLost: Array<{ by: number; why: BlameWhy; tick: number } | null> = [];
+  private ropePull: Array<{ by: number; tick: number; total: number } | null> = [];
+  private launchedBy: Array<{ by: number; tick: number } | null> = [];
+  private prevSupport: Array<Support | null> = [];
+  private hangSince: number[] = [];
+  /** Who each body hangs from after the last step (-1: not hanging), and the last one it hung from. */
+  private holder: number[] = [];
+  private lastHolder: number[] = [];
+  private lastSwitchBy = -1;
+  private lastCrackBy = -1;
 
   constructor(
     readonly level: CoopLevel,
     readonly players: readonly CoopPlayer[],
   ) {
-    if (players.length < 1 || players.length > COOP.maxPlayers) throw new Error(`co-op world needs 1 to ${COOP.maxPlayers} players`);
+    const n = players.length;
+    if (n < 1 || n > COOP.maxPlayers) throw new Error(`co-op world needs 1 to ${COOP.maxPlayers} players`);
     players.forEach((p, i) => {
       const b = new CoopController(level.collision, COOP_MOVEMENT);
       b.index = i;
@@ -88,21 +171,43 @@ export class CoopWorld implements CoopSpace, RopeHost {
       b.space = this;
       this.bodies.push(b);
       this.chain.push(i);
-      this.colliders.push({ id: i, x: 0, y: 0, w: b.width, h: b.height, mode: "solid", dx: 0, dy: 0, body: i });
+      this.colliders.push({ id: i, x: 0, y: 0, w: b.width, h: b.height, mode: "solid", dx: 0, dy: 0, body: i, node: i, off: false });
       this.squashing.push(false);
+      this.inside.push(false);
     });
+    this.props = new CoopProps(level, n);
+    this.colliders.push(...this.props.colliders);
+    const zeros = () => new Array<number>(n).fill(0);
+    this.stats = { caused: zeros(), own: zeros(), catches: zeros(), carried: zeros(), hung: zeros(), plates: zeros(), kamikaze: zeros(), opener: -1, firstIn: -1 };
+    this.groundLost = new Array(n).fill(null);
+    this.ropePull = new Array(n).fill(null);
+    this.launchedBy = new Array(n).fill(null);
+    this.prevSupport = new Array(n).fill(null);
+    this.hangSince = new Array<number>(n).fill(-1);
+    this.holder = new Array<number>(n).fill(-1);
     this.spawnAll();
+  }
+
+  get crates(): readonly CoopCrate[] {
+    return this.props.crates;
+  }
+
+  /** Bodies and crates. */
+  get nodeCount(): number {
+    return this.bodies.length + this.props.crates.length;
   }
 
   // --- CoopSpace -----------------------------------------------------------------------
 
   ridesOn(rider: number, base: number): boolean {
     let cur = rider;
-    for (let guard = 0; guard < this.bodies.length; guard++) {
-      const s = this.bodies[cur]!.support;
-      if (!s || s.kind !== "collider" || s.body === NO_BODY) return false;
-      if (s.body === base) return true;
-      cur = s.body;
+    for (let guard = 0; guard <= this.nodeCount; guard++) {
+      const s = this.supportOf(cur);
+      if (!s || s.kind !== "collider") return false;
+      const owner = this.colliderById(s.id)?.node ?? -1;
+      if (owner < 0) return false;
+      if (owner === base) return true;
+      cur = owner;
     }
     return false;
   }
@@ -114,13 +219,13 @@ export class CoopWorld implements CoopSpace, RopeHost {
 
   // --- RopeHost ---------------------------------------------------------------------------
 
-  isFixed(_i: number): boolean {
-    return false;
+  isFixed(i: number): boolean {
+    return this.inside[i] === true;
   }
 
   inputDir(i: number): number {
     const inp = this.inputs[i];
-    if (!inp) return 0;
+    if (!inp || this.inside[i]) return 0;
     return (inp.right ? 1 : 0) - (inp.left ? 1 : 0);
   }
 
@@ -133,22 +238,86 @@ export class CoopWorld implements CoopSpace, RopeHost {
     const got = base.moveBy(dx, dy);
     this.syncCollider(i);
     if (got.dx !== 0 || got.dy !== 0) {
-      // Whoever stands on it (directly or not) comes along, bottom-up.
+      // Whoever (and whatever) stands on it, directly or not, comes along, bottom-up.
       for (const j of this.order) {
-        if (j !== i && this.ridesOn(j, i)) {
+        if (j === i || !this.ridesOn(j, i)) continue;
+        if (j < this.bodies.length) {
           this.bodies[j]!.moveBy(got.dx, got.dy);
           this.syncCollider(j);
+        } else {
+          this.props.moveCrate(this.level.crateGrid, this.colliders, this.props.crates[j - this.bodies.length]!, got.dx, got.dy);
         }
       }
     }
     return got;
   }
 
+  onPull(i: number, by: number, dx: number, dy: number): void {
+    // Holding a friend up is not pulling them into danger: only sideways or downward pulls count.
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (dy < 0.3 * d && Math.abs(dx) < 0.7 * d) return;
+    const p = this.ropePull[i];
+    if (p && p.by === by && this.tick - p.tick <= ROPE_BLAME_S / COOP_DT) {
+      p.total += d;
+      p.tick = this.tick;
+    } else this.ropePull[i] = { by, tick: this.tick, total: d };
+  }
+
+  // --- PropsHost -----------------------------------------------------------------------------
+
+  isInside(i: number): boolean {
+    return this.inside[i] === true;
+  }
+
+  loadOn(id: number): number {
+    return this.loads[this.colliderIndex(id)] ?? 0;
+  }
+
+  downPressed(i: number): boolean {
+    return this.inputs[i]?.downPressed === true;
+  }
+
+  isGrounded(i: number): boolean {
+    return this.bodies[i]!.grounded;
+  }
+
+  standersOn(id: number): number[] {
+    return this.standers[this.colliderIndex(id)] ?? [];
+  }
+
+  launchNode(node: number, height: number, by: number): void {
+    const n = this.bodies.length;
+    if (node < n) {
+      const b = this.bodies[node]!;
+      b.launch(height, false);
+      b.support = null;
+      b.grounded = false;
+      if (by >= 0 && by < n && by !== node) this.launchedBy[node] = { by, tick: this.tick };
+    } else {
+      const c = this.props.crates[node - n]!;
+      c.vy = -crateLaunchSpeed(height);
+      c.support = null;
+    }
+  }
+
+  weightOf(node: number): number {
+    return this.weights[node] ?? 0;
+  }
+
+  emit(e: PropEvent): void {
+    this.events.push(e);
+  }
+
   // --- Lifecycle -----------------------------------------------------------------------------
 
-  /** Everyone back on the spawn cells, standing still. */
+  /** Everyone back on the spawn cells, standing still; every prop as at the start. */
   spawnAll(): void {
+    this.levelTick = 0;
+    this.won = false;
+    this.props.reset();
     this.bodies.forEach((b, i) => {
+      this.inside[i] = false;
+      this.colliders[i]!.off = false;
       const s = this.level.spawns[i]!;
       b.placeInCell(s.x, s.y);
       this.syncCollider(i);
@@ -156,10 +325,21 @@ export class CoopWorld implements CoopSpace, RopeHost {
       c.dx = 0;
       c.dy = 0;
       this.squashing[i] = false;
+      this.groundLost[i] = null;
+      this.ropePull[i] = null;
+      this.launchedBy[i] = null;
+      this.prevSupport[i] = null;
+      this.hangSince[i] = -1;
+      this.holder[i] = -1;
+      this.lastHolder[i] = -1;
     });
+    this.stats.opener = -1;
+    this.stats.firstIn = -1;
     this.rope.length = 0;
-    this.order = this.bodies.map((_, i) => i);
+    this.order = this.bottomUp();
     for (const b of this.bodies) b.refreshContacts();
+    for (const c of this.props.crates) c.support = this.props.crateSupport(this.level.crateGrid, this.colliders, c);
+    this.computeLoads();
   }
 
   /** Put body i standing still with its top-left at (x, y) (tests, dev tools). */
@@ -172,6 +352,7 @@ export class CoopWorld implements CoopSpace, RopeHost {
     this.syncCollider(i);
     for (const o of this.bodies) o.refreshContacts();
     this.order = this.bottomUp();
+    this.computeLoads();
   }
 
   /** The level restarts for everyone (after a death, or R held by the team). */
@@ -192,6 +373,7 @@ export class CoopWorld implements CoopSpace, RopeHost {
   step(inputs: readonly number[]): void {
     this.events = [];
     this.tick++;
+    if (this.won) return;
     if (this.pendingRestart) {
       this.pendingRestart = false;
       this.restart();
@@ -202,61 +384,153 @@ export class CoopWorld implements CoopSpace, RopeHost {
       if (this.dying === 0) this.restart();
       return;
     }
+    this.levelTick++;
+    const n = this.bodies.length;
     this.inputs = this.bodies.map((_, i) => decodeInput(inputs[i] ?? NO_INPUT_BITS));
+
+    // ↓ inside the door: come back out.
+    for (let i = 0; i < n; i++) {
+      if (this.inside[i] && this.inputs[i]!.downPressed) {
+        this.inside[i] = false;
+        this.colliders[i]!.off = false;
+        this.bodies[i]!.refreshContacts();
+        this.events.push({ kind: "exit", body: i });
+        // The press is used up: it must not send the body straight back in.
+        this.inputs[i]!.downPressed = false;
+      }
+    }
 
     // Riders and the bottom-up order come from where everyone stood after the last step.
     for (const b of this.bodies) b.hasRider = false;
-    for (const b of this.bodies) {
-      const s = b.support;
-      if (s && s.kind === "collider" && s.body !== NO_BODY) this.bodies[s.body]!.hasRider = true;
+    for (let node = 0; node < this.nodeCount; node++) {
+      const s = this.supportOf(node);
+      if (!s || s.kind !== "collider") continue;
+      const owner = this.colliderById(s.id)?.node ?? -1;
+      if (owner >= 0 && owner < n) this.bodies[owner]!.hasRider = true;
     }
     this.order = this.bottomUp();
     for (const c of this.colliders) {
       c.dx = 0;
       c.dy = 0;
     }
+    const wasGrounded = this.bodies.map((b) => b.grounded);
+    for (let i = 0; i < n; i++) this.prevSupport[i] = this.bodies[i]!.support;
 
-    for (const i of this.order) {
-      const b = this.bodies[i]!;
-      const x0 = b.x;
-      const y0 = b.y;
-      const s = b.support;
-      let carrier: BoxCollider | null = null;
-      if (s && s.kind === "collider") {
-        carrier = this.colliderById(s.id);
-        if (carrier && (carrier.dx !== 0 || carrier.dy !== 0)) b.moveBy(carrier.dx, carrier.dy);
+    this.props.moveKinematic(this);
+
+    for (const node of this.order) {
+      if (node < n) this.stepBody(node);
+      else {
+        const crate = this.props.crates[node - n]!;
+        const x0 = crate.x;
+        const y0 = crate.y;
+        const s = crate.support;
+        const carrier = s && s.kind === "collider" ? this.colliderById(s.id) : null;
+        this.props.stepCrate(this, crate, carrier);
+        crate.collider.dx = crate.x - x0;
+        crate.collider.dy = crate.y - y0;
       }
-      this.stepStartY[i] = b.y;
-      b.step(COOP_DT, this.inputs[i]!);
-      // Leaving a moving support keeps its horizontal speed (not its vertical one).
-      if (carrier && carrier.dx !== 0) {
-        const still = b.support && b.support.kind === "collider" && b.support.id === carrier.id;
-        if (!still && !b.grounded) {
-          const max = COOP.inheritMaxSpeed;
-          b.vx = Math.max(-max, Math.min(max, b.vx + carrier.dx / COOP_DT));
-        }
-      }
-      this.syncCollider(i);
-      const c = this.colliders[i]!;
-      c.dx = b.x - x0;
-      c.dy = b.y - y0;
     }
 
     solveRope(this, this.chain, COOP.ropeLength, COOP_DT, this.rope);
     this.mantleHauled();
-    for (const b of this.bodies) b.refreshContacts();
+    for (let i = 0; i < n; i++) if (!this.inside[i]) this.bodies[i]!.refreshContacts();
 
     this.slideRubenOffFriends();
     this.updateRooted();
+    this.computeLoads();
+
+    // A hard landing on a seesaw's raised side fires it.
+    const landings: Array<{ node: number; vy: number; support: number }> = [];
+    for (let i = 0; i < n; i++) {
+      const b = this.bodies[i]!;
+      const s = b.support;
+      if (!wasGrounded[i] && b.grounded && s && s.kind === "collider") landings.push({ node: i, vy: b.impactVy, support: s.id });
+    }
+    for (const c of this.props.crates) {
+      const s = c.support;
+      if (c.landed && s && s.kind === "collider") landings.push({ node: c.node, vy: c.impactVy, support: s.id });
+    }
+    if (landings.length > 0) this.props.catapults(this, landings);
+
+    const before = this.events.length;
+    this.props.interact(this);
+    for (const e of this.events.slice(before)) {
+      if (e.kind === "enter") this.enterDoor(e.body);
+      else if (e.kind === "doorOpen") this.stats.opener = e.body;
+      else if (e.kind === "switch") this.lastSwitchBy = e.body;
+      else if (e.kind === "crack") this.lastCrackBy = this.heaviestOn(e.thing);
+    }
+
+    this.referee();
     this.checkDeaths();
+    if (this.dying === 0 && this.inside.every((x) => x)) {
+      this.won = true;
+      this.events.push({ kind: "win" });
+    }
   }
 
   // --- Internals -----------------------------------------------------------------------------
 
-  private colliderById(id: number): BoxCollider | null {
-    if (id >= 0 && id < this.bodies.length) return this.colliders[id]!;
-    for (const c of this.colliders) if (c.id === id) return c;
-    return null;
+  private stepBody(i: number): void {
+    const b = this.bodies[i]!;
+    const c = this.colliders[i]!;
+    if (this.inside[i]) {
+      c.dx = 0;
+      c.dy = 0;
+      return;
+    }
+    const x0 = b.x;
+    const y0 = b.y;
+    const s = b.support;
+    let carrier: BoxCollider | null = null;
+    if (s && s.kind === "collider") {
+      carrier = this.colliderById(s.id);
+      if (carrier && (carrier.dx !== 0 || carrier.dy !== 0)) b.moveBy(carrier.dx, carrier.dy);
+    }
+    this.stepStartY[i] = b.y;
+    b.step(COOP_DT, this.inputs[i]!);
+    // Leaving a moving support keeps its horizontal speed (not its vertical one).
+    if (carrier && carrier.dx !== 0) {
+      const still = b.support && b.support.kind === "collider" && b.support.id === carrier.id;
+      if (!still && !b.grounded) {
+        const max = COOP.inheritMaxSpeed;
+        b.vx = Math.max(-max, Math.min(max, b.vx + carrier.dx / COOP_DT));
+      }
+    }
+    this.syncCollider(i);
+    c.dx = b.x - x0;
+    c.dy = b.y - y0;
+  }
+
+  private enterDoor(i: number): void {
+    const door = this.level.door;
+    if (!door || this.inside[i]) return;
+    const b = this.bodies[i]!;
+    this.inside[i] = true;
+    b.x = door.x + door.w / 2 - b.width / 2;
+    b.y = door.y + door.h - b.height;
+    b.vx = 0;
+    b.vy = 0;
+    b.support = null;
+    b.hanging = false;
+    this.syncCollider(i);
+    this.colliders[i]!.off = true;
+    if (this.stats.firstIn < 0) this.stats.firstIn = i;
+  }
+
+  supportOf(node: number): Support | null {
+    const n = this.bodies.length;
+    if (node < n) return this.inside[node] ? null : this.bodies[node]!.support;
+    return this.props.crates[node - n]?.support ?? null;
+  }
+
+  colliderIndex(id: number): number {
+    return id < OBJECT_COLLIDER_BASE ? id : this.bodies.length + id - OBJECT_COLLIDER_BASE;
+  }
+
+  colliderById(id: number): BoxCollider | null {
+    return this.colliders[this.colliderIndex(id)] ?? null;
   }
 
   private syncCollider(i: number): void {
@@ -266,20 +540,98 @@ export class CoopWorld implements CoopSpace, RopeHost {
     c.y = b.y;
   }
 
-  /** Body indices sorted so that every body comes after the one it stands on. */
+  /** Node indices sorted so that every node comes after the one it stands on (crates first at a level). */
   private bottomUp(): number[] {
-    const depth = this.bodies.map((_, i) => {
+    const count = this.nodeCount;
+    const n = this.bodies.length;
+    const depth = new Array<number>(count);
+    for (let node = 0; node < count; node++) {
       let d = 0;
-      let cur = i;
-      for (let guard = 0; guard < this.bodies.length; guard++) {
-        const s = this.bodies[cur]!.support;
-        if (!s || s.kind !== "collider" || s.body === NO_BODY) break;
+      let cur = node;
+      for (let guard = 0; guard < count; guard++) {
+        const s = this.supportOf(cur);
+        if (!s || s.kind !== "collider") break;
+        const owner = this.colliderById(s.id)?.node ?? -1;
+        if (owner < 0) break;
         d++;
-        cur = s.body;
+        cur = owner;
       }
-      return d;
+      depth[node] = d;
+    }
+    const nodes = Array.from({ length: count }, (_, k) => k);
+    return nodes.sort((a, b) => depth[a]! - depth[b]! || (a < n ? 1 : 0) - (b < n ? 1 : 0) || a - b);
+  }
+
+  /**
+   * Weights: each node weighs itself (a friend 1, Ruben 2, a crate its weight) plus whatever stands
+   * on it, plus the friends hanging from it on the rope. Then the load on each collider.
+   */
+  private computeLoads(): void {
+    const n = this.bodies.length;
+    const count = this.nodeCount;
+    const riders: number[][] = Array.from({ length: count }, () => []);
+    const hangers: number[][] = Array.from({ length: n }, () => []);
+    this.standers = this.colliders.map(() => []);
+    for (let node = 0; node < count; node++) {
+      const s = this.supportOf(node);
+      if (!s || s.kind !== "collider") continue;
+      const idx = this.colliderIndex(s.id);
+      this.standers[idx]?.push(node);
+      const owner = this.colliders[idx]?.node ?? -1;
+      if (owner >= 0) riders[owner]!.push(node);
+    }
+    // Hanging: from the highest taut neighbour that is at least hangHeight higher.
+    for (let i = 0; i < n; i++) {
+      this.holder[i] = -1;
+      const b = this.bodies[i]!;
+      if (b.grounded || this.inside[i]) continue;
+      let best = -1;
+      for (const l of this.rope) {
+        if (!l.taut || (l.a !== i && l.b !== i)) continue;
+        const j = l.a === i ? l.b : l.a;
+        const a = this.bodies[j]!;
+        if (a.cy > b.cy - COOP.hangHeight) continue;
+        if (best < 0 || a.cy < this.bodies[best]!.cy) best = j;
+      }
+      if (best >= 0) {
+        this.holder[i] = best;
+        if (!this.inside[best]) hangers[best]!.push(i);
+      }
+    }
+    const memo = new Array<number>(count).fill(-1);
+    const visiting = new Array<boolean>(count).fill(false);
+    const weigh = (node: number): number => {
+      if (memo[node]! >= 0) return memo[node]!;
+      if (visiting[node]) return 0;
+      visiting[node] = true;
+      let w = node < n ? (this.inside[node] ? 0 : this.bodies[node]!.mass) : this.props.crates[node - n]!.weight;
+      for (const r of riders[node]!) w += weigh(r);
+      if (node < n) for (const h of hangers[node]!) w += weigh(h);
+      visiting[node] = false;
+      memo[node] = w;
+      return w;
+    };
+    this.weights = memo.map((_, k) => weigh(k));
+    this.loads = this.colliders.map(() => 0);
+    this.standers.forEach((list, idx) => {
+      for (const node of list) this.loads[idx]! += this.weights[node]!;
     });
-    return this.bodies.map((_, i) => i).sort((a, b) => depth[a]! - depth[b]! || a - b);
+  }
+
+  /** Index of the body that weighs most on a thing's collider (for the blame of a broken floor). */
+  private heaviestOn(thing: number): number {
+    const f = this.props.fragiles.find((x) => x.thing.index === thing);
+    if (!f) return -1;
+    let best = -1;
+    let bestW = 0;
+    for (const node of this.standersOn(f.collider.id)) {
+      const w = this.weights[node]!;
+      if (node < this.bodies.length && w > bestW) {
+        bestW = w;
+        best = node;
+      }
+    }
+    return best;
   }
 
   /**
@@ -287,15 +639,22 @@ export class CoopWorld implements CoopSpace, RopeHost {
    * (it walked off a ledge) roots nothing: no jump from there, not even in coyote time.
    */
   private updateRooted(): void {
-    for (const i of this.bottomUp()) {
-      const b = this.bodies[i]!;
+    const n = this.bodies.length;
+    for (const node of this.bottomUp()) {
+      if (node >= n) continue;
+      const b = this.bodies[node]!;
       if (!b.grounded) continue; // keeps the last value: a coyote jump after leaving solid ground
       const s = b.support;
-      if (!s || s.kind === "terrain" || s.body === NO_BODY) b.rooted = true;
-      else {
-        const base = this.bodies[s.body]!;
-        b.rooted = base.grounded && base.rooted;
+      if (!s || s.kind === "terrain") {
+        b.rooted = true;
+        continue;
       }
+      const owner = this.colliderById(s.id)?.node ?? -1;
+      if (owner < 0) b.rooted = true;
+      else if (owner < n) {
+        const base = this.bodies[owner]!;
+        b.rooted = base.grounded && base.rooted;
+      } else b.rooted = this.props.crates[owner - n]!.support !== null;
     }
   }
 
@@ -312,7 +671,7 @@ export class CoopWorld implements CoopSpace, RopeHost {
       ] as const) {
         const b = this.bodies[i]!;
         const anchor = this.bodies[j]!;
-        if (b.grounded || anchor.cy > b.cy + COOP.hangHeight) continue;
+        if (b.grounded || this.inside[i] || anchor.cy > b.cy + COOP.hangHeight) continue;
         const dx = anchor.cx - b.cx;
         if (Math.abs(dx) < 0.3 * l.length) continue;
         const cap = b.isRuben ? COOP.riseCap.ruben : COOP.riseCap.friend;
@@ -325,9 +684,9 @@ export class CoopWorld implements CoopSpace, RopeHost {
   /** Nobody can carry Ruben: if he lands on (or ends up inside) a friend, the friend is squashed and Ruben slides off. */
   private slideRubenOffFriends(): void {
     this.bodies.forEach((r, ri) => {
-      if (!r.isRuben) return;
+      if (!r.isRuben || this.inside[ri]) return;
       this.bodies.forEach((f, fi) => {
-        if (fi === ri) return;
+        if (fi === ri || this.inside[fi]) return;
         const fc = this.colliders[fi]!;
         const over = boxesOverlap(r.x, r.y, r.width, r.height, fc);
         if (!over) {
@@ -354,32 +713,101 @@ export class CoopWorld implements CoopSpace, RopeHost {
     });
   }
 
+  /** The referee's bookkeeping: floors taken away, catches, time carrying, hanging, on plates. */
+  private referee(): void {
+    const n = this.bodies.length;
+    const plateIds = new Set(this.props.plates.map((p) => p.collider.id));
+    for (let i = 0; i < n; i++) {
+      if (this.inside[i]) continue;
+      const b = this.bodies[i]!;
+      // The floor went away from under a body that did not jump.
+      const prev = this.prevSupport[i];
+      if (prev && prev.kind === "collider" && !b.grounded && b.vy >= 0) {
+        const c = this.colliderById(prev.id);
+        // A friend who moved away from under this body (walking off a friend's head is one's own doing).
+        if (c && c.node >= 0 && c.node < n && c.node !== i) {
+          if (Math.abs(c.dx) > 1e-4 || c.dy > 1e-4) this.groundLost[i] = { by: c.node, why: "ground", tick: this.tick };
+        } else if (c && c.off) {
+          // A shelf swapped away (the switch), a gate opened (a plate let go), a floor broke.
+          const shelf = this.props.shelves.some((x) => x.collider === c);
+          const gate = this.props.gates.find((g) => g.collider === c);
+          const by = shelf ? this.lastSwitchBy : gate ? (this.props.releasedBy.get(gate.link) ?? -1) : this.lastCrackBy;
+          const why: BlameWhy = shelf ? "switch" : gate ? "plate" : "ground";
+          if (by >= 0 && by !== i) this.groundLost[i] = { by, why, tick: this.tick };
+        }
+      }
+      // Time counters.
+      if (b.hanging) this.stats.hung[i]! += COOP_DT;
+      const s = b.support;
+      if (s && s.kind === "collider" && plateIds.has(s.id)) this.stats.plates[i]! += COOP_DT;
+      // Catches: a friend hung from this body long enough, then stood again.
+      if (this.holder[i]! >= 0 && b.hanging) {
+        if (this.hangSince[i]! < 0) this.hangSince[i] = this.tick;
+      } else if (b.grounded && this.hangSince[i]! >= 0) {
+        const held = this.holderAtEnd(i);
+        if ((this.tick - this.hangSince[i]!) * COOP_DT >= CATCH_MIN_S && held >= 0) this.stats.catches[held]! += 1;
+        this.hangSince[i] = -1;
+      } else if (b.grounded) this.hangSince[i] = -1;
+    }
+    for (let node = 0; node < n; node++) {
+      const s = this.supportOf(node);
+      if (!s || s.kind !== "collider") continue;
+      const owner = this.colliderById(s.id)?.node ?? -1;
+      if (owner >= 0 && owner < n) this.stats.carried[owner]! += COOP_DT;
+    }
+  }
+
+  private holderAtEnd(i: number): number {
+    if (this.holder[i]! >= 0) this.lastHolder[i] = this.holder[i]!;
+    return this.lastHolder[i] ?? -1;
+  }
+
   private checkDeaths(): void {
-    const t = this.tick * COOP_DT;
+    const t = this.levelTick * COOP_DT;
+    const n = this.bodies.length;
     for (const [i, b] of this.bodies.entries()) {
+      if (this.inside[i]) continue;
+      if (this.holder[i]! >= 0) this.lastHolder[i] = this.holder[i]!;
       let cause: DeathCause | null = null;
+      const box = {
+        x: b.x + HAZARD_INSET,
+        y: b.y + HAZARD_INSET,
+        w: b.width - 2 * HAZARD_INSET,
+        h: b.height - 2 * HAZARD_INSET,
+      };
       if (b.y > this.level.killY) cause = "fall";
       else {
-        const box = {
-          x: b.x + HAZARD_INSET,
-          y: b.y + HAZARD_INSET,
-          w: b.width - 2 * HAZARD_INSET,
-          h: b.height - 2 * HAZARD_INSET,
-        };
         for (const obj of this.level.objects) {
           if (hazardsOf(obj, t).some((hz) => boxHitsHazard(box, hz, b.vy))) {
             cause = "hazard";
             break;
           }
         }
+        cause ??= this.props.killsBox(box.x, box.y, box.w, box.h, this.levelTick);
       }
-      if (cause) {
-        this.dying = DEATH_FREEZE_STEPS;
-        this.victim = i;
-        this.events.push({ kind: "death", victim: i, cause, x: b.cx, y: b.cy });
-        return;
-      }
+      if (!cause) continue;
+      const { blame, why } = this.blameFor(i);
+      const withKey = this.props.keyCarrier === i;
+      this.dying = DEATH_FREEZE_STEPS;
+      this.victim = i;
+      if (blame !== i && blame >= 0 && blame < n) this.stats.caused[blame]! += 1;
+      else this.stats.own[i]! += 1;
+      if (withKey) this.stats.kamikaze[i]! += 1;
+      this.events.push({ kind: "death", victim: i, cause, x: b.cx, y: b.cy, blame, why, withKey });
+      return;
     }
+  }
+
+  /** Who a death is on: who took the floor away, fired the seesaw, pulled the rope; else the victim. */
+  private blameFor(v: number): { blame: number; why: BlameWhy } {
+    const now = this.tick;
+    const g = this.groundLost[v];
+    if (g && (now - g.tick) * COOP_DT <= GROUND_BLAME_S) return { blame: g.by, why: g.why };
+    const l = this.launchedBy[v];
+    if (l && l.by >= 0 && (now - l.tick) * COOP_DT <= GROUND_BLAME_S) return { blame: l.by, why: "catapult" };
+    const r = this.ropePull[v];
+    if (r && (now - r.tick) * COOP_DT <= ROPE_BLAME_S && r.total >= ROPE_BLAME_CELLS) return { blame: r.by, why: "rope" };
+    return { blame: v, why: "self" };
   }
 
   // --- Snapshots -----------------------------------------------------------------------------
@@ -387,25 +815,37 @@ export class CoopWorld implements CoopSpace, RopeHost {
   save(): CoopWorldState {
     return {
       tick: this.tick,
+      levelTick: this.levelTick,
       attempt: this.attempt,
       dying: this.dying,
       victim: this.victim,
+      won: this.won,
       bodies: this.bodies.map((b) => b.save()),
       squashing: this.squashing.slice(),
+      inside: this.inside.slice(),
+      props: this.props.save(),
     };
   }
 
   load(s: CoopWorldState): void {
     this.tick = s.tick;
+    this.levelTick = s.levelTick;
     this.attempt = s.attempt;
     this.dying = s.dying;
     this.victim = s.victim;
+    this.won = s.won;
     s.bodies.forEach((bs, i) => {
       this.bodies[i]!.load(bs);
       this.syncCollider(i);
     });
     this.squashing = s.squashing.slice();
+    this.inside = s.inside.slice();
+    this.inside.forEach((x, i) => {
+      this.colliders[i]!.off = x;
+    });
+    this.props.load(s.props, this.levelTick);
     this.order = this.bottomUp();
+    this.computeLoads();
   }
 
   /** A hash of the whole state, to compare worlds bit for bit. */
@@ -413,13 +853,18 @@ export class CoopWorld implements CoopSpace, RopeHost {
     const f = new Fnv32();
     const s = this.save();
     f.num(s.tick);
+    f.num(s.levelTick);
     f.num(s.attempt);
     f.num(s.dying);
     f.num(s.victim);
+    f.bool(s.won);
     for (const b of s.bodies) {
       for (const v of Object.values(b)) f.num(typeof v === "boolean" ? (v ? 1 : 0) : v);
     }
     for (const q of s.squashing) f.bool(q);
+    for (const q of s.inside) f.bool(q);
+    for (const v of s.props) f.num(v);
     return f.h;
   }
 }
+

@@ -25,6 +25,13 @@ export interface BoxCollider {
   dy: number;
   /** The body this collider is (an index into the world's bodies), or NO_BODY for an object. */
   body: number;
+  /**
+   * The world node that owns it: a body (its index) or a crate (after the bodies), or -1 for a
+   * prop that only moves on its own (gates, plates, platforms...).
+   */
+  node: number;
+  /** Switched off (an open gate, a broken floor, a body inside the door): nothing collides with it. */
+  off: boolean;
 }
 
 /** Object colliders get ids from here up, so they never clash with body indices. */
@@ -48,7 +55,7 @@ export const TERRAIN_SUPPORT: Support = { kind: "terrain" };
 /** The world, as seen by one body while it moves. */
 export interface CoopSpace {
   readonly colliders: readonly BoxCollider[];
-  /** True if body `rider` stands, directly or through other bodies, on body `base`. */
+  /** True if node `rider` (a body or a crate) stands, directly or through others, on node `base`. */
   ridesOn(rider: number, base: number): boolean;
   /** Whether body `lander` may stand on body `body` (false for Ruben: nobody can carry him). */
   canStandOn(lander: number, body: number): boolean;

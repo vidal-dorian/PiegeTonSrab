@@ -19,6 +19,7 @@ import {
   type CoopServerMessage,
   type CoopSessionIO,
 } from "@game/shared/coop";
+import { INTRO_DURATION_S } from "./intro/introContract";
 
 class FakeIO implements CoopSessionIO {
   t = 1_000_000;
@@ -285,5 +286,11 @@ describe("co-op level run by the server", () => {
     expect(io.last("coopLobby")!.lobby.phase).toBe("level");
     s.handle("p0", { type: "coopBack" });
     expect(io.last("coopLobby")!.lobby.phase).toBe("lobby");
+  });
+});
+
+describe("intro timing", () => {
+  it("the server waits for the intro its length plus 10 s", () => {
+    expect(COOP_INTRO_MAX_MS).toBe((INTRO_DURATION_S + 10) * 1000);
   });
 });

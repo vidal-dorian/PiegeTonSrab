@@ -28,6 +28,8 @@ export interface RopeHost {
   moveStack(i: number, dx: number, dy: number): { dx: number; dy: number };
   /** How far body i already rose during this step on its own (cells, >= 0): it counts against the haul speed. */
   stepRise(i: number): number;
+  /** The rope moved body i by (dx, dy) towards body `by` (the referee's blame). */
+  onPull?(i: number, by: number, dx: number, dy: number): void;
 }
 
 /** One link of the chain after a solve, for drawing and for the next step's "hanging" flags. */
@@ -103,6 +105,7 @@ export function solveRope(host: RopeHost, chain: readonly number[], length: numb
       if (ca > 0) {
         const m = host.moveStack(ia, nx * ca, ny * ca);
         const got = m.dx * nx + m.dy * ny;
+        if (got > 0) host.onPull?.(ia, ib, m.dx, m.dy);
         corrLeft[ia] = corrLeft[ia]! - Math.max(0, got);
         if (m.dy < 0) riseLeft[ia] = Math.max(0, riseLeft[ia]! + m.dy);
         if (got < ca * 0.5) blocked[ia] = true;
@@ -110,6 +113,7 @@ export function solveRope(host: RopeHost, chain: readonly number[], length: numb
       if (cb > 0) {
         const m = host.moveStack(ib, -nx * cb, -ny * cb);
         const got = -(m.dx * nx + m.dy * ny);
+        if (got > 0) host.onPull?.(ib, ia, m.dx, m.dy);
         corrLeft[ib] = corrLeft[ib]! - Math.max(0, got);
         if (m.dy < 0) riseLeft[ib] = Math.max(0, riseLeft[ib]! + m.dy);
         if (got < cb * 0.5) blocked[ib] = true;

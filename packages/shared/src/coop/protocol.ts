@@ -6,15 +6,20 @@
  * Times are server times in milliseconds (a monotonic clock on the server) unless named otherwise;
  * ticks count world steps (COOP_HZ per second) since the level started.
  */
+import type { CoopTitle } from "./titles";
+import type { CoopEvent } from "./world";
 
 export const COOP_ROOM_NAME = "coop";
 /**
  * Bumped whenever the co-op rules or messages change: every machine must simulate the same world,
  * so a tab still running an older build is refused with a message asking to reload.
  */
-export const COOP_PROTOCOL_VERSION = 1;
-/** The server stops waiting for the story intro after this long, milliseconds. */
-export const COOP_INTRO_MAX_MS = 100_000;
+export const COOP_PROTOCOL_VERSION = 2;
+/**
+ * The server stops waiting for the story intro after this long, milliseconds: its length (87 s,
+ * INTRO_DURATION_S on the client) plus 10 s for whoever paused on a frame or joined late.
+ */
+export const COOP_INTRO_MAX_MS = 97_000;
 /** How often the server sends a snapshot of the world, milliseconds. */
 export const COOP_SNAPSHOT_MS = 1000 / 30;
 /** A player who sent no input for this long is treated as touching nothing, milliseconds. */
@@ -63,11 +68,11 @@ export interface CoopIntroCast {
   friends: Array<{ id: string; pseudo: string; color: number }>;
 }
 
-/** What happened in the world, as the server's referee saw it. */
-export type CoopRefereeEvent =
-  | { kind: "death"; tick: number; victim: number; cause: "fall" | "hazard"; x: number; y: number }
-  | { kind: "restart"; tick: number; attempt: number; by: string | null }
-  | { kind: "squash"; tick: number; body: number; by: number };
+/**
+ * What happened in the world, as the server's referee saw it: the world's events with their tick
+ * (a restart also says who held R, by pseudo).
+ */
+export type CoopRefereeEvent = (Exclude<CoopEvent, { kind: "restart" }> | { kind: "restart"; attempt: number; by: string | null }) & { tick: number };
 
 export type CoopServerMessage =
   | { type: "coopLobby"; lobby: CoopLobbyInfo }
@@ -80,6 +85,8 @@ export type CoopServerMessage =
   | { type: "coopSnap"; tick: number; world: Uint8Array; events: CoopRefereeEvent[] }
   /** The world waits for a dropped player (null: it goes on). */
   | { type: "coopPause"; waitingFor: string | null; until: number }
+  /** Everybody went through the door: the end-of-level card. Then the host picks the next level. */
+  | { type: "coopCleared"; index: number; levelId: string; seats: CoopSeat[]; attempts: number; seconds: number; titles: CoopTitle[] }
   | { type: "coopNotice"; text: string }
   | { type: "pong"; c: number; s: number }
   | { type: "error"; message: string };
