@@ -71,6 +71,7 @@ function startCoopLocal(game: Phaser.Game, count: number): void {
   game.scene.stop("menu");
   overlay.hideAll();
   game.scene.start("coop", {
+    mode: "local",
     level: sandboxLevel,
     players,
     localKeys,

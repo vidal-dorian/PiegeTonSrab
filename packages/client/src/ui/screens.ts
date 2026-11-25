@@ -62,6 +62,8 @@ export function cssColor(index: number): string {
 
 export interface MenuActions {
   create(name: string): void;
+  /** Create a room of the co-op mode "Sauve Ton Srab". */
+  createCoop(name: string): void;
   join(name: string, code: string): void;
   solo(name: string, targetScore: number): void;
   practice(): void;
@@ -117,6 +119,8 @@ export class MenuScreen {
       ...(isNew ? learn : []),
       nameField,
       button("Créer un salon", () => this.run(() => actions.create(getName())), true),
+      el("div", "ui-sep", "Sauve Ton Srab · coop"),
+      button("Créer un salon coop", () => this.run(() => actions.createCoop(getName())), true),
       joinRow,
       this.error,
       el("div", "ui-sep", "Hors ligne"),

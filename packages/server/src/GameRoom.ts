@@ -4,20 +4,10 @@
  */
 import { Room, ServerError, type Client } from "@colyseus/core";
 import { GameSession, JOIN_REFUSED_CODE, MAX_PLAYERS, type ClientMessage, type ServerMessage } from "@game/shared";
+import { newCode, releaseCode } from "./roomCodes";
 
 /** Seconds a dropped player has to come back before being removed. */
 const RECONNECT_SECONDS = 30;
-/** Room codes: 4 letters, without I and O which look like digits. */
-const CODE_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ";
-const usedCodes = new Set<string>();
-
-function newCode(): string {
-  for (;;) {
-    let code = "";
-    for (let i = 0; i < 4; i++) code += CODE_LETTERS[Math.floor(Math.random() * CODE_LETTERS.length)];
-    if (!usedCodes.has(code)) return code;
-  }
-}
 
 export class GameRoom extends Room {
   override maxClients = MAX_PLAYERS;
@@ -26,7 +16,6 @@ export class GameRoom extends Room {
   override onCreate(): void {
     // The room id doubles as the code players type to join.
     this.roomId = newCode();
-    usedCodes.add(this.roomId);
     this.session = new GameSession(
       {
         now: () => Date.now(),
@@ -73,7 +62,7 @@ export class GameRoom extends Room {
 
   override onDispose(): void {
     this.session.dispose();
-    usedCodes.delete(this.roomId);
+    releaseCode(this.roomId);
   }
 
   private clientById(id: string): Client | undefined {

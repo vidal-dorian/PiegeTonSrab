@@ -1,0 +1,30 @@
+/*
+ * Co-op mode panels, in the same sketchbook style as ui/ui.css (the lobby reuses .ui-lobby).
+ */
+.ui-coop-lobby li { flex-wrap: wrap; }
+.ui-coop-lobby li .ui-button.small { margin-left: auto; padding: 4px 10px; font-size: 14px; box-shadow: var(--shadow-small); }
+
+/* The player who plays Ruben: a white band with ink stripes, like his sweatband in the game. */
+.coop-ruben-tag {
+  font-family: var(--font-title);
+  font-weight: 700;
+  font-size: 13px;
+  padding: 1px 8px;
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+  background: repeating-linear-gradient(90deg, var(--surface) 0 10px, var(--ink) 10px 12px);
+  box-shadow: var(--shadow-small);
+}
+
+.coop-banner {
+  position: absolute;
+  top: 38%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-1deg);
+  padding: 14px 26px 16px;
+  text-align: center;
+  pointer-events: none;
+  animation: ui-pop 160ms ease-out;
+}
+.coop-banner-title { font-family: var(--font-marker); font-size: 30px; line-height: 1.1; }
+.coop-banner-sub { margin-top: 6px; font-size: 15px; opacity: 0.8; }

@@ -4,8 +4,10 @@
  * The menu itself is HTML (ui/screens.ts); this scene wires its buttons.
  */
 import Phaser from "phaser";
-import type { ServerMessage } from "@game/shared";
-import { LocalLink, OnlineLink, type GameLink } from "../net/link";
+import { ROOM_NAME, type ServerMessage } from "@game/shared";
+import { COOP_PROTOCOL_VERSION, COOP_ROOM_NAME } from "@game/shared/coop";
+import { CoopOnlineLink } from "../coop/net/coopLink";
+import { joinRoom, LocalLink, OnlineLink, type GameLink } from "../net/link";
 import { overlay } from "../ui/overlay";
 import { menuScreen } from "../ui/screens";
 
@@ -20,8 +22,9 @@ export class MenuScene extends Phaser.Scene {
     const code = new URLSearchParams(location.search).get("salon") ?? "";
     menuScreen.show(
       {
-        create: (name) => void this.goOnline(name, null),
-        join: (name, c) => void this.goOnline(name, c),
+        create: (name) => void this.goOnline(name, null, ROOM_NAME),
+        createCoop: (name) => void this.goOnline(name, null, COOP_ROOM_NAME),
+        join: (name, c) => void this.goOnline(name, c, ROOM_NAME),
         solo: (name, targetScore) => this.goSolo(name, targetScore),
         practice: () => {
           menuScreen.hide();
@@ -37,11 +40,16 @@ export class MenuScene extends Phaser.Scene {
     if (data?.message) menuScreen.setError(data.message);
   }
 
-  private async goOnline(name: string, code: string | null): Promise<void> {
+  /**
+   * Create a room of type `roomName`, or join one by its code: the room's first message tells
+   * its mode (a code works for a race room and for a co-op room alike).
+   */
+  private async goOnline(name: string, code: string | null, roomName: string): Promise<void> {
     try {
-      const link = await OnlineLink.connect(name, code);
+      const joined = await joinRoom(name, code, roomName, COOP_PROTOCOL_VERSION);
       menuScreen.hide();
-      this.scene.start("lobby", { link });
+      if (joined.mode === "coop") this.scene.start("coopLobby", { link: new CoopOnlineLink(joined) });
+      else this.scene.start("lobby", { link: OnlineLink.fromRoom(joined) });
     } catch (e) {
       menuScreen.setError(e instanceof Error ? e.message : String(e));
     }

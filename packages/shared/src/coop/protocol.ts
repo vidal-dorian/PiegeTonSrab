@@ -1,0 +1,102 @@
+/**
+ * Every message of the co-op mode ("Sauve Ton Srab") between its Colyseus room and the clients.
+ *
+ * The server runs the authoritative co-op world (world.ts) from the players' inputs and sends
+ * compact snapshots of it about 30 times a second; clients draw them (and later predict ahead).
+ * Times are server times in milliseconds (a monotonic clock on the server) unless named otherwise;
+ * ticks count world steps (COOP_HZ per second) since the level started.
+ */
+
+export const COOP_ROOM_NAME = "coop";
+/**
+ * Bumped whenever the co-op rules or messages change: every machine must simulate the same world,
+ * so a tab still running an older build is refused with a message asking to reload.
+ */
+export const COOP_PROTOCOL_VERSION = 1;
+/** The server stops waiting for the story intro after this long, milliseconds. */
+export const COOP_INTRO_MAX_MS = 100_000;
+/** How often the server sends a snapshot of the world, milliseconds. */
+export const COOP_SNAPSHOT_MS = 1000 / 30;
+/** A player who sent no input for this long is treated as touching nothing, milliseconds. */
+export const COOP_SILENT_MS = 250;
+/** Seconds a dropped player has to come back before the level goes on without them. */
+export const COOP_RECONNECT_SECONDS = 30;
+/** "Prêt ?" before tick 0 of a level, milliseconds. */
+export const COOP_LEVEL_LEAD_MS = 1500;
+/** Restart held this long (by half the team from 3 players) restarts the level, seconds. */
+export const COOP_RESTART_HOLD = 1.5;
+
+export type CoopPhase = "lobby" | "intro" | "select" | "level";
+
+export interface CoopLobbyPlayer {
+  id: string;
+  name: string;
+  /** Seat: index in PLAYER_COLORS (0 black, 1 white, 2 blue, 3 green, 4 purple). */
+  color: number;
+  connected: boolean;
+  /** Joined while a level was running: plays from the next start. */
+  waiting: boolean;
+}
+
+export interface CoopLobbyInfo {
+  mode: "coop";
+  code: string;
+  hostId: string;
+  players: CoopLobbyPlayer[];
+  /** The player who plays Ruben, or null (then drawn at launch). */
+  rubenId: string | null;
+  phase: CoopPhase;
+  /** Index of the level being played (phase "level"), or the next one to play. */
+  levelIndex: number;
+}
+
+/** One body of the world, in rope order. */
+export interface CoopSeat {
+  id: string;
+  name: string;
+  color: number;
+  isRuben: boolean;
+}
+
+export interface CoopIntroCast {
+  ruben: { id: string; pseudo: string; color: number; drawnByLot: boolean };
+  friends: Array<{ id: string; pseudo: string; color: number }>;
+}
+
+/** What happened in the world, as the server's referee saw it. */
+export type CoopRefereeEvent =
+  | { kind: "death"; tick: number; victim: number; cause: "fall" | "hazard"; x: number; y: number }
+  | { kind: "restart"; tick: number; attempt: number; by: string | null }
+  | { kind: "squash"; tick: number; body: number; by: number };
+
+export type CoopServerMessage =
+  | { type: "coopLobby"; lobby: CoopLobbyInfo }
+  /** The story intro: every player watches it on their own computer. */
+  | { type: "coopIntro"; cast: CoopIntroCast; startedAt: number; endsAt: number }
+  | { type: "coopIntroStatus"; done: string[] }
+  /** A level starts (or restarts with a new team): tick 0 happens at server time `startsAt`. */
+  | { type: "coopLevel"; index: number; levelId: string; seats: CoopSeat[]; startsAt: number }
+  /** The world at `tick`: encodeWorld bytes, plus the referee's events since the last snapshot. */
+  | { type: "coopSnap"; tick: number; world: Uint8Array; events: CoopRefereeEvent[] }
+  /** The world waits for a dropped player (null: it goes on). */
+  | { type: "coopPause"; waitingFor: string | null; until: number }
+  | { type: "coopNotice"; text: string }
+  | { type: "pong"; c: number; s: number }
+  | { type: "error"; message: string };
+
+export type CoopClientMessage =
+  /** Claim the role of Ruben (playerId = self), give it (host: anyone) or free it (null). */
+  | { type: "coopRuben"; playerId: string | null }
+  /** Host: launch the story (intro, then the first level). */
+  | { type: "coopStart" }
+  /** Host: play this level now. */
+  | { type: "coopPlay"; index: number }
+  /** The intro ended or was skipped on this computer. */
+  | { type: "coopIntroDone" }
+  /** Inputs: [tick, bits] pairs, oldest first; bits are inputBits.ts values. */
+  | { type: "coopIn"; k: Array<[number, number]> }
+  /** The tab was hidden: touch nothing until the next input. */
+  | { type: "coopIdle" }
+  /** Host: back to the lobby. */
+  | { type: "coopBack" }
+  | { type: "ping"; c: number };

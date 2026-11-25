@@ -70,6 +70,7 @@ export class CoopWorld implements CoopSpace, RopeHost {
   /** One solid box per body, kept in step with the bodies, then the objects' colliders. */
   readonly colliders: BoxCollider[] = [];
   private inputs: CoopInput[] = [];
+  private pendingRestart = false;
   private squashing: boolean[] = [];
   private order: number[] = [];
   /** Each body's y before its own step, this step (the haul speed counts every rise from there). */
@@ -182,10 +183,20 @@ export class CoopWorld implements CoopSpace, RopeHost {
     this.events.push({ kind: "restart", attempt: this.attempt });
   }
 
+  /** The next step restarts the level instead of moving anyone (R held by the team). */
+  requestRestart(): void {
+    this.pendingRestart = true;
+  }
+
   /** Advance one step. `inputs[i]` is body i's input bits (inputBits.ts); missing means no input. */
   step(inputs: readonly number[]): void {
     this.events = [];
     this.tick++;
+    if (this.pendingRestart) {
+      this.pendingRestart = false;
+      this.restart();
+      return;
+    }
     if (this.dying > 0) {
       this.dying--;
       if (this.dying === 0) this.restart();

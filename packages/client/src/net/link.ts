@@ -32,12 +32,13 @@ export interface GameLink {
   leave(): void;
 }
 
-abstract class BaseLink {
-  private handler: ((msg: ServerMessage) => void) | null = null;
-  private queue: ServerMessage[] = [];
+/** Message queue and handler handoff shared by every link (race and co-op). */
+export abstract class BaseLink<S = ServerMessage> {
+  private handler: ((msg: S) => void) | null = null;
+  private queue: S[] = [];
   onStatus: ((status: "lost" | "back" | "closed") => void) | null = null;
 
-  setHandler(handler: ((msg: ServerMessage) => void) | null): void {
+  setHandler(handler: ((msg: S) => void) | null): void {
     this.handler = handler;
     if (!handler) return;
     const pending = this.queue;
@@ -45,10 +46,73 @@ abstract class BaseLink {
     for (const m of pending) handler(m);
   }
 
-  protected deliver(msg: ServerMessage): void {
+  protected deliver(msg: S): void {
     if (this.handler) this.handler(msg);
     else this.queue.push(msg);
   }
+}
+
+/**
+ * A joined Colyseus room whose first message told which game mode it plays. Messages are kept
+ * until a link takes the room over (setSink), so nothing is lost while the menu decides.
+ */
+export interface JoinedRoom {
+  room: Room;
+  mode: "race" | "coop";
+  /** Hand every message (those received so far first) to `sink`. */
+  setSink(sink: (msg: unknown) => void): void;
+}
+
+/** How long to wait for a room's first message before giving up, milliseconds. */
+const FIRST_MESSAGE_TIMEOUT_MS = 8000;
+
+/**
+ * Create a room of type `roomName`, or join one by its code (whatever its mode), then wait for
+ * the session's first message: "lobby" for the race, "coopLobby" for the co-op mode.
+ * Throws with a French message on failure. `version` is checked by the co-op rooms.
+ */
+export async function joinRoom(name: string, code: string | null, roomName: string, version: number): Promise<JoinedRoom> {
+  const client = new Client(serverUrl());
+  let room: Room;
+  try {
+    room = code ? await client.joinById(code.toUpperCase(), { name, version }) : await client.create(roomName, { name, version });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    // The session said why (game already started, new version...), in French: show it as is.
+    if ((e as { code?: unknown }).code === JOIN_REFUSED_CODE && message) throw new Error(message);
+    if (code && /not found|locked|full/i.test(message)) throw new Error(`Salon ${code.toUpperCase()} introuvable ou plein.`);
+    throw new Error(`Impossible de joindre le serveur (${serverUrl()}). Est-il lancé ?`);
+  }
+  const buffered: unknown[] = [];
+  let sink: ((msg: unknown) => void) | null = null;
+  let first: ((msg: unknown) => void) | null = null;
+  room.onMessage("*", (_type, payload) => {
+    if (sink) sink(payload);
+    else buffered.push(payload);
+    first?.(payload);
+  });
+  const firstMessage = await new Promise<unknown>((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error("Le serveur ne répond pas.")), FIRST_MESSAGE_TIMEOUT_MS);
+    first = (msg) => {
+      window.clearTimeout(timer);
+      first = null;
+      resolve(msg);
+    };
+    if (buffered.length > 0) first(buffered[0]);
+  }).catch((e: unknown) => {
+    void room.leave(true);
+    throw e;
+  });
+  const mode = (firstMessage as { type?: string }).type === "coopLobby" ? "coop" : "race";
+  return {
+    room,
+    mode,
+    setSink: (s) => {
+      sink = s;
+      const pending = buffered.splice(0);
+      for (const m of pending) s(m);
+    },
+  };
 }
 
 /** Server address: same host as the page, port 2567, unless VITE_SERVER_URL says otherwise. */
@@ -67,10 +131,14 @@ export class OnlineLink extends BaseLink implements GameLink {
   private bestRtt = Infinity;
   private pingTimer: number;
 
-  private constructor(private room: Room) {
+  private constructor(
+    private room: Room,
+    joined?: JoinedRoom,
+  ) {
     super();
     this.myId = room.sessionId;
-    room.onMessage("*", (_type, payload) => this.receive(payload as ServerMessage));
+    if (joined) joined.setSink((payload) => this.receive(payload as ServerMessage));
+    else room.onMessage("*", (_type, payload) => this.receive(payload as ServerMessage));
     room.onDrop(() => this.onStatus?.("lost"));
     room.onReconnect(() => this.onStatus?.("back"));
     room.onLeave(() => {
@@ -80,6 +148,11 @@ export class OnlineLink extends BaseLink implements GameLink {
     // A burst of pings to sync the clock quickly, then one every 2 seconds.
     for (let i = 0; i < 5; i++) window.setTimeout(() => this.ping(), i * 150);
     this.pingTimer = window.setInterval(() => this.ping(), 2000);
+  }
+
+  /** Take over a race room joined with joinRoom (its first message was the race lobby). */
+  static fromRoom(joined: JoinedRoom): OnlineLink {
+    return new OnlineLink(joined.room, joined);
   }
 
   /** Create a new room, or join one by its code. Throws with a French message on failure. */
