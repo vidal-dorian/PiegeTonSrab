@@ -1,5 +1,7 @@
 import Phaser from "phaser";
 import { CELL_PX, VIEW_CELLS_X, VIEW_CELLS_Y } from "./config";
+import { startDevRoute } from "./coop/devRoutes";
+import { IntroScene } from "./coop/intro/IntroScene";
 import { GameScene } from "./scenes/GameScene";
 import { LobbyScene } from "./scenes/LobbyScene";
 import { MenuScene } from "./scenes/MenuScene";
@@ -44,8 +46,10 @@ function startGame(): void {
     // Input is read directly from the browser (see input.ts and the scenes), not through Phaser.
     input: { keyboard: false, gamepad: false, mouse: false, touch: false },
     // The first scene in the list starts automatically.
-    scene: [MenuScene, LobbyScene, GameScene, SoloScene, TutorialScene],
+    scene: [MenuScene, LobbyScene, GameScene, SoloScene, TutorialScene, IntroScene],
   });
+  // Dev builds: ?intro opens the co-op story intro directly (see coop/devRoutes.ts).
+  game.events.once(Phaser.Core.Events.READY, () => startDevRoute(game));
   // Dev builds only: lets browser tests start a scene and read its state (window.game.scene...).
   if (import.meta.env.DEV) (window as unknown as { game?: Phaser.Game }).game = game;
 

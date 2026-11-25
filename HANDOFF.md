@@ -337,6 +337,54 @@ Each step must end with something playable. Do not start a step before the previ
 
 The playtest comes at step 4, before the art, on purpose: use plain rectangles until then, so that rule changes are cheap.
 
+## Co-op mode: "Sauve Ton Srab" (branch `nouveau-jeu`)
+
+A second game mode, started on 2026-11-25 on the branch `nouveau-jeu` (from main 4aec1cb). Pico Park-like
+co-op: the players are tied by a rope and must help each other through puzzle levels themed on Ruben's
+semester at the IUT de Rodez. It never changes the race mode: the race controller and reach graphs are
+locked by `packages/client/src/controllerGolden.test.ts` (hashes recorded on main before any change).
+
+Decided (2026-11-25, by Dorian):
+
+- Online only, like the race mode: every player on their own computer, in a room (create, join by code or
+  `?salon=` link). There is no "several players on one PC" mode; a dev-build tool (`?coopLocal=2`, two
+  keyboard halves) only exists to test the rope alone.
+- Any death restarts the whole level for everyone, objects included (Pico Park).
+- Pure co-op: no object is designed to sabotage. The betrayals that happen anyway (walking away while a friend
+  stands on your head, stepping off a plate...) are told by end-of-level titles. No score.
+- One player plays Ruben, picked in the lobby, with a sweatband look; the others are his friends. The intro
+  uses the real nicknames.
+- The story intro (Ruben, BUT informatique at the IUT de Rodez, lost in class, always at the gym, uses Claude
+  without knowing how) is made by a dedicated agent running Fable 5.2 at high effort, and by no other model.
+  Every change to the animation goes back to that agent. Contract: `packages/client/src/coop/intro/introContract.ts`.
+- Build everything in one go (levels included, tuned with test bots on the real physics); Dorian tests at the
+  end. Each milestone is a separate, playable commit.
+
+Defaults (proposed in the approved plan, not yet played by Dorian):
+
+- Mode name "Sauve Ton Srab". Ruben weighs 2 on plates, seesaws and balances, pushes as two, has mass 2 on the
+  rope, and cannot be carried (a friend he lands on gets squashed and he slides off). No setting turns this off.
+- Rope: a chain in seat order with Ruben always last, 4.5 cells between neighbours for the whole campaign; it
+  goes through terrain (drawn bent over corners). A hauled body rises at most 2.5 cells/s (Ruben 1.2); an idle
+  anchor slowly slides towards the void unless it pushes away; a hanging body swings (pump, capped at 70°)
+  and adds its weight to whoever holds it.
+- Towers: standing on heads; a carrier cannot jump; no jump from a base in the air; no vertical speed kept
+  when leaving a support (except seesaw and spring). Reach: alone a step of 2 (the jump peaks at exactly 3.0),
+  a 2-tower 3, a 3-tower 4. No wall jump or wall slide in this mode. Bodies block each other sideways and never
+  push each other; nothing ever crushes a body.
+- The objective is Ruben's USB key: picked up on touch, taken from its holder with Down; the holder opens the
+  classroom door by touching it; Down enters or leaves; the level is won when everyone is in. Holding R for
+  1.5 s restarts the level (half the team from 3 players).
+- Network: the server runs the authoritative co-op world (120 steps/s) from the players' inputs. Step A:
+  30 compact snapshots per second, interpolated on every client. Step B: each client predicts the whole world
+  ahead and reconciles on the snapshots. The own-body-plus-ghosts model of the race mode was measured not to
+  work for a rope or towers (a dragged friend moves at 0.01-0.07 cells/s instead of 3.5).
+- Levels: 9 levels plus a finale in 3 parts. Their design sheets are in `docs/coop-levels.md`.
+
+Build order (one commit per step): M0 base (golden test, controller hooks, intro contract); M1 co-op physics
+and the dev tool; M2 the online room end to end (step A); M3 objects, titles, levels 1-5, intro integration;
+M4 prediction (step B); M5 levels 6-10c, polish, docs.
+
 ## Open questions for Dorian
 
 - Maximum width of scrolling levels (proposed: about 2 screens, 64 cells).

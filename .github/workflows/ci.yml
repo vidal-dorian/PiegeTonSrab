@@ -4,7 +4,8 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main]
+    # nouveau-jeu: the co-op mode's branch gets the checks; deploying stays main-only (see the deploy job's if).
+    branches: [main, nouveau-jeu]
   # Redéploiement manuel depuis l'onglet Actions.
   workflow_dispatch:
 

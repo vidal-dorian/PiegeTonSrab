@@ -38,9 +38,12 @@ export interface BlobPose {
   dizzy: boolean;
 }
 
-/** Draw a blob into `g` (cleared first). Shared by the local player and the other players. */
-export function drawBlob(g: Phaser.GameObjects.Graphics, p: BlobPose): void {
-  g.clear();
+/**
+ * The blob's own frame: `w` and `h` are the body size in pixels, and `tx` maps a point given in
+ * local coordinates (feet at (0, 0), facing right, y down, pixels, unscaled) to world pixels with
+ * the pose's squash, lean, facing and tilt. Accessories (Ruben's sweatband) use it to stick to the body.
+ */
+export function blobFrame(p: BlobPose): { w: number; h: number; tx: (lx: number, ly: number) => [number, number] } {
   const m = tuning.movement;
   const w = m.bodyWidth * CELL_PX;
   const h = m.bodyHeight * CELL_PX;
@@ -51,7 +54,6 @@ export function drawBlob(g: Phaser.GameObjects.Graphics, p: BlobPose): void {
   const pivotY = (-h / 2) * sy;
   const cos = Math.cos(p.rotation);
   const sin = Math.sin(p.rotation);
-  // Local coordinates: feet at (0, 0), facing right, y down.
   const tx = (lx: number, ly: number): [number, number] => {
     let x = lx * sx;
     const y = ly * sy;
@@ -60,6 +62,13 @@ export function drawBlob(g: Phaser.GameObjects.Graphics, p: BlobPose): void {
     const ry = y - pivotY;
     return [footX + x * cos - ry * sin, footY + pivotY + x * sin + ry * cos];
   };
+  return { w, h, tx };
+}
+
+/** Draw a blob into `g` (cleared first). Shared by the local player and the other players. */
+export function drawBlob(g: Phaser.GameObjects.Graphics, p: BlobPose): void {
+  g.clear();
+  const { w, h, tx } = blobFrame(p);
 
   // Pebble: flatter at the bottom, a little rounder and pushed forward at the top.
   const rx = w / 2;
