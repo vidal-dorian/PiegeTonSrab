@@ -1,0 +1,271 @@
+/**
+ * Golden test: the race mode's character controller and reach graphs must stay bit-identical.
+ *
+ * The co-op mode subclasses CharacterController (packages/shared/src/coop), which needed some
+ * private members to become protected and a few small extractions. Those edits must not change a
+ * single bit of the race mode: the server's placement check (PathGuard) and the client preview both
+ * run the real controller. The values below were recorded on the untouched controller (main,
+ * 4aec1cb). Every step of every scenario feeds the exact float64 bits of the body's state into a
+ * hash, so any change in arithmetic or order shows up.
+ *
+ * To re-record after an intended change of the race mode (from packages/client):
+ *   GOLDEN_RECORD=1 npx vitest run controllerGolden --silent=false --reporter=verbose
+ */
+import { describe, expect, it } from "vitest";
+import {
+  buildReachGraph,
+  CharacterController,
+  DEFAULT_MOVEMENT,
+  parseLevel,
+  prepareObjects,
+  RACE_LEVELS,
+  testLevel,
+  vinesOf,
+  withSolidObjects,
+  type LevelDefinition,
+  type PlacedObject,
+  type StepInput,
+} from "@game/shared";
+import { SIM_HZ } from "./config";
+
+const DT = 1 / SIM_HZ;
+/** The client tsconfig has no Node types: read the environment without them. */
+const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env ?? {};
+const RECORD = env.GOLDEN_RECORD === "1";
+
+/** 32-bit FNV-1a over raw bytes. */
+class Fnv {
+  h = 0x811c9dc5;
+  private view = new DataView(new ArrayBuffer(8));
+  byte(b: number): void {
+    this.h ^= b & 0xff;
+    this.h = Math.imul(this.h, 0x01000193) >>> 0;
+  }
+  float(x: number): void {
+    this.view.setFloat64(0, x);
+    for (let i = 0; i < 8; i++) this.byte(this.view.getUint8(i));
+  }
+  int(n: number): void {
+    this.view.setInt32(0, n);
+    for (let i = 0; i < 4; i++) this.byte(this.view.getUint8(i));
+  }
+  hex(): string {
+    return this.h.toString(16).padStart(8, "0");
+  }
+}
+
+/** Small seeded generator (mulberry32), so scenarios are reproducible. */
+function rng(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Inputs that change every few steps: runs, taps and full jumps, stops, drops. */
+function inputStream(seed: number): () => StepInput {
+  const r = rng(seed);
+  let left = false;
+  let right = false;
+  let jumpHeld = false;
+  let down = false;
+  let left_ = 0;
+  return () => {
+    let jumpPressed = false;
+    if (left_ <= 0) {
+      left_ = 4 + Math.floor(r() * 40);
+      const d = r();
+      left = d < 0.35;
+      right = d > 0.6;
+      const j = r();
+      jumpPressed = j < 0.45;
+      jumpHeld = jumpPressed && r() < 0.7;
+      down = r() < 0.08;
+    }
+    left_--;
+    return { left, right, jumpHeld, jumpPressed, down };
+  };
+}
+
+/** Coverage counters, printed when recording, to check the scenarios exercise what they should. */
+const coverage = { wallSlide: 0, swing: 0, airborne: 0, stunned: 0 };
+
+function hashState(f: Fnv, c: CharacterController): void {
+  if (c.wallSliding) coverage.wallSlide++;
+  if (c.swing) coverage.swing++;
+  if (!c.grounded) coverage.airborne++;
+  if (c.stunTimer > 0) coverage.stunned++;
+  f.float(c.x);
+  f.float(c.y);
+  f.float(c.vx);
+  f.float(c.vy);
+  f.int(c.grounded ? 1 : 0);
+  f.int(c.wallSide);
+  f.int(c.wallSliding ? 1 : 0);
+  f.int(c.facing);
+  f.float(c.stunTimer);
+  f.int(c.bounceCount);
+  if (c.swing) {
+    f.float(c.swing.angle);
+    f.float(c.swing.omega);
+    f.float(c.swing.length);
+  }
+}
+
+/** Random play on the test level, with the pushes other players can give mixed in. */
+function randomRun(seed: number, steps: number, pushes: boolean): string {
+  const level = parseLevel(testLevel);
+  const c = new CharacterController(level, { ...DEFAULT_MOVEMENT });
+  const next = inputStream(seed);
+  const f = new Fnv();
+  for (let i = 0; i < steps; i++) {
+    if (pushes) {
+      if (i % 500 === 250) c.launch(DEFAULT_MOVEMENT.stompBounceHeight, i % 1000 === 250);
+      if (i % 700 === 350) c.slam(DEFAULT_MOVEMENT.stompSlamSpeed, DEFAULT_MOVEMENT.stunTime);
+      if (i % 300 === 150) c.shove((i % 600 === 150 ? 1 : -1) * DEFAULT_MOVEMENT.shoveSpeed, DEFAULT_MOVEMENT.shoveLock);
+    }
+    c.step(DT, next());
+    if (c.fellOut) c.respawn();
+    hashState(f, c);
+  }
+  return f.hex();
+}
+
+/** Random play starting at the bottom of the test level's wall-jump shaft: wall slides and wall jumps. */
+function shaftRun(seed: number, steps: number): string {
+  const level = parseLevel(testLevel);
+  const c = new CharacterController(level, { ...DEFAULT_MOVEMENT });
+  const next = inputStream(seed);
+  const f = new Fnv();
+  c.standInCell(44, 15);
+  for (let i = 0; i < steps; i++) {
+    c.step(DT, next());
+    if (c.fellOut) c.standInCell(44, 15);
+    hashState(f, c);
+  }
+  return f.hex();
+}
+
+const VINE_ROOM: LevelDefinition = {
+  name: "vine room",
+  rows: [
+    "####################",
+    "#..................#",
+    "#..................#",
+    "#..................#",
+    "#..................#",
+    "#..................#",
+    "#..................#",
+    "#..................#",
+    "#S.................#",
+    "####################",
+  ],
+};
+
+/** Random play in a room with two vines, grabbing every step like LocalPlayer does. */
+function vineRun(seed: number, steps: number): string {
+  const room = parseLevel(VINE_ROOM);
+  const placed: PlacedObject[] = [
+    { id: 9, kind: "vine", x: 8, y: 1 },
+    { id: 10, kind: "vine", x: 13, y: 1 },
+    { id: 11, kind: "spring", x: 4, y: 8 },
+  ];
+  const objects = prepareObjects(room, placed);
+  const c = new CharacterController(withSolidObjects(room, objects), { ...DEFAULT_MOVEMENT });
+  const vines = vinesOf(objects);
+  const next = inputStream(seed);
+  const f = new Fnv();
+  for (let i = 0; i < steps; i++) {
+    if (i % 400 === 200) c.launch(DEFAULT_MOVEMENT.stompBounceHeight, true);
+    c.step(DT, next());
+    if (!c.swing) c.tryGrabVine(vines, (id) => id !== 10 || i % 2 === 0);
+    hashState(f, c);
+  }
+  return f.hex();
+}
+
+/** Fingerprint of a reach graph: every edge (from, to, cells), sorted. */
+function graphFingerprint(def: LevelDefinition): string {
+  const level = parseLevel(def);
+  const objects = prepareObjects(level, level.initialObjects);
+  const g = buildReachGraph(level, objects, { ...DEFAULT_MOVEMENT });
+  const f = new Fnv();
+  f.int(g.reachable ? 1 : 0);
+  f.int(g.start);
+  for (const from of [...g.edges.keys()].sort((a, b) => a - b)) {
+    const edges = g.edges.get(from)!.map((e) => ({ to: e.to, cells: [...e.cells].sort((a, b) => a - b) }));
+    edges.sort((a, b) => a.to - b.to || a.cells.length - b.cells.length || a.cells.join().localeCompare(b.cells.join()));
+    f.int(from);
+    f.int(edges.length);
+    for (const e of edges) {
+      f.int(e.to);
+      f.int(e.cells.length);
+      for (const cell of e.cells) f.int(cell);
+    }
+  }
+  return f.hex();
+}
+
+/** Recorded on the untouched controller (main, 4aec1cb). */
+const GOLDEN = {
+  trajectories: {
+    "random 1": "e5ee565f",
+    "random 2": "e2bcb313",
+    "random 3 + pushes": "2d179d51",
+    "random 4 + pushes": "7426a7b5",
+    "wall-jump shaft 5": "f02861d4",
+    "wall-jump shaft 6": "e8419a8e",
+    "vines 7": "71ef6049",
+    "vines 8": "fd755a37",
+  } as Record<string, string>,
+  graphs: {
+    "Le Parc": "896e8cf3",
+    "La Tour": "068d346d",
+    "La Grotte": "496356dd",
+    "Les Toits": "33756b46",
+    "L'Usine": "e2e91672",
+    "Le Puits": "0aa70a58",
+    "Le Grand Huit": "ba13d252",
+    "Le Labyrinthe": "ff6f8d47",
+    "La Jungle": "19f43ba0",
+    "Le Pont": "0b55eb1f",
+    "Test du personnage": "fa4f093e",
+  } as Record<string, string>,
+};
+
+const TRAJECTORIES: Record<string, () => string> = {
+  "random 1": () => randomRun(1, 6000, false),
+  "random 2": () => randomRun(2, 6000, false),
+  "random 3 + pushes": () => randomRun(3, 6000, true),
+  "random 4 + pushes": () => randomRun(4, 6000, true),
+  "wall-jump shaft 5": () => shaftRun(5, 4000),
+  "wall-jump shaft 6": () => shaftRun(6, 4000),
+  "vines 7": () => vineRun(7, 6000),
+  "vines 8": () => vineRun(8, 6000),
+};
+
+describe("race-mode controller golden values", () => {
+  it("every trajectory is bit-identical to the recorded one", () => {
+    const got: Record<string, string> = {};
+    for (const [name, run] of Object.entries(TRAJECTORIES)) got[name] = run();
+    if (RECORD) {
+      console.log("GOLDEN trajectories", JSON.stringify(got, null, 2), "coverage", JSON.stringify(coverage));
+      return;
+    }
+    expect(got).toEqual(GOLDEN.trajectories);
+  });
+
+  it("every race map's reach graph is identical to the recorded one", () => {
+    const got: Record<string, string> = {};
+    for (const def of [...RACE_LEVELS, testLevel]) got[def.name] = graphFingerprint(def);
+    if (RECORD) {
+      console.log("GOLDEN graphs", JSON.stringify(got, null, 2));
+      return;
+    }
+    expect(got).toEqual(GOLDEN.graphs);
+  }, 60_000);
+});
