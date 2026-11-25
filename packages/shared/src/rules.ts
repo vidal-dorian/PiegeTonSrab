@@ -17,6 +17,12 @@ export interface GameConfig {
   /** Rounds 1..switchAfterRound use objectsEarly; later rounds use objectsLate. */
   switchAfterRound: number;
   /**
+   * From this many players on, every round uses objectsLate, round 1 included. Objects pile up
+   * on one map for the whole game, so a full room would otherwise fill it about 25 % faster
+   * than 4 players do (decided 2026-11-25: 2 objects from round 1 at 5 players).
+   */
+  lateOnlyFromPlayers: number;
+  /**
    * How many more objects are drawn than placed. 0 (decided 2026-11-24): every player gets
    * exactly the objects they must place, drawn at random, so nobody picks their favourite.
    */
@@ -39,12 +45,14 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   objectsEarly: 3,
   objectsLate: 2,
   switchAfterRound: 3,
+  lateOnlyFromPlayers: 5,
   extraOffered: 0,
   killCap: 2,
 };
 
-/** Objects each player places in round `round` (1-based). */
-export function objectsForRound(cfg: GameConfig, round: number): number {
+/** Objects each player places in round `round` (1-based) when `players` are in the game. */
+export function objectsForRound(cfg: GameConfig, round: number, players: number): number {
+  if (players >= cfg.lateOnlyFromPlayers) return cfg.objectsLate;
   return round <= cfg.switchAfterRound ? cfg.objectsEarly : cfg.objectsLate;
 }
 

@@ -62,7 +62,7 @@ function buildContent(): HTMLElement[] {
     "Un round",
     list(
       [
-        `Pose · ${cfg.placementTime} s : tu reçois ${cfg.objectsEarly} objets tirés au sort (${cfg.objectsLate} à partir du round ${lateFrom}). Place-les où tu veux, dans l'ordre que tu veux.`,
+        `Pose · ${cfg.placementTime} s : tu reçois ${cfg.objectsEarly} objets tirés au sort (${cfg.objectsLate} à partir du round ${lateFrom}, et dès le début à ${cfg.lateOnlyFromPlayers} joueurs). Place-les où tu veux, dans l'ordre que tu veux.`,
         "Impossible de murer le niveau : un objet qui coupe tout chemin vers le drapeau est refusé.",
         `Course · ${cfg.raceTime} s : tout le monde part en même temps vers le drapeau.`,
         `Scores · ${cfg.scoreTime} s, puis on recommence sur le même niveau, piégé un peu plus.`,

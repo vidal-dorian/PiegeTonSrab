@@ -420,7 +420,7 @@ function simulate(def: LevelDefinition, seed: number, players: number, rounds: n
     const line = weightedPool(raceLine(graph, level), level, objects);
     const anywhere = placeableCells(level, objects);
     const guard = new PathGuard(level, objects, M, { graph });
-    const needed = objectsForRound(DEFAULT_GAME_CONFIG, round);
+    const needed = objectsForRound(DEFAULT_GAME_CONFIG, round, players);
     const hands = Array.from({ length: players }, () => drawOffer(rng, needed + DEFAULT_GAME_CONFIG.extraOffered).slice(0, needed));
     const order = shuffle(
       rng,
@@ -752,7 +752,7 @@ async function main(): Promise<void> {
 
   console.log(
     `stress: ${files.length} map(s) x ${seeds} seed(s), ${players} players, ${rounds} rounds, ${parallel} parallel worker(s)` +
-      ` (objects per player: ${Array.from({ length: rounds }, (_, i) => objectsForRound(DEFAULT_GAME_CONFIG, i + 1)).join(",")})`,
+      ` (objects per player: ${Array.from({ length: rounds }, (_, i) => objectsForRound(DEFAULT_GAME_CONFIG, i + 1, players)).join(",")})`,
   );
   const jobs: Job[] = files.flatMap((file) => Array.from({ length: seeds }, (_, seed) => ({ file, seed, players, rounds })));
   const t0 = performance.now();

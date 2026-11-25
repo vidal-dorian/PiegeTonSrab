@@ -41,6 +41,7 @@ Decided (2026-11-24):
 
 - Each player places 3 objects per round at the start of a game, then 2 objects per round once a given number of rounds have been played. Keep both counts and the switch-over round in the game config so they can be changed after playtests. This replaces the earlier one-object-per-round design wherever it appears below.
 - Decided (2026-11-25, by Dorian): 3 objects in rounds 1 to 3, then 2 from round 4 on (`objectsEarly` 3, `objectsLate` 2, `switchAfterRound` 3 in `DEFAULT_GAME_CONFIG`). This settles both the switch-over round and the earlier doubt about "2 objects drawn at random".
+- Decided (2026-11-25, by Dorian): with 5 players, 2 objects from round 1 (`lateOnlyFromPlayers` 5). Objects pile up on one map, so 5 players at 3-then-2 filled it about 25 % faster than 4; this keeps a full room close to a 4-player game.
 - Placement lasts 35 seconds (replaces the 25-second default).
 - Some levels scroll horizontally, with a camera following the player. Single-screen levels (32 by 18 cells, as in the mockups) remain possible; the level format and the camera must support any width.
 - The placement screen shows the whole level zoomed out to fit, so no scrolling is needed while placing.

@@ -19,7 +19,13 @@ const totals = (results: RaceResult[], solo = false) =>
 
 describe("rules", () => {
   it("3 objects for the first 3 rounds, then 2", () => {
-    expect([1, 2, 3, 4, 10].map((n) => objectsForRound(cfg, n))).toEqual([3, 3, 3, 2, 2]);
+    for (const players of [1, 2, 3, 4]) {
+      expect([1, 2, 3, 4, 10].map((n) => objectsForRound(cfg, n, players))).toEqual([3, 3, 3, 2, 2]);
+    }
+  });
+
+  it("2 objects from round 1 in a full room of 5", () => {
+    expect([1, 2, 3, 4, 10].map((n) => objectsForRound(cfg, n, 5))).toEqual([2, 2, 2, 2, 2]);
   });
 
   it("draw is reproducible from its seed and has the requested size", () => {

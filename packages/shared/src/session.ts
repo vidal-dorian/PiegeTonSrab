@@ -281,7 +281,7 @@ export class GameSession {
     this.clearTimers();
     this.phase = "placement";
     this.round++;
-    this.needed = objectsForRound(this.cfg, this.round);
+    this.needed = objectsForRound(this.cfg, this.round, this.inGamePlayers().length);
     this.placementEndsAt = this.io.now() + this.cfg.placementTime * 1000;
     for (const p of this.inGamePlayers()) {
       p.offer = drawOffer(this.rng, this.needed + this.cfg.extraOffered);
