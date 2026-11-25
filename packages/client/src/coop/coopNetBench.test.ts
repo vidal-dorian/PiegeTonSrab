@@ -53,23 +53,22 @@ class Net implements CoopSessionIO {
   snapsTo = new Map<string, number>();
   inbox = new Map<string, CoopServerMessage[]>();
   session!: CoopSession;
-  private random = rng(7);
+  private jitter = rng(7);
 
   constructor(private links: Map<string, Link>) {}
 
   now() {
     return this.t;
   }
-  random_() {
-    return this.random();
+  /** CoopSessionIO.random (drawing Ruben by lot): fixed. */
+  random() {
+    return 0.1;
   }
-  // CoopSessionIO.random (drawing Ruben): fixed.
-  random = (() => 0.1) as unknown as () => number;
 
   /** Arrival time on a link: latency + jitter, held by stalls, never before the previous message (in order). */
   private arrival(key: string): number {
     const l = this.links.get(key)!;
-    let at = this.t + l.latency + this.random_() * l.jitter;
+    let at = this.t + l.latency + this.jitter() * l.jitter;
     for (const [from, to] of l.stalls) if (at >= from && at < to) at = to;
     at = Math.max(at, this.lastArrival.get(key) ?? 0);
     this.lastArrival.set(key, at);
