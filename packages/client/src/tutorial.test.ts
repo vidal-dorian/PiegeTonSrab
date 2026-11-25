@@ -8,17 +8,20 @@ import {
   canPlaceAt,
   CharacterController,
   contactWith,
+  DEFAULT_GAME_CONFIG,
   DEFAULT_MOVEMENT,
   isSolidCell,
   NO_INPUT,
   parseLevel,
   prepareObjects,
   RACE_LEVELS,
+  scoreRound,
   SIM_HZ,
   withSolidObjects,
   type PlacedObject,
 } from "@game/shared";
-import { outroTime, tokenizePrompt, TutorialFlow, TUTORIAL_STEPS, type FlowEvent, type GoalId } from "./tutorial/flow";
+import { outroTime, tokenizePrompt, TutorialFlow, TUTORIAL_BURSTS, TUTORIAL_STEPS, type FlowEvent, type GoalId } from "./tutorial/flow";
+import { formatPoints } from "./ui/points";
 import { CHECKPOINTS, isLaneCell, TUTO, TUTORIAL_LEVEL } from "./tutorial/level";
 import { ScriptedRival } from "./tutorial/rival";
 
@@ -269,5 +272,22 @@ describe("tutorial duration (designer: 20 to 30 s)", () => {
 
   it("is never much shorter than 15 s, even for a speedrunner (time to read the lines)", () => {
     expect(playThrough({ marker: 1.2, place: 1, stomp: 1.5, flag: 0.8 })).toBeGreaterThan(14);
+  });
+});
+
+describe("tutorial point bursts", () => {
+  it("show what the score gives: the flag what a finish earns, the saw kill what a kill earns", () => {
+    // Review finding: the flag burst was read from POINTS.pushKill (equal to POINTS.finish only by chance).
+    const rs = scoreRound(
+      [
+        { playerId: "me", finishTime: 10, killedBy: null },
+        { playerId: "other", finishTime: 12, killedBy: null },
+        { playerId: "rival", finishTime: null, killedBy: "me" },
+      ],
+      DEFAULT_GAME_CONFIG,
+    );
+    const me = rs.lines.find((l) => l.playerId === "me")!;
+    expect(TUTORIAL_BURSTS.flag).toBe(`+${formatPoints(me.finish)}`);
+    expect(TUTORIAL_BURSTS.kill).toBe(`+${formatPoints(me.kills)}`);
   });
 });

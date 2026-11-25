@@ -17,9 +17,11 @@ export interface StepInput {
   jumpHeld: boolean;
   /** Jump button went down since the previous step. */
   jumpPressed: boolean;
+  /** Down (S / ↓) is held, or was tapped since the previous step: let go of the vine. Absent = false. */
+  down?: boolean;
 }
 
-export const NO_INPUT: StepInput = { left: false, right: false, jumpHeld: false, jumpPressed: false };
+export const NO_INPUT: StepInput = { left: false, right: false, jumpHeld: false, jumpPressed: false, down: false };
 
 /** How far the body is probed to detect ground and walls it is touching, cells. */
 const CONTACT_PROBE = 0.01;
@@ -77,6 +79,10 @@ export class CharacterController {
   private lastWallSide: -1 | 1 = 1;
   private controlLockTimer = 0;
   private regrabTimer = 0;
+  /** Down was held at the last step: no vine is grabbed meanwhile, so the player can drop past one. */
+  private dropHeld = false;
+  /** Vine let go of with Down: skipped until the body leaves its reach (inVineReach) or lands, so one tap is enough. */
+  private droppedVineId: number | null = null;
 
   private derived: DerivedMovement;
 
@@ -124,6 +130,8 @@ export class CharacterController {
     this.regrabTimer = 0;
     this.stunTimer = 0;
     this.swing = null;
+    this.dropHeld = false;
+    this.droppedVineId = null;
     this.facing = 1;
     this.senseContacts();
   }
@@ -144,20 +152,29 @@ export class CharacterController {
     this.stunTimer = Math.max(0, this.stunTimer - dt);
     // Stunned: jumps are lost, not kept for later.
     if (this.stunTimer > 0) this.jumpBufferTimer = 0;
+    this.dropHeld = input.down === true;
 
     const dir = (input.right ? 1 : 0) - (input.left ? 1 : 0);
     if (dir !== 0) this.facing = dir > 0 ? 1 : -1;
 
     // --- Hanging from a vine -------------------------------------------------
+    // Letting go ends with the rest of this step run as a normal airborne step.
     if (this.swing) {
-      // Stunned players can't jump off either.
-      if (!input.jumpPressed || this.stunTimer > 0) {
+      if (input.down) {
+        // Down drops off, keeping the swing's momentum, with no push and no steering lock.
+        // It wins over a jump pressed in the same step, and works even when stunned.
+        this.droppedVineId = this.swing.vineId;
+        this.releaseVine(false);
+        this.jumpBufferTimer = 0;
+      } else if (!input.jumpPressed || this.stunTimer > 0) {
+        // Stunned players can't jump off.
         this.stepSwing(dt, dir);
         return;
+      } else {
+        // Jump lets go, with a push upwards.
+        this.releaseVine(true);
+        this.jumpBufferTimer = 0;
       }
-      // Jump lets go, with a push upwards; the rest of this step is a normal airborne step.
-      this.releaseVine(true);
-      this.jumpBufferTimer = 0;
     }
 
     // --- Horizontal speed ---------------------------------------------------
@@ -209,6 +226,7 @@ export class CharacterController {
 
     // --- Contacts and grace timers -----------------------------------------
     this.senseContacts();
+    if (this.grounded) this.droppedVineId = null;
     if (this.grounded) {
       this.coyoteTimer = t.coyoteTime;
       this.rising = false;
@@ -262,13 +280,20 @@ export class CharacterController {
    * Returns the vine grabbed, or null.
    */
   tryGrabVine(vines: readonly Vine[], canHold: (vineId: number) => boolean): Vine | null {
-    if (this.swing || this.grounded || this.regrabTimer > 0 || this.stunTimer > 0 || vines.length === 0) return null;
+    // The vine dropped with Down becomes grabbable again once the body is out of its reach.
+    if (this.droppedVineId !== null) {
+      const dropped = vines.find((x) => x.id === this.droppedVineId);
+      if (!dropped || !this.inVineReach(dropped)) this.droppedVineId = null;
+    }
+    if (this.swing || this.grounded || this.regrabTimer > 0 || this.stunTimer > 0 || this.dropHeld || vines.length === 0) {
+      return null;
+    }
     const { bodyWidth: w, bodyHeight: h } = this.tuning;
     const cx = this.x + w / 2;
     const cy = this.y + h / 2;
     for (const v of vines) {
-      if (Math.abs(cx - v.ax) > VINE_GRAB_HALF_WIDTH) continue;
-      if (cy < v.ay + 0.3 || cy > v.ay + v.length + h / 2) continue;
+      if (v.id === this.droppedVineId) continue;
+      if (!this.inGrabZone(v)) continue;
       if (!canHold(v.id)) continue;
       const dx = cx - v.ax;
       const dy = cy - v.ay;
@@ -291,6 +316,27 @@ export class CharacterController {
       return v;
     }
     return null;
+  }
+
+  /** True if the body's centre is where vine `v` can be grabbed. */
+  private inGrabZone(v: Vine): boolean {
+    const { bodyWidth: w, bodyHeight: h } = this.tuning;
+    const cx = this.x + w / 2;
+    const cy = this.y + h / 2;
+    return Math.abs(cx - v.ax) <= VINE_GRAB_HALF_WIDTH && cy >= v.ay + 0.3 && cy <= v.ay + v.length + h / 2;
+  }
+
+  /**
+   * True if the body's centre is anywhere the rope of vine `v` can sweep, at any swing angle
+   * (a circle around the anchor that holds the whole grab zone). Wider than inGrabZone: a
+   * swinging body is usually far off the rope's resting axis, so leaving the grab zone is not
+   * leaving the vine.
+   */
+  private inVineReach(v: Vine): boolean {
+    const { bodyWidth: w, bodyHeight: h } = this.tuning;
+    const cx = this.x + w / 2;
+    const cy = this.y + h / 2;
+    return Math.hypot(cx - v.ax, cy - v.ay) <= v.length + h / 2 + VINE_GRAB_HALF_WIDTH;
   }
 
   /** Let go of the vine. `jump`: with the push upwards given by the jump button. */

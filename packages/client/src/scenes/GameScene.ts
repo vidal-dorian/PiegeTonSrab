@@ -22,6 +22,7 @@ import {
   parseLevel,
   PathGuard,
   placementKeepsPath,
+  POINTS,
   prepareObjects,
   RACE_LEVELS,
   TIMING,
@@ -50,10 +51,12 @@ import { ObjectViews } from "../render/objectViews";
 import { PlayerView, PLAYER_COLORS } from "../render/playerView";
 import { Stains } from "../render/stains";
 import { LocalPlayer } from "../sim/localPlayer";
+import { RoundKills, statusAfterOwnReport, statusFromCountdown, type MyStatus } from "../sim/raceResume";
 import { tuning } from "../tuningStore";
 import type { RoomReply, RoomRequest } from "../sim/placementRoomProtocol";
 import { noRoomText, refusedText, unplacedText } from "../ui/feedback";
 import { overlay, type CardOut, type TopBarState } from "../ui/overlay";
+import { formatPoints, trapCell } from "../ui/points";
 import { carouselScreen } from "../ui/screens";
 
 const MAX_FRAME_TIME = 0.25;
@@ -75,7 +78,6 @@ const VINE_NOTICE_MS = 2000;
 const PLACEMENT_RESULT_MS = 6500;
 
 type Phase = "carousel" | "placement" | "countdown" | "race" | "raceEnd" | "score" | "over";
-type MyStatus = "running" | "dead" | "finished" | "timeout";
 
 interface Verdict {
   ok: boolean;
@@ -98,6 +100,8 @@ export class GameScene extends Phaser.Scene {
   private phase: Phase = "carousel";
   private round = 0;
   private totals: Record<string, number> = {};
+  /** Other players killed by each trap owner this round, so a kill notice shows its real gain. */
+  private roundKills = new RoundKills();
   private targetScore = 10;
 
   /** Objects validated by the session (all players). */
@@ -200,6 +204,7 @@ export class GameScene extends Phaser.Scene {
     this.arrows = this.add.graphics().setDepth(9).setScrollFactor(0);
     this.playerView = new PlayerView(this, this.colorOf(this.link.myId));
     this.player = new LocalPlayer(this.level, this.level, tuning.movement);
+    this.player.selfId = this.link.myId;
     this.player.seat = this.seatOf(this.link.myId);
     this.player.reset();
     this.vineHolders = new Map();
@@ -311,11 +316,13 @@ export class GameScene extends Phaser.Scene {
         break;
       case "playerDied":
         if (msg.id !== this.link.myId) this.stains.add(msg.x, msg.y, this.colorOf(msg.id));
+        else this.ownReport("dead");
         if (msg.id === this.spectating) this.pickSpectateTarget(1);
         this.announceKill(msg);
         break;
       case "playerFinished":
         if (msg.id !== this.link.myId) overlay.showNotice(`${this.nameOf(msg.id)} est arrivé en ${msg.time.toFixed(2)} s`);
+        else this.ownReport("finished");
         if (msg.id === this.spectating) this.pickSpectateTarget(1);
         break;
       case "block":
@@ -827,8 +834,10 @@ export class GameScene extends Phaser.Scene {
     this.blockCell = null;
     this.refusal = null;
     this.vineNoticeAt.clear();
+    this.roundKills.reset(msg.deaths);
     this.spectating = null;
-    this.myStatus = "running";
+    // Rejoining mid-race: a run the session already counts as over stays over (we watch).
+    this.myStatus = statusFromCountdown(msg.status);
     this.vineHolders.clear();
     this.touching.clear();
     this.lastStompAt.clear();
@@ -843,7 +852,7 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.setZoom(1);
     this.followCam.snapTo(this.cameraTarget());
     overlay.showBanner("Prêt ?");
-    overlay.setHelp("Q/A ← · D → · Espace/Z/↑ saut · Échap : quitter");
+    overlay.setHelp("Q/A ← · D → · Espace/Z/↑ saut · S/↓ lâcher la liane · Échap : quitter");
     // What became of our objects, named: refused ones and why, and those never placed in time.
     const lines = msg.refusedObjects
       ? refusedText(msg.refusedObjects)
@@ -860,10 +869,29 @@ export class GameScene extends Phaser.Scene {
     this.poseTimer = 0;
     // Drop keys pressed during the countdown.
     this.controls.takeStepInput();
+    if (this.myStatus !== "running") {
+      // Rejoined a race our run is already over in: we watch.
+      overlay.hideBanner();
+      return;
+    }
     overlay.showBanner("Partez !");
     this.time.delayedCall(600, () => {
       if (this.phase === "race" && this.myStatus === "running") overlay.hideBanner();
     });
+  }
+
+  /**
+   * The session reports our own death or finish. Normally we sent it and already stopped. If
+   * we are still running, it is a report sent while offline that reached the session after we
+   * rejoined: the session counts that run, so this one is over (it would count for nothing).
+   */
+  private ownReport(report: "dead" | "finished"): void {
+    if (this.phase !== "race" && this.phase !== "countdown") return;
+    const next = statusAfterOwnReport(this.myStatus, report);
+    if (next === this.myStatus) return;
+    this.myStatus = next;
+    overlay.showNotice(report === "dead" ? "Tu es mort pendant la coupure" : "Tu es arrivé pendant la coupure", 2500);
+    this.pickSpectateTarget(0);
   }
 
   /** Round clock (seconds since the race started), from the server's clock. */
@@ -884,7 +912,7 @@ export class GameScene extends Phaser.Scene {
         const c = this.player.centre();
         if (!outcome.fell) this.stains.add(c.x, c.y, this.colorOf(this.link.myId));
         // Pushed into a trap shortly before: say by whom (push-kill). Pits never count.
-        const pushedBy = outcome.killer ? this.player.creditedPusher() : null;
+        const pushedBy = outcome.killer ? this.player.creditedPusher(outcome.killer.ownerId) : null;
         this.link.send({ type: "died", killerId: outcome.killer?.id ?? null, x: c.x, y: c.y, fell: outcome.fell, pushedBy });
         this.myStatus = "dead";
         overlay.showBanner(outcome.killer ? `Touché : ${OBJECT_DEFS[outcome.killer.kind].name}` : "Tombé !", true);
@@ -979,9 +1007,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Tell everyone who died in whose trap, and who pushed them in. A push into the pusher's
-   * own trap is the big one (worth 2): it gets a "+2" burst where the victim died. Pits and
-   * map objects score nothing and the victim already has its own banner, so they stay quiet.
+   * Tell everyone who died in whose trap, and who pushed them in, with what the kill earns
+   * the trap's owner ("+1", "+2" for a push by the owner, "+0,5" past killCap) and a burst
+   * of that gain where the victim died. The gain assumes a scored round: if nobody finishes,
+   * the table later shows 0,5 and its verdict line says why. Pits and map objects score
+   * nothing and the victim already has its own banner, so they stay quiet.
    */
   private announceKill(msg: ServerMessageOf<"playerDied">): void {
     const owner = msg.killerOwner;
@@ -993,20 +1023,24 @@ export class GameScene extends Phaser.Scene {
     let text: string;
     if (owner === victim) {
       text = victim === me ? "Tu es mort dans ton propre piège !" : `${name(victim)} est mort dans son propre piège !`;
-    } else if (pusher === owner) {
-      if (owner === me) text = `Tu as poussé ${name(victim)} dans ton piège ! +2`;
-      else if (victim === me) text = `${name(owner)} t'a poussé dans son piège ! +2`;
-      else text = `${name(owner)} a poussé ${name(victim)} dans son piège ! +2`;
-      this.effects.pof(msg.x, msg.y - 0.6, "+2");
-    } else {
-      // The owner gets the kill (1 point); someone else pushing the victim in gets nothing.
-      const trap = owner === me ? "ton piège" : `le piège de ${name(owner)}`;
-      if (pusher === me) text = `Tu as poussé ${name(victim)} dans ${trap}`;
-      else if (pusher && victim === me) text = `${name(pusher)} t'a poussé dans ${trap}`;
-      else if (pusher) text = `${name(pusher)} a poussé ${name(victim)} dans ${trap}`;
-      else if (victim === me) text = `Tu es mort dans ${trap}`;
-      else text = `${name(victim)} est mort dans ${trap}`;
+      overlay.showNotice(text, 2500);
+      return;
     }
+    const plus = `+${formatPoints(this.roundKills.add({ id: victim, killerOwner: owner, pushedBy: pusher }) ?? 0)}`;
+    if (pusher === owner) {
+      if (owner === me) text = `Tu as poussé ${name(victim)} dans ton piège ! ${plus}`;
+      else if (victim === me) text = `${name(owner)} t'a poussé dans son piège ! ${plus}`;
+      else text = `${name(owner)} a poussé ${name(victim)} dans son piège ! ${plus}`;
+    } else {
+      // The owner gets the kill; someone else pushing the victim in gets nothing.
+      const trap = owner === me ? "ton piège" : `le piège de ${name(owner)}`;
+      if (pusher === me) text = `Tu as poussé ${name(victim)} dans ${trap} ${plus}`;
+      else if (pusher && victim === me) text = `${name(pusher)} t'a poussé dans ${trap} ${plus}`;
+      else if (pusher) text = `${name(pusher)} a poussé ${name(victim)} dans ${trap} ${plus}`;
+      else if (victim === me) text = `Tu es mort dans ${trap} ${plus}`;
+      else text = `${name(victim)} est mort dans ${trap} ${plus}`;
+    }
+    this.effects.pof(msg.x, msg.y - 0.6, plus);
     overlay.showNotice(text, 2500);
   }
 
@@ -1086,6 +1120,8 @@ export class GameScene extends Phaser.Scene {
   private updateSpectatorHelp(): void {
     if (this.myStatus === "running") return;
     if (this.spectating && !this.livingGhosts().some((g) => g.id === this.spectating)) this.pickSpectateTarget(1);
+    // Rejoined as a spectator before any ghost arrived: watch someone once they do.
+    else if (!this.spectating) this.pickSpectateTarget(0);
     const parts: string[] = [];
     if (this.spectating) parts.push(`Tu regardes ${this.nameOf(this.spectating)} · ←/→ pour changer`);
     if (this.myStatus === "dead" && !this.blockPlaced) parts.push("Clic : poser ton bloc (1 par round)");
@@ -1165,8 +1201,9 @@ export class GameScene extends Phaser.Scene {
     overlay.hideBanner();
     overlay.setHelp("");
     let verdict: string;
-    if (msg.verdict === "nobody-finished") verdict = "Personne n'est arrivé : aucun point ce round.";
-    else if (msg.verdict === "everyone-finished") verdict = "Tout le monde est arrivé : niveau trop facile, aucun point.";
+    if (msg.verdict === "nobody-finished") {
+      verdict = `Personne n'est arrivé : seuls les kills comptent, ${formatPoints(POINTS.minKill)} chacun.`;
+    } else if (msg.verdict === "everyone-finished") verdict = "Tout le monde est arrivé : niveau trop facile, aucun point.";
     else verdict = msg.lines.length === 1 ? "En solo, la règle « tout le monde arrive = 0 point » est ignorée." : "";
     overlay.showScores({
       title: `Fin du round ${msg.round} · ${this.level.name}`,
@@ -1175,13 +1212,12 @@ export class GameScene extends Phaser.Scene {
       rows: msg.lines.map((l) => ({
         name: this.nameOf(l.playerId),
         cells: [
-          String(l.finish),
-          String(l.first),
-          String(l.onlyOne),
-          // Kill points; push-kills (2 points each) are pointed out so a "3" with one victim makes sense.
-          l.pushKills > 0 ? `${l.kills} (${l.pushKills} poussé${l.pushKills > 1 ? "s" : ""})` : String(l.kills),
-          String(l.total),
-          String(msg.totals[l.playerId] ?? 0),
+          formatPoints(l.finish),
+          formatPoints(l.first),
+          formatPoints(l.onlyOne),
+          trapCell(l),
+          formatPoints(l.total),
+          formatPoints(msg.totals[l.playerId] ?? 0),
         ],
       })),
     });
@@ -1211,7 +1247,7 @@ export class GameScene extends Phaser.Scene {
       headers: ["Points"],
       rows: Object.entries(msg.totals)
         .sort((a, b) => b[1] - a[1])
-        .map(([id, s]) => ({ name: this.nameOf(id), cells: [String(s)] })),
+        .map(([id, s]) => ({ name: this.nameOf(id), cells: [formatPoints(s)] })),
       actions,
     });
   }

@@ -4,6 +4,7 @@
  * which is simpler to lay out and style. Text is always set with textContent.
  */
 import { OBJECT_DEFS, type ObjectKind } from "@game/shared";
+import { formatPoints } from "./points";
 import "./ui.css";
 
 /** Word on each object card for its colour family; also used by the rules screen. */
@@ -137,7 +138,7 @@ export class Overlay {
       el("span", "", `Round ${s.round}`),
       el("strong", "", s.phase),
       timer,
-      el("span", "", `${s.score} / ${s.target} pts`),
+      el("span", "", `${formatPoints(s.score)} / ${s.target} pts`),
     );
     this.topbar.hidden = false;
   }

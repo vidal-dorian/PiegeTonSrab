@@ -40,9 +40,9 @@ describe("rules", () => {
     expect(totals([r("a", 10), r("b", 12), r("c", null, "b")])).toEqual({ a: 3, b: 3, c: 0 });
   });
 
-  it("kills are capped at 2 per round", () => {
+  it("2 victims a round count at full value, each further one 0.5", () => {
     const res = [r("a", 10), r("b", null, "a"), r("c", null, "a"), r("d", null, "a")];
-    expect(scoreRound(res, cfg).lines.find((l) => l.playerId === "a")!.kills).toBe(2);
+    expect(scoreRound(res, cfg).lines.find((l) => l.playerId === "a")).toMatchObject({ kills: 2.5, victims: 3 });
   });
 
   it("dying to your own object gives nothing", () => {
@@ -55,15 +55,21 @@ describe("rules", () => {
     expect(totals([r("a", 10)], true)).toEqual({ a: 4 });
   });
 
-  it("nobody finished: nobody scores, kills included", () => {
+  it("nobody finished: no race points, each trap kill is worth 0.5", () => {
     const s = scoreRound([r("a", null, "b"), r("b", null)], cfg);
     expect(s.verdict).toBe("nobody-finished");
-    expect(s.lines.every((l) => l.total === 0)).toBe(true);
+    expect(totals([r("a", null, "b"), r("b", null)])).toEqual({ a: 0, b: 0.5 });
   });
 
   it("game ends at the target with a single leader; a tie plays on", () => {
     expect(gameWinner(new Map([["a", 9], ["b", 4]]), cfg)).toBeNull();
     expect(gameWinner(new Map([["a", 11], ["b", 4]]), cfg)).toBe("a");
     expect(gameWinner(new Map([["a", 11], ["b", 11]]), cfg)).toBeNull();
+  });
+
+  it("half points: a tie at 10.5 plays on, 10.5 against 10 wins, 9.5 is not there yet", () => {
+    expect(gameWinner(new Map([["a", 10.5], ["b", 10.5]]), cfg)).toBeNull();
+    expect(gameWinner(new Map([["a", 10.5], ["b", 10]]), cfg)).toBe("a");
+    expect(gameWinner(new Map([["a", 9.5]]), cfg)).toBeNull();
   });
 });

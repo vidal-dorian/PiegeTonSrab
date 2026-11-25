@@ -92,6 +92,8 @@ export class GameSession {
   private placementEndsAt = 0;
   private raceStartsAt = 0;
   private raceEndsAt = 0;
+  /** When endRace ran: earlier than raceEndsAt when the race ended because nobody was running. */
+  private raceClosedAt = 0;
   private raceGuard: PathGuard | null = null;
   /** Each player's objects refused at the end of placement, and how many they never placed. */
   private refused = new Map<string, RefusedObject[]>();
@@ -167,6 +169,11 @@ export class GameSession {
     const p = this.players.get(id);
     if (!p) return;
     p.connected = connected;
+    // Back during the race: the client restarts the character from spawn, so that run counts
+    // again (a death in someone's trap scores for them).
+    if (connected && (this.phase === "countdown" || this.phase === "race") && p.inGame && p.status === "out") {
+      p.status = "running";
+    }
     if (connected) this.resync(id);
     else this.onPlayerGone(p);
     this.broadcastLobby();
@@ -415,6 +422,12 @@ export class GameSession {
       unplaced: this.unplaced.get(p.id) ?? 0,
       raceStartsAt: this.raceStartsAt,
       raceEndsAt: this.raceEndsAt,
+      // A player rejoining mid-race resumes as the session has them (a dead player watches),
+      // and their kill notices count the deaths they missed.
+      status: p.status,
+      deaths: this.inGamePlayers()
+        .filter((q) => q.status === "dead" && q.killedBy !== null)
+        .map((q) => ({ id: q.id, killerOwner: q.killedBy!, pushedBy: q.pushedBy })),
     });
   }
 
@@ -433,10 +446,14 @@ export class GameSession {
   }
 
   private onDied(p: Player, msg: ClientMessageOf<"died">): void {
-    if (!this.raceRunning() || p.status !== "running") return;
+    if (!this.acceptsRaceReport(p)) return;
     p.status = "dead";
-    // The client says which object killed it; the kill goes to that object's owner.
-    const killer = msg.killerId === null ? undefined : this.objects.find((o) => o.id === msg.killerId);
+    // The client says which object killed it; the kill goes to that object's owner. A fall
+    // or an object that cannot kill credits nobody.
+    const killer =
+      msg.fell || msg.killerId === null
+        ? undefined
+        : this.objects.find((o) => o.id === msg.killerId && OBJECT_DEFS[o.kind].family === "kill");
     p.killedBy = killer?.ownerId ?? null;
     p.pushedBy = killer ? this.checkPusher(p, msg.pushedBy) : null;
     this.releaseVines(p.id);
@@ -471,7 +488,7 @@ export class GameSession {
   }
 
   private onFinished(p: Player, msg: ClientMessageOf<"finished">): void {
-    if (!this.raceRunning() || p.status !== "running") return;
+    if (!this.acceptsRaceReport(p)) return;
     p.status = "finished";
     p.finishTime = Math.min(Math.max(num(msg.time), 0), this.cfg.raceTime);
     this.releaseVines(p.id);
@@ -569,6 +586,17 @@ export class GameSession {
     return this.phase === "race" || this.phase === "countdown";
   }
 
+  /**
+   * Whether a death or finish from this player still counts: during the race, or up to
+   * TIMING.lateReport after it closed (the report was on its way). "out" only ever means a
+   * player who dropped, so a death they sent just before dropping still counts.
+   */
+  private acceptsRaceReport(p: Player): boolean {
+    const late = this.io.now() - Math.min(this.raceClosedAt, this.raceEndsAt) <= TIMING.lateReport;
+    const open = this.raceRunning() || (this.phase === "raceEnd" && late);
+    return open && (p.status === "running" || p.status === "out");
+  }
+
   private checkRaceDone(): void {
     if (this.phase !== "race") return;
     if (!this.inGamePlayers().some((p) => p.status === "running")) this.endRace();
@@ -578,6 +606,7 @@ export class GameSession {
     if (this.phase !== "race") return;
     this.clearTimers();
     this.phase = "raceEnd";
+    this.raceClosedAt = this.io.now();
     this.broadcastGhosts();
     this.later(() => this.showScore(), TIMING.raceEndPause);
   }

@@ -4,24 +4,33 @@
  * Keys are matched by physical position (KeyboardEvent.code), so the same keys work
  * on AZERTY and QWERTY: the key labelled Q on AZERTY is "KeyA".
  * Left: arrow left, Q/A. Right: arrow right, D. Jump: space, arrow up, Z/W.
- * Gamepad: left stick or d-pad to move, bottom face button (A / Cross) to jump.
+ * Down (let go of a vine): arrow down, S.
+ * Gamepad: left stick or d-pad to move, bottom face button (A / Cross) to jump,
+ * d-pad down or stick pushed down to let go of a vine.
  */
 import type { StepInput } from "@game/shared";
 
 const LEFT_CODES = new Set(["ArrowLeft", "KeyA"]);
 const RIGHT_CODES = new Set(["ArrowRight", "KeyD"]);
 const JUMP_CODES = new Set(["Space", "ArrowUp", "KeyW"]);
+/** "KeyS" is labelled S on both AZERTY and QWERTY. */
+const DOWN_CODES = new Set(["ArrowDown", "KeyS"]);
 
 const STICK_DEADZONE = 0.35;
+/** Stick down counts only past this and when mostly vertical, so pumping a swing diagonally doesn't drop. */
+const STICK_DOWN_THRESHOLD = 0.6;
 /** Standard gamepad mapping: https://w3c.github.io/gamepad/#remapping */
 const PAD_JUMP_BUTTONS = [0, 1];
 const PAD_LEFT = 14;
+const PAD_DOWN = 13;
 const PAD_RIGHT = 15;
 
 export class InputSource {
   private keysDown = new Set<string>();
   /** Latched until a simulation step consumes it, so a quick tap is never lost. */
   private jumpPressedLatch = false;
+  /** Same latch for Down, so a tap shorter than a step still lets go of the vine. */
+  private downPressedLatch = false;
   private padJumpWasDown = false;
   private listeners: Array<[string, (e: KeyboardEvent) => void]> = [];
 
@@ -37,6 +46,7 @@ export class InputSource {
       if (e.repeat) return;
       this.keysDown.add(e.code);
       if (JUMP_CODES.has(e.code)) this.jumpPressedLatch = true;
+      if (DOWN_CODES.has(e.code)) this.downPressedLatch = true;
       this.onKey?.(e.code);
     };
     const up = (e: KeyboardEvent) => {
@@ -62,12 +72,15 @@ export class InputSource {
     this.padJumpWasDown = padJumpDown;
   }
 
-  /** Input for the next simulation step. Consumes the jump press. */
+  /** Input for the next simulation step. Consumes the jump and down presses. */
   takeStepInput(): StepInput {
     const pad = firstGamepad();
     const stickX = pad?.axes[0] ?? 0;
     const padLeft = stickX < -STICK_DEADZONE || pad?.buttons[PAD_LEFT]?.pressed === true;
     const padRight = stickX > STICK_DEADZONE || pad?.buttons[PAD_RIGHT]?.pressed === true;
+    const stickY = pad?.axes[1] ?? 0;
+    const padDown =
+      (stickY > STICK_DOWN_THRESHOLD && Math.abs(stickY) > Math.abs(stickX)) || pad?.buttons[PAD_DOWN]?.pressed === true;
 
     const left = anyDown(this.keysDown, LEFT_CODES) || padLeft;
     const right = anyDown(this.keysDown, RIGHT_CODES) || padRight;
@@ -75,13 +88,15 @@ export class InputSource {
 
     const jumpPressed = this.jumpPressedLatch;
     this.jumpPressedLatch = false;
+    const down = anyDown(this.keysDown, DOWN_CODES) || padDown || this.downPressedLatch;
+    this.downPressedLatch = false;
     // Pressing both directions cancels out, like most platformers.
-    return { left: left && !right, right: right && !left, jumpHeld, jumpPressed };
+    return { left: left && !right, right: right && !left, jumpHeld, jumpPressed, down };
   }
 }
 
 function isGameKey(code: string): boolean {
-  return LEFT_CODES.has(code) || RIGHT_CODES.has(code) || JUMP_CODES.has(code);
+  return LEFT_CODES.has(code) || RIGHT_CODES.has(code) || JUMP_CODES.has(code) || DOWN_CODES.has(code);
 }
 
 function anyDown(down: Set<string>, codes: Set<string>): boolean {

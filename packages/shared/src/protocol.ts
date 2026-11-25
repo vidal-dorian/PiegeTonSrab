@@ -50,6 +50,8 @@ export const TIMING = {
    * so walking into a trap afterwards is their own doing.
    */
   pushCredit: 1200,
+  /** A death or finish detected just before the race end may arrive this long after it (network latency). */
+  lateReport: 500,
 } as const;
 
 /**
@@ -84,6 +86,13 @@ export interface PlayerPose {
 }
 
 export type RaceStatus = "running" | "dead" | "finished" | "out";
+
+/** A death in an object owned by a player, as the playerDied message reports it. */
+export interface TrapDeath {
+  id: string;
+  killerOwner: string;
+  pushedBy: string | null;
+}
 
 export interface Ghost extends PlayerPose {
   id: string;
@@ -140,6 +149,16 @@ export type ServerMessage =
       unplaced?: number;
       raceStartsAt: number;
       raceEndsAt: number;
+      /**
+       * Your race status on the server. Matters when rejoining mid-race: "dead" or "finished"
+       * means your run is over and you watch; otherwise you run (again) from the spawn.
+       */
+      status?: RaceStatus;
+      /**
+       * This round's deaths in someone's trap so far (rejoining mid-race), so the kill notices
+       * that follow count the owner's earlier victims, like the score does.
+       */
+      deaths?: TrapDeath[];
     }
   | { type: "ghosts"; t: number; players: Ghost[] }
   /**

@@ -1,14 +1,14 @@
 /**
  * "Règles" panel: the whole game on one scrollable card, opened from the menu and the lobby.
  * It is a party game, so the text is short and scannable (read in under a minute while friends
- * join). Numbers come from DEFAULT_GAME_CONFIG and the objects from OBJECT_DEFS, so the panel
- * cannot drift from the real rules when those change; only the point values, which live in
- * scoreRound's code rather than in the config, are written here.
+ * join). Numbers come from DEFAULT_GAME_CONFIG, the point values from POINTS and the objects
+ * from OBJECT_DEFS, so the panel cannot drift from the real rules when those change.
  *
  * Plain DOM over the canvas like the other screens; text is always set with textContent.
  */
-import { DEFAULT_GAME_CONFIG, LONG_GAME, OBJECT_DEFS, OBJECT_KINDS, SHORT_GAME } from "@game/shared";
+import { DEFAULT_GAME_CONFIG, LONG_GAME, OBJECT_DEFS, OBJECT_KINDS, POINTS, SHORT_GAME } from "@game/shared";
 import { el, FAMILY_TAG, overlay } from "./overlay";
+import { formatPoints } from "./points";
 
 /** A line of the scoring table: what happened, and the points it gives. */
 interface PointLine {
@@ -72,12 +72,15 @@ function buildContent(): HTMLElement[] {
     ),
   );
 
+  const plus = (n: number) => `+${formatPoints(n)}`;
+  const minKill = formatPoints(POINTS.minKill);
   const points: PointLine[] = [
-    { what: "Arriver au drapeau", points: "+2" },
-    { what: "Arriver le premier", points: "+1" },
-    { what: "Être le seul à arriver", points: "+1" },
-    { what: "Quelqu'un meurt dans ton piège", points: "+1" },
-    { what: "Tu pousses quelqu'un dans TON piège", points: "+2", star: true },
+    { what: "Arriver au drapeau", points: plus(POINTS.finish) },
+    { what: "Arriver le premier", points: plus(POINTS.first) },
+    { what: "Être le seul à arriver", points: plus(POINTS.onlyOne) },
+    { what: "Quelqu'un meurt dans ton piège", points: plus(POINTS.kill) },
+    { what: "Tu pousses quelqu'un dans TON piège", points: plus(POINTS.pushKill), star: true },
+    { what: `Chaque victime au-delà de ${cfg.killCap}, ou si personne n'arrive`, points: plus(POINTS.minKill) },
   ];
   const scoring = section(
     "Les points",
@@ -88,12 +91,16 @@ function buildContent(): HTMLElement[] {
     list(
       [
         "Tu pousses quelqu'un dans le piège d'un autre : le point va au poseur du piège, pas à toi.",
-        `Kills : ${cfg.killCap} victimes max par round (les plus rentables comptent).`,
+        `Un rival mort dans ton piège te rapporte toujours au moins ${minKill} : tes ${cfg.killCap} victimes les plus rentables du round comptent plein tarif, les suivantes ${minKill}.`,
         "Mort dans son propre piège, dans un piège du niveau ou dans le vide : 0 pour tout le monde.",
       ],
       "rules-notes",
     ),
-    el("p", "rules-callout", "Tout le monde arrive, ou personne n'arrive ? Personne ne marque ce round, kills compris. Piège dur… mais faisable !"),
+    el(
+      "p",
+      "rules-callout",
+      `Tout le monde arrive ? Personne ne marque ce round. Personne n'arrive ? Seuls les kills comptent, ${minKill} chacun. Piège dur… mais faisable !`,
+    ),
   );
 
   const contacts = section(
@@ -122,6 +129,7 @@ function buildContent(): HTMLElement[] {
         { left: "Q / A ou ←", right: "Gauche" },
         { left: "D ou →", right: "Droite" },
         { left: "Espace, Z / W ou ↑", right: "Sauter (maintiens pour aller plus haut)" },
+        { left: "S ou ↓", right: "Lâcher la liane" },
         { left: "Saut contre un mur", right: "Saut mural" },
         { left: "Clic", right: "Poser ou reprendre un objet" },
         { left: "1, 2, 3", right: "Choisir l'objet à poser" },
@@ -130,7 +138,7 @@ function buildContent(): HTMLElement[] {
       ],
       "rules-keys",
     ),
-    el("p", "rules-small", "Manette : stick ou croix pour bouger, A pour sauter."),
+    el("p", "rules-small", "Manette : stick ou croix pour bouger, A pour sauter, bas pour lâcher la liane."),
   );
 
   // Points right after the goal: it is what players argue about at the end of a round.
