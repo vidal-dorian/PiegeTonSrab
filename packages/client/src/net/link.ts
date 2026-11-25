@@ -15,6 +15,7 @@ import {
   type ClientMessage,
   type ServerMessage,
 } from "@game/shared";
+import { ClockSync } from "./clock";
 
 export interface GameLink {
   readonly myId: string;
@@ -59,26 +60,46 @@ export function serverUrl(): string {
   return `${protocol}//${location.hostname}:${SERVER_PORT}`;
 }
 
+/**
+ * Messages that are pointless once they are late, so they are not sent while the connection
+ * is down. The network layer keeps only the last few messages sent while offline
+ * (Colyseus: 10), and poses go out every 50 ms: without this they would push out, within
+ * half a second, the messages that matter ("died", "finished", letting go of a vine...).
+ * A ping sent offline would also come back with a meaningless round trip.
+ */
+export function skipWhileOffline(msg: ClientMessage): boolean {
+  return msg.type === "pose" || msg.type === "ping";
+}
+
 export class OnlineLink extends BaseLink implements GameLink {
   readonly online = true;
   readonly myId: string;
-  /** serverTime ≈ Date.now() + offset, measured with ping/pong. */
-  private offset = 0;
-  private bestRtt = Infinity;
+  private clock = new ClockSync();
+  /** False between a dropped connection and its reconnection. */
+  private connected = true;
   private pingTimer: number;
 
   private constructor(private room: Room) {
     super();
     this.myId = room.sessionId;
     room.onMessage("*", (_type, payload) => this.receive(payload as ServerMessage));
-    room.onDrop(() => this.onStatus?.("lost"));
-    room.onReconnect(() => this.onStatus?.("back"));
+    room.onDrop(() => {
+      this.connected = false;
+      this.onStatus?.("lost");
+    });
+    room.onReconnect(() => {
+      this.connected = true;
+      // The route may have changed: measure the clock again quickly.
+      this.pingBurst();
+      this.onStatus?.("back");
+    });
     room.onLeave(() => {
+      this.connected = false;
       window.clearInterval(this.pingTimer);
       this.onStatus?.("closed");
     });
     // A burst of pings to sync the clock quickly, then one every 2 seconds.
-    for (let i = 0; i < 5; i++) window.setTimeout(() => this.ping(), i * 150);
+    this.pingBurst();
     this.pingTimer = window.setInterval(() => this.ping(), 2000);
   }
 
@@ -98,11 +119,16 @@ export class OnlineLink extends BaseLink implements GameLink {
   }
 
   send(msg: ClientMessage): void {
+    if (!this.connected && skipWhileOffline(msg)) return;
     this.room.send(msg.type, msg);
   }
 
+  /**
+   * Server time, from the monotonic clock: a jump of this machine's wall clock does not move
+   * it. Before the first pong, this machine's wall clock stands in.
+   */
   serverNow(): number {
-    return Date.now() + this.offset;
+    return this.clock.serverNow(performance.now(), Date.now());
   }
 
   leave(): void {
@@ -110,19 +136,18 @@ export class OnlineLink extends BaseLink implements GameLink {
     void this.room.leave(true);
   }
 
+  private pingBurst(): void {
+    for (let i = 0; i < 5; i++) window.setTimeout(() => this.ping(), i * 150);
+  }
+
   private ping(): void {
-    this.send({ type: "ping", c: Date.now() });
+    // `c` is echoed back: performance.now, so the round trip ignores wall clock jumps.
+    this.send({ type: "ping", c: performance.now() });
   }
 
   private receive(msg: ServerMessage): void {
     if (msg.type === "pong") {
-      // Keep the measurement with the shortest round trip: it has the least uncertainty.
-      const now = Date.now();
-      const rtt = now - msg.c;
-      if (rtt <= this.bestRtt * 1.2) {
-        this.bestRtt = Math.min(this.bestRtt, rtt);
-        this.offset = msg.s + rtt / 2 - now;
-      }
+      this.clock.addSample(msg.c, performance.now(), msg.s);
       return;
     }
     this.deliver(msg);

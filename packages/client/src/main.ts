@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import { CELL_PX, VIEW_CELLS_X, VIEW_CELLS_Y } from "./config";
+import { watchGameLoop } from "./errors";
 import { GameScene } from "./scenes/GameScene";
 import { LobbyScene } from "./scenes/LobbyScene";
 import { MenuScene } from "./scenes/MenuScene";
@@ -46,6 +47,8 @@ function startGame(): void {
     // The first scene in the list starts automatically.
     scene: [MenuScene, LobbyScene, GameScene, SoloScene, TutorialScene],
   });
+  // One exception in a frame would otherwise stop the game for good (see errors.ts).
+  watchGameLoop(game);
   // Dev builds only: lets browser tests start a scene and read its state (window.game.scene...).
   if (import.meta.env.DEV) (window as unknown as { game?: Phaser.Game }).game = game;
 

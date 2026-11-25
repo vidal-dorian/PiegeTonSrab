@@ -46,6 +46,7 @@ import { FollowCamera } from "../camera";
 import { CELL_PX, VIEW_CELLS_X, VIEW_CELLS_Y } from "../config";
 import { drawDashedRect } from "../debug/editor";
 import { debugView } from "../debug/debugState";
+import { guarded } from "../errors";
 import { InputSource } from "../input";
 import type { GameLink } from "../net/link";
 import { GhostView, INTERPOLATION_DELAY_MS } from "../render/ghostView";
@@ -164,6 +165,8 @@ export class GameScene extends Phaser.Scene {
   /** The "over" message, kept to show the end screen again if the host changes. */
   private overMsg: ServerMessageOf<"over"> | null = null;
   private spectating: string | null = null;
+  /** Bumped by each run of the scene, so a handler attached late never lands on a stopped one. */
+  private handlerGen = 0;
   /** Vine id -> player holding it, as last told by the session. */
   private vineHolders = new Map<number, string>();
   /** Other players our body touched on the last step, and when we last stomped each one. */
@@ -264,6 +267,7 @@ export class GameScene extends Phaser.Scene {
       else this.quit("Déconnecté du serveur.");
     };
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.handlerGen++;
       this.link.setHandler(null);
       this.link.onStatus = null;
       this.controls.destroy();
@@ -281,7 +285,14 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.setAlpha(0);
     carouselScreen.show(RACE_LEVELS, data.start.levelIndex, data.start.spinMs);
     overlay.setHelp("Échap : quitter la partie");
-    this.link.setHandler((msg) => this.onMessage(msg));
+    // Messages that waited while the scene (re)started are replayed as soon as the handler is
+    // set. Not from here: create() runs inside a Phaser frame, and the frame must not carry
+    // a whole backlog (a reconnection, a tab left in the background). The microtask runs once
+    // the frame is over, before any new message can arrive.
+    const gen = ++this.handlerGen;
+    queueMicrotask(() => {
+      if (gen === this.handlerGen) this.link.setHandler((msg) => this.onMessage(msg));
+    });
   }
 
   /** Called by the tuning panel whenever a value changes. */
@@ -292,7 +303,12 @@ export class GameScene extends Phaser.Scene {
 
   // --- Messages from the session ------------------------------------------------------
 
+  /** One message from the session. An error in it is reported, never thrown (errors.ts). */
   private onMessage(msg: ServerMessage): void {
+    guarded(`le message « ${msg.type} »`, () => this.handleMessage(msg));
+  }
+
+  private handleMessage(msg: ServerMessage): void {
     switch (msg.type) {
       case "lobby": {
         const hostBefore = this.lobby?.hostId;
@@ -1381,6 +1397,12 @@ export class GameScene extends Phaser.Scene {
   // --- Frame update --------------------------------------------------------------------
 
   override update(_time: number, deltaMs: number): void {
+    // One exception here would stop this player's game for good (see errors.ts): report it
+    // and carry on with the next frame instead.
+    guarded("l'image de jeu", () => this.frame(deltaMs));
+  }
+
+  private frame(deltaMs: number): void {
     const dt = Math.min(deltaMs / 1000, MAX_FRAME_TIME);
     this.controls.poll();
     this.gridGfx.setVisible(debugView.showGrid);
