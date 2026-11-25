@@ -8,11 +8,13 @@ import {
   findKiller,
   HAZARD_INSET,
   SIM_HZ,
+  TIMING,
   type Box,
   type Level,
   type MovementTuning,
   type PlacedObject,
   type StepInput,
+  type Vine,
 } from "@game/shared";
 
 export const STEP = 1 / SIM_HZ;
@@ -25,9 +27,25 @@ export class LocalPlayer {
   readonly controller: CharacterController;
   /** Simulated seconds since the last reset. Objects use it as the round clock. */
   time = 0;
+  /** Body position one simulation step ago (used to tell a stomp from a bump). */
+  prevX = 0;
+  prevY = 0;
   private accumulator = 0;
-  private prevX = 0;
-  private prevY = 0;
+
+  /** Vines in the level, and whether this player may grab one (someone else may hold it). */
+  vines: readonly Vine[] = [];
+  canHoldVine: (vineId: number) => boolean = () => true;
+  /** Called when this character grabs (hold) or lets go of a vine. */
+  onVine: ((vineId: number, hold: boolean) => void) | null = null;
+  /** Called when this character bounces on a spring; `cell` is the spring's cell index. */
+  onBounce: ((cell: number) => void) | null = null;
+  /** The vine last reported through onVine. */
+  private reportedVine: number | undefined;
+  /**
+   * The last time another player pushed this character (stomped on it or bumped it), on the
+   * round clock. A death on a trap soon after credits that player (push-kill, rules.ts).
+   */
+  private lastPush: { by: string; at: number } | null = null;
 
   constructor(
     private level: Level,
@@ -41,10 +59,23 @@ export class LocalPlayer {
   /** Back to the start, clock at zero. */
   reset(): void {
     this.controller.respawn();
+    this.syncVine();
     this.prevX = this.controller.x;
     this.prevY = this.controller.y;
     this.accumulator = 0;
     this.time = 0;
+    this.lastPush = null;
+  }
+
+  /** Another player just pushed this character (only the latest push counts). */
+  pushedBy(playerId: string): void {
+    this.lastPush = { by: playerId, at: this.time };
+  }
+
+  /** Who gets the credit if this character dies on a trap now: the last pusher, while it is recent. */
+  creditedPusher(): string | null {
+    const p = this.lastPush;
+    return p && this.time - p.at <= TIMING.pushCredit / 1000 ? p.by : null;
   }
 
   setCollision(collision: Level): void {
@@ -63,19 +94,53 @@ export class LocalPlayer {
   ): StepOutcome | null {
     this.accumulator += frameDt;
     while (this.accumulator >= STEP) {
-      this.prevX = this.controller.x;
-      this.prevY = this.controller.y;
-      this.controller.step(STEP, takeInput());
+      const c = this.controller;
+      // A network message (a stomp) may have dropped the vine since the last step.
+      this.syncVine();
+      this.prevX = c.x;
+      this.prevY = c.y;
+      const bounces = c.bounceCount;
+      c.step(STEP, takeInput());
+      if (!c.swing) c.tryGrabVine(this.vines, this.canHoldVine);
+      this.syncVine();
+      if (c.bounceCount !== bounces) this.onBounce?.(c.lastBounceCell);
       this.time += STEP;
       this.accumulator -= STEP;
       onStep?.();
+      // onStep may push the character (a stomp bounce lets go of the vine).
+      this.syncVine();
       const outcome = this.check(objects);
       if (outcome) {
         this.accumulator = 0;
+        this.letGo();
         return outcome;
       }
     }
     return null;
+  }
+
+  /** Let go of the vine held, if any (death, finish, or someone else got it first). */
+  letGo(): void {
+    this.controller.releaseVine(false);
+    this.syncVine();
+  }
+
+  /**
+   * Report any change of the vine held since the last report. Every way of grabbing or
+   * letting go (steps, stomps, deaths, resets) ends up here, so the session always knows.
+   */
+  syncVine(): void {
+    const now = this.controller.swing?.vineId;
+    if (now === this.reportedVine) return;
+    const was = this.reportedVine;
+    this.reportedVine = now;
+    if (was !== undefined) this.onVine?.(was, false);
+    if (now !== undefined) this.onVine?.(now, true);
+  }
+
+  /** Move the clock forward without simulating (the tab froze): keeps traps in step with everyone. */
+  catchUp(roundTime: number): void {
+    if (roundTime > this.time) this.time = roundTime;
   }
 
   /** Position to draw at, interpolated between the last two steps. */

@@ -41,6 +41,18 @@ const BODY_FIELDS: Array<[keyof MovementTuning, Range]> = [
   ["bodyHeight", { label: "hauteur (cases)", min: 0.3, max: 1.9, step: 0.05 }],
 ];
 
+const INTERACTION_FIELDS: Array<[keyof MovementTuning, Range]> = [
+  ["springHeight", { label: "ressort (cases)", min: 3, max: 12, step: 0.1 }],
+  ["stompBounceHeight", { label: "rebond sur tête (cases)", min: 1, max: 8, step: 0.1 }],
+  ["stompSlamSpeed", { label: "écrasement (cases/s)", min: 0, max: 40, step: 0.5 }],
+  ["stunTime", { label: "étourdi (s)", min: 0, max: 2, step: 0.05 }],
+  ["stunSpeedFactor", { label: "vitesse étourdi ×", min: 0, max: 1, step: 0.05 }],
+  ["shoveSpeed", { label: "bousculade (cases/s)", min: 0, max: 20, step: 0.1 }],
+  ["shoveLock", { label: "blocage bousculade (s)", min: 0, max: 0.5, step: 0.01 }],
+  ["swingPump", { label: "élan sur liane", min: 0, max: 40, step: 0.5 }],
+  ["vineReleaseJump", { label: "saut en lâchant ×", min: 0, max: 1.5, step: 0.05 }],
+];
+
 const CAMERA_FIELDS: Array<[keyof CameraTuning, Range]> = [
   ["lookAhead", { label: "regard en avant (cases)", min: 0, max: 10, step: 0.1 }],
   ["lookAheadSpeed", { label: "vitesse du regard", min: 0.2, max: 15, step: 0.1 }],
@@ -81,6 +93,7 @@ export function createTuningPanel(onChange: () => void): Pane {
   addFields("Course", tuning.movement, MOVEMENT_FIELDS, false);
   addFields("Saut", tuning.movement, JUMP_FIELDS);
   addFields("Mur", tuning.movement, WALL_FIELDS, false);
+  addFields("Interactions", tuning.movement, INTERACTION_FIELDS, false);
   addFields("Caméra", tuning.camera, CAMERA_FIELDS, false);
   addFields("Corps", tuning.movement, BODY_FIELDS, false);
 

@@ -5,6 +5,7 @@
 import { parseLevel, type LevelDefinition, type LobbyInfo } from "@game/shared";
 import { PLAYER_COLORS } from "../render/playerView";
 import { el, overlay } from "./overlay";
+import { rulesScreen } from "./rulesScreen";
 
 function screen(className: string): HTMLDivElement {
   const div = el("div", `${className} ui-panel`);
@@ -41,6 +42,18 @@ function saveName(name: string): void {
   }
 }
 
+/** Set to "1" by the tutorial scene when the tutorial ends or is skipped. */
+const TUTORIAL_DONE_KEY = "pts.tutorialDone";
+
+function tutorialDone(): boolean {
+  try {
+    return localStorage.getItem(TUTORIAL_DONE_KEY) === "1";
+  } catch {
+    // Storage unavailable: treat the player as new; the nudge is harmless.
+    return false;
+  }
+}
+
 export function cssColor(index: number): string {
   return "#" + (PLAYER_COLORS[index] ?? PLAYER_COLORS[0]).toString(16).padStart(6, "0");
 }
@@ -52,6 +65,8 @@ export interface MenuActions {
   join(name: string, code: string): void;
   solo(name: string, targetScore: number): void;
   practice(): void;
+  /** Start the short guided tutorial scene. */
+  tutorial(): void;
 }
 
 export class MenuScreen {
@@ -85,8 +100,21 @@ export class MenuScreen {
       button("Solo · 10 pts", () => actions.solo(getName(), 10)),
       button("Solo · 25 pts", () => actions.solo(getName(), 25)),
     );
+    // Tutorial and rules. A first-time player sees them first, with the tutorial in orange
+    // and a handwritten nudge; afterwards they move to the bottom, out of the way of the
+    // buttons a regular uses every evening.
+    const isNew = !tutorialDone();
+    const learnRow = el("div", "ui-row ui-learn");
+    learnRow.append(
+      button("Tutoriel (30 s)", () => actions.tutorial(), isNew),
+      button("Règles", () => rulesScreen.show()),
+    );
+    const learn: HTMLElement[] = isNew
+      ? [el("div", "ui-nudge", "Nouveau ? Commence ici"), learnRow]
+      : [el("div", "ui-sep", "Apprendre"), learnRow];
     this.div.replaceChildren(
-      el("h1", "", "Prototype"),
+      el("h1", "", "Piège Ton Srab"),
+      ...(isNew ? learn : []),
       nameField,
       button("Créer un salon", () => this.run(() => actions.create(getName())), true),
       joinRow,
@@ -94,6 +122,7 @@ export class MenuScreen {
       el("div", "ui-sep", "Hors ligne"),
       soloRow,
       button("Entraînement libre", () => actions.practice()),
+      ...(isNew ? [] : learn),
     );
     this.setError("");
     this.busy = false;
@@ -161,7 +190,10 @@ export class LobbyScreen {
     } else {
       parts.push(el("div", "wait", `Partie en ${info.targetScore} points · en attente de l'hôte…`));
     }
-    parts.push(button("Quitter", () => actions.leave()));
+    // Friends wait here before the game: the rules are one click away.
+    const bottom = el("div", "ui-row");
+    bottom.append(button("Règles", () => rulesScreen.show()), button("Quitter", () => actions.leave()));
+    parts.push(bottom);
     this.div.replaceChildren(...parts);
     this.div.hidden = false;
   }
@@ -233,24 +265,71 @@ export class CarouselScreen {
   }
 }
 
-/** Small picture of a level: terrain in ink, start and finish marked. */
+/**
+ * Small picture of a level in the sketchbook style: squared paper, terrain in ink, built-in
+ * objects as coloured dots (red kills, orange helps), start pebble and orange finish flag.
+ */
 function thumbnail(def: LevelDefinition): HTMLCanvasElement {
   const level = parseLevel(def);
-  const px = 3;
+  const px = 8;
   const canvas = el("canvas");
   canvas.width = level.width * px;
   canvas.height = level.height * px;
   const ctx = canvas.getContext("2d");
   if (!ctx) return canvas;
+  ctx.fillStyle = "#f5f2ea";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = "#dcd8cc";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let x = 2; x < level.width; x += 2) {
+    ctx.moveTo(x * px + 0.5, 0);
+    ctx.lineTo(x * px + 0.5, canvas.height);
+  }
+  for (let y = 2; y < level.height; y += 2) {
+    ctx.moveTo(0, y * px + 0.5);
+    ctx.lineTo(canvas.width, y * px + 0.5);
+  }
+  ctx.stroke();
   ctx.fillStyle = "#161616";
   for (let y = 0; y < level.height; y++) {
     for (let x = 0; x < level.width; x++) if (level.solid[y * level.width + x]) ctx.fillRect(x * px, y * px, px, px);
   }
+  const OBJECT_COLOURS = { saw: "#b3361a", spikes: "#b3361a", cannon: "#b3361a", spring: "#f07a2e", vine: "#f07a2e", platform: "#ffffff" };
+  for (const o of level.initialObjects) {
+    ctx.fillStyle = OBJECT_COLOURS[o.kind];
+    ctx.strokeStyle = "#161616";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    if (o.kind === "platform" || o.kind === "cannon" || o.kind === "spring" || o.kind === "vine") {
+      ctx.rect(o.x * px + 0.75, o.y * px + 0.75, px - 1.5, px - 1.5);
+    } else {
+      ctx.arc((o.x + 0.5) * px, (o.y + 0.5) * px, px * 0.42, 0, Math.PI * 2);
+    }
+    ctx.fill();
+    ctx.stroke();
+  }
+  // Start: a blue pebble. Finish: an orange flag on an ink pole.
   ctx.fillStyle = "#2b59c3";
-  ctx.fillRect(level.start.x * px, level.start.y * px, px * 2, px * 2);
+  ctx.strokeStyle = "#161616";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.ellipse((level.start.x + 0.5) * px, (level.start.y + 0.55) * px, px * 0.45, px * 0.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
   if (level.finish) {
+    const fx = level.finish.x * px + px * 0.3;
+    const fy = (level.finish.y + 1) * px;
+    ctx.fillStyle = "#161616";
+    ctx.fillRect(fx - 1, fy - px * 2, 2, px * 2);
     ctx.fillStyle = "#f07a2e";
-    ctx.fillRect(level.finish.x * px, (level.finish.y - 1) * px, px * 2, px * 3);
+    ctx.beginPath();
+    ctx.moveTo(fx + 1, fy - px * 2);
+    ctx.lineTo(fx + px * 1.3, fy - px * 1.6);
+    ctx.lineTo(fx + 1, fy - px * 1.1);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
   }
   return canvas;
 }

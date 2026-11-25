@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   buildReachGraph,
   DEFAULT_MOVEMENT,
-  level1,
   parseLevel,
   RACE_LEVELS,
   placementKeepsPath,
+  prepareObjects,
   testLevel,
   type PlacedObject,
 } from "@game/shared";
@@ -20,10 +20,17 @@ function timed<T>(label: string, fn: () => T): T {
 }
 
 describe("reachability", () => {
-  it("every race level is finishable when empty", () => {
+  it("every race level is finishable with its own objects, and the list is sound", () => {
+    const names = new Set<string>();
     for (const def of RACE_LEVELS) {
       const level = parseLevel(def);
-      expect(timed(def.name, () => buildReachGraph(level, [], tuning)).reachable, def.name).toBe(true);
+      expect(names.has(def.name), `duplicate name ${def.name}`).toBe(false);
+      names.add(def.name);
+      expect(level.width, def.name).toBeLessThanOrEqual(64);
+      expect(level.height, def.name).toBeLessThanOrEqual(18);
+      expect(level.finish, def.name).not.toBeNull();
+      const objects = prepareObjects(level, level.initialObjects);
+      expect(timed(def.name, () => buildReachGraph(level, objects, tuning)).reachable, def.name).toBe(true);
     }
   });
 
@@ -56,7 +63,7 @@ describe("reachability", () => {
   });
 
   it("refuses the saw that makes a column unjumpable, accepts the lower ones", () => {
-    const level = parseLevel(level1);
+    const level = parseLevel(testLevel);
     // Column x = 5 on the start floor, from the ground up: a short column can be jumped over.
     let objects: PlacedObject[] = [];
     let id = 1;

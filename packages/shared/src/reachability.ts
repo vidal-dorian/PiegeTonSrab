@@ -20,14 +20,28 @@
  * Safety margin: traps are treated as PATH_SAFETY_MARGIN bigger than they are, so the path
  * that remains never depends on threading a pixel-wide gap between two traps.
  *
- * Limits: moving objects will need their swept area treated as hazardous (build step 5).
- * Moves are a fixed sample; a path needing a very precise trick may be missed, which makes
- * the check strict rather than lenient.
+ * Objects (build step 5):
+ * - A cannon's whole line of fire counts as deadly, so the answer never depends on timing.
+ * - Springs are played for real by the controller: landing on one throws the character up
+ *   and the move goes on until it lands somewhere else. A spring is never a place to stand.
+ * - Vines: only their anchor block counts (it is solid). The check never uses a vine to get
+ *   somewhere, so a vine can only add ways through, never be required.
+ *
+ * Limits: moves are a fixed sample; a path needing a very precise trick may be missed, which
+ * makes the check strict rather than lenient.
  */
-import { boxOverlapsSolid, cellSpan, isSolidCell, type Level } from "./level";
+import { boxOverlapsSolid, cellSpan, isBouncyCell, isSolidCell, type Level } from "./level";
 import { CharacterController, type StepInput } from "./movement/controller";
 import { HAZARD_INSET, SIM_HZ, type MovementTuning } from "./movement/tuning";
-import { boxHitsHazard, hazardsOf, withSolidObjects, type Hazard, type PlacedObject } from "./objects";
+import {
+  boxHitsHazard,
+  footprintCells,
+  prepareObjects,
+  staticHazards,
+  withSolidObjects,
+  type Hazard,
+  type PlacedObject,
+} from "./objects";
 
 const DT = 1 / SIM_HZ;
 
@@ -100,7 +114,7 @@ class HazardIndex {
     objects: readonly PlacedObject[],
   ) {
     for (const obj of objects) {
-      for (const hz of hazardsOf(obj, 0)) {
+      for (const hz of staticHazards(obj)) {
         const b = hz.shape === "circle" ? { x: hz.cx - hz.r, y: hz.cy - hz.r, w: hz.r * 2, h: hz.r * 2 } : hz;
         const [x0, x1] = cellSpan(b.x, b.w);
         const [y0, y1] = cellSpan(b.y, b.h);
@@ -142,9 +156,11 @@ class Explorer {
     private level: Level,
     objects: readonly PlacedObject[],
     tuning: MovementTuning,
+    alreadyPrepared: boolean,
   ) {
-    this.collision = withSolidObjects(level, objects);
-    this.hazards = new HazardIndex(level.width, objects);
+    const prepared = alreadyPrepared ? objects : prepareObjects(level, objects);
+    this.collision = withSolidObjects(level, prepared);
+    this.hazards = new HazardIndex(level.width, prepared);
     this.c = new CharacterController(this.collision, tuning);
     this.w = tuning.bodyWidth;
     this.h = tuning.bodyHeight;
@@ -157,6 +173,8 @@ class Explorer {
   isStandCell(cx: number, cy: number): boolean {
     if (cx < 0 || cx >= this.level.width || cy < 0 || cy >= this.level.height) return false;
     if (isSolidCell(this.collision, cx, cy) || !isSolidCell(this.collision, cx, cy + 1)) return false;
+    // Nobody stands on a spring: landing on it throws you up.
+    if (isBouncyCell(this.collision, cx, cy + 1)) return false;
     const x = cx + (1 - this.w) / 2;
     const y = cy + 1 - this.h;
     return !boxOverlapsSolid(this.collision, x, y, this.w, this.h) && !this.hitsHazard(x, y, 0);
@@ -293,9 +311,18 @@ class Explorer {
   }
 }
 
-/** Explore every node reachable from the start and record all edges. */
-export function buildReachGraph(level: Level, objects: readonly PlacedObject[], tuning: MovementTuning): ReachGraph {
-  const ex = new Explorer(level, objects, tuning);
+/**
+ * Explore every node reachable from the start and record all edges.
+ * `alreadyPrepared`: use the objects' cannon and vine ranges as given instead of measuring
+ * them again (the race keeps the ranges measured when it started).
+ */
+export function buildReachGraph(
+  level: Level,
+  objects: readonly PlacedObject[],
+  tuning: MovementTuning,
+  alreadyPrepared = false,
+): ReachGraph {
+  const ex = new Explorer(level, objects, tuning, alreadyPrepared);
   const start = ex.key(level.start.x, level.start.y);
   const edges = new Map<number, Edge[]>();
   let reachable = false;
@@ -318,8 +345,13 @@ export function buildReachGraph(level: Level, objects: readonly PlacedObject[], 
 
 /** Search the existing graph, ignoring every edge that passes through one of `blockedCells`. */
 export function reachableWithout(graph: ReachGraph, blockedCells: ReadonlySet<number>): boolean {
-  const seen = new Set<number>([graph.start]);
-  const queue = [graph.start];
+  return reachableFrom(graph, graph.start, blockedCells);
+}
+
+/** Same search from another node of the graph (a node it never explored has no way out). */
+export function reachableFrom(graph: ReachGraph, from: number, blockedCells: ReadonlySet<number>): boolean {
+  const seen = new Set<number>([from]);
+  const queue = [from];
   while (queue.length > 0) {
     const node = queue.shift()!;
     for (const e of graph.edges.get(node) ?? []) {
@@ -347,18 +379,50 @@ function crosses(cells: ReadonlySet<number>, blocked: ReadonlySet<number>): bool
  * It builds the graph once, then for each accepted object only adds its cell to a blocked
  * set; the full simulation is re-run only when the quick check is not enough.
  */
+export interface PathGuardOptions {
+  /**
+   * Keep the cannon and vine ranges the objects already have, and never measure them again
+   * (the race: lines were fixed when it started, dead players' blocks don't stop balls).
+   * Objects must then come already prepared.
+   */
+  frozenRanges?: boolean;
+  /** The graph for `objects`, when the caller already has it. */
+  graph?: ReachGraph;
+}
+
 export class PathGuard {
   private graph: ReachGraph;
   private blocked = new Set<number>();
   private current: PlacedObject[];
+  private frozen: boolean;
 
   constructor(
     private level: Level,
     objects: readonly PlacedObject[],
     private tuning: MovementTuning,
+    options: PathGuardOptions = {},
   ) {
     this.current = [...objects];
-    this.graph = buildReachGraph(level, this.current, tuning);
+    this.frozen = options.frozenRanges === true;
+    this.graph = options.graph ?? buildReachGraph(level, this.current, tuning, this.frozen);
+  }
+
+  /**
+   * Whether the finish stays reachable from each of `fromCells` (stand cells, y * width + x)
+   * once `candidate` is added. Quick check only, on the current graph: conservative, never
+   * rebuilds (it runs on the server during the race). Cells the graph never reached, or
+   * from which the finish was already out of reach, are ignored.
+   */
+  keepsPathFrom(fromCells: readonly number[], candidate: PlacedObject): boolean {
+    if (!this.graph.reachable) return true;
+    const blocked = new Set(this.blocked);
+    for (const c of this.footprint(candidate)) blocked.add(c);
+    for (const from of fromCells) {
+      if (!this.graph.edges.has(from)) continue;
+      if (!reachableFrom(this.graph, from, this.blocked)) continue;
+      if (!reachableFrom(this.graph, from, blocked)) return false;
+    }
+    return true;
   }
 
   /** Objects accepted so far, including the initial ones. */
@@ -376,7 +440,7 @@ export class PathGuard {
     const result = this.check(candidate);
     if (result === null) return false;
     this.current.push(candidate);
-    if (result === "quick") this.blocked.add(this.cellOf(candidate));
+    if (result === "quick") for (const c of this.footprint(candidate)) this.blocked.add(c);
     else {
       this.graph = result;
       this.blocked.clear();
@@ -389,14 +453,16 @@ export class PathGuard {
     // A level that is already blocked (should not happen) cannot be "cut" further: don't punish the player.
     if (!this.graph.reachable) return "quick";
     const blocked = new Set(this.blocked);
-    blocked.add(this.cellOf(candidate));
+    for (const c of this.footprint(candidate)) blocked.add(c);
     if (reachableWithout(this.graph, blocked)) return "quick";
-    const full = buildReachGraph(this.level, [...this.current, candidate], this.tuning);
+    const full = buildReachGraph(this.level, [...this.current, candidate], this.tuning, this.frozen);
     return full.reachable ? full : null;
   }
 
-  private cellOf(o: PlacedObject): number {
-    return o.y * this.level.width + o.x;
+  /** Cells the candidate occupies or makes deadly, measured with everything already placed. */
+  private footprint(candidate: PlacedObject): number[] {
+    if (this.frozen) return footprintCells(candidate, this.level.width);
+    return objectFootprint(this.level, this.current, candidate);
   }
 }
 
@@ -413,6 +479,12 @@ export function placementKeepsPath(
 ): boolean {
   // A level that is already blocked (should not happen) cannot be "cut" further: don't punish the player.
   if (!graph.reachable) return true;
-  if (reachableWithout(graph, new Set([candidate.y * level.width + candidate.x]))) return true;
+  if (reachableWithout(graph, new Set(objectFootprint(level, objects, candidate)))) return true;
   return buildReachGraph(level, [...objects, candidate], tuning).reachable;
+}
+
+/** Footprint of `candidate` once added to `objects` (a cannon's line depends on what is around it). */
+function objectFootprint(level: Level, objects: readonly PlacedObject[], candidate: PlacedObject): number[] {
+  const prepared = prepareObjects(level, [...objects, candidate]);
+  return footprintCells(prepared[prepared.length - 1]!, level.width);
 }

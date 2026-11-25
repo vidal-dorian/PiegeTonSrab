@@ -8,8 +8,10 @@ import {
   canPlaceAt,
   OBJECT_DEFS,
   parseLevel,
+  prepareObjects,
   RACE_LEVELS,
   testLevel,
+  vinesOf,
   withSolidObjects,
   type Level,
   type LevelDefinition,
@@ -76,12 +78,17 @@ export class SoloScene extends Phaser.Scene {
     // The scene object is reused when it restarts, so reset everything here, not in field initialisers.
     this.levelIndex = data.levelIndex ?? 0;
     this.level = parseLevel(LEVELS[this.levelIndex] ?? LEVELS[0]!);
-    this.objects = this.level.initialObjects.map((o) => ({ ...o }));
+    this.objects = prepareObjects(this.level, this.level.initialObjects);
     this.nextObjectId = 1;
     this.deaths = 0;
     this.trail = [];
 
     this.player = new LocalPlayer(this.level, withSolidObjects(this.level, this.objects), tuning.movement);
+    this.player.vines = vinesOf(this.objects);
+    this.player.onBounce = (cell) => {
+      const spring = this.objects.find((o) => o.kind === "spring" && o.y * this.level.width + o.x === cell);
+      if (spring) this.objectViews.bounce(spring.id);
+    };
     this.followCam = new FollowCamera(tuning.camera, VIEW_CELLS_X, VIEW_CELLS_Y, this.level.width, this.level.height);
 
     this.gridGfx = drawLevel(this, this.level).grid;
@@ -173,7 +180,11 @@ export class SoloScene extends Phaser.Scene {
 
     const pos = this.player.renderPosition();
     this.playerView.update(pos.x, pos.y, this.player.controller, this.phase !== "dead");
-    this.objectViews.update(this.objects, this.player.renderTime());
+    const swing = this.player.controller.swing;
+    const m = tuning.movement;
+    const holders = new Map<number, { x: number; y: number }>();
+    if (swing && this.phase !== "dead") holders.set(swing.vineId, { x: pos.x + m.bodyWidth / 2, y: pos.y + m.bodyHeight / 2 });
+    this.objectViews.update(this.objects, this.player.renderTime(), { holders });
 
     if (this.phase !== "dead") this.followCam.update(frameDt, this.cameraTarget());
     this.cameras.main.setScroll(this.followCam.x * CELL_PX, this.followCam.y * CELL_PX);
@@ -213,9 +224,19 @@ export class SoloScene extends Phaser.Scene {
   private toggleObjectAt(x: number, y: number, kind: ObjectKind): void {
     const existing = this.objects.findIndex((o) => o.x === x && o.y === y);
     if (existing >= 0) this.objects.splice(existing, 1);
-    else if (this.canPlace(x, y)) this.objects.push({ id: this.nextObjectId++, kind, x, y });
-    else return;
+    else if (this.canPlace(x, y)) {
+      const obj: PlacedObject = { id: this.nextObjectId++, kind, x, y };
+      if (OBJECT_DEFS[kind].rotatable) obj.dir = this.editor.dir;
+      this.objects.push(obj);
+    } else return;
+    this.objects = prepareObjects(this.level, this.objects);
     this.player.setCollision(withSolidObjects(this.level, this.objects));
+    this.player.vines = vinesOf(this.objects);
+    // Removed (or shortened) the vine we hang from: let go.
+    const s = this.player.controller.swing;
+    if (s && !this.player.vines.some((v) => v.id === s.vineId && s.length <= v.length + 1e-9)) {
+      this.player.letGo();
+    }
     this.objectViews.sync(this.objects);
   }
 

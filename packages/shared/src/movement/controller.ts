@@ -5,7 +5,8 @@
  * which makes it testable and keeps the feel identical at any frame rate.
  * Units are cells and seconds; y grows downwards, so a negative vy means moving up.
  */
-import { boxOverlapsSolid, cellSpan, isSolidCell, type Level } from "../level";
+import { boxOverlapsSolid, cellSpan, isBouncyCell, isSolidCell, type Level } from "../level";
+import { VINE_GRAB_HALF_WIDTH, type Vine } from "../objects";
 import { deriveMovement, type DerivedMovement, type MovementTuning } from "./tuning";
 
 /** Input for one simulation step. */
@@ -25,6 +26,28 @@ const CONTACT_PROBE = 0.01;
 /** Increment used when searching for a corner correction, cells. */
 const CORNER_STEP = 0.02;
 
+/** Swing on a vine: angular damping (1/s), widest angle from vertical (radians), shortest rope (cells). */
+const SWING_DAMPING = 0.25;
+const SWING_MAX_ANGLE = 1.45;
+const SWING_MIN_LENGTH = 0.8;
+/** After letting go of a vine, it can't be grabbed again for this long, seconds. */
+const REGRAB_DELAY = 0.35;
+/** After letting go, left/right input is ignored this long so the fling carries, seconds. */
+const RELEASE_LOCK = 0.18;
+/** Horizontal speed when letting go is capped at this many times the run speed. */
+const RELEASE_MAX_SPEED = 1.9;
+
+/** The character hanging from a vine: a rigid rope of `length` from (ax, ay). Angle 0 is straight down. */
+export interface Swing {
+  vineId: number;
+  ax: number;
+  ay: number;
+  length: number;
+  angle: number;
+  /** Angular speed, radians per second (positive swings to the right at the bottom). */
+  omega: number;
+}
+
 export class CharacterController {
   /** Top-left corner of the body, cells. */
   x = 0;
@@ -38,6 +61,13 @@ export class CharacterController {
   wallSliding = false;
   /** Last horizontal direction pressed or moved, used by the camera look-ahead. */
   facing: -1 | 1 = 1;
+  /** Set while hanging from a vine. */
+  swing: Swing | null = null;
+  /** Seconds left of a stun (after being stomped on): no jump, slow run. */
+  stunTimer = 0;
+  /** Counts spring bounces, so the caller can tell a new one happened; lastBounceCell is the spring's cell. */
+  bounceCount = 0;
+  lastBounceCell = -1;
 
   /** True while rising from a jump the player started; this is what the jump cut applies to. */
   private rising = false;
@@ -46,6 +76,7 @@ export class CharacterController {
   private wallCoyoteTimer = 0;
   private lastWallSide: -1 | 1 = 1;
   private controlLockTimer = 0;
+  private regrabTimer = 0;
 
   private derived: DerivedMovement;
 
@@ -84,6 +115,9 @@ export class CharacterController {
     this.jumpBufferTimer = 0;
     this.wallCoyoteTimer = 0;
     this.controlLockTimer = 0;
+    this.regrabTimer = 0;
+    this.stunTimer = 0;
+    this.swing = null;
     this.facing = 1;
     this.senseContacts();
   }
@@ -100,14 +134,30 @@ export class CharacterController {
     // --- Timers -------------------------------------------------------------
     this.jumpBufferTimer = input.jumpPressed ? t.jumpBufferTime : Math.max(0, this.jumpBufferTimer - dt);
     this.controlLockTimer = Math.max(0, this.controlLockTimer - dt);
+    this.regrabTimer = Math.max(0, this.regrabTimer - dt);
+    this.stunTimer = Math.max(0, this.stunTimer - dt);
+    // Stunned: jumps are lost, not kept for later.
+    if (this.stunTimer > 0) this.jumpBufferTimer = 0;
 
     const dir = (input.right ? 1 : 0) - (input.left ? 1 : 0);
     if (dir !== 0) this.facing = dir > 0 ? 1 : -1;
 
+    // --- Hanging from a vine -------------------------------------------------
+    if (this.swing) {
+      // Stunned players can't jump off either.
+      if (!input.jumpPressed || this.stunTimer > 0) {
+        this.stepSwing(dt, dir);
+        return;
+      }
+      // Jump lets go, with a push upwards; the rest of this step is a normal airborne step.
+      this.releaseVine(true);
+      this.jumpBufferTimer = 0;
+    }
+
     // --- Horizontal speed ---------------------------------------------------
     // During the wall-jump lock, horizontal speed is left untouched so the push off the wall lands.
     if (this.controlLockTimer <= 0) {
-      const target = dir * t.runSpeed;
+      const target = dir * t.runSpeed * (this.stunTimer > 0 ? t.stunSpeedFactor : 1);
       let accel: number;
       if (this.grounded) accel = dir !== 0 ? t.groundAccel : t.groundDecel;
       else accel = dir !== 0 ? t.airAccel : t.airDecel;
@@ -167,6 +217,122 @@ export class CharacterController {
     }
   }
 
+  // --- Pushes from outside (other players) --------------------------------------
+
+  /**
+   * Thrown upwards to `height` cells. `cuttable`: releasing jump cuts it short like a normal
+   * jump (used for the bounce off another player's head, so holding jump bounces higher).
+   */
+  launch(height: number, cuttable: boolean): void {
+    if (this.swing) this.releaseVine(false);
+    this.vy = -Math.sqrt(2 * this.derived.gravity * height);
+    this.rising = cuttable;
+    this.grounded = false;
+    this.coyoteTimer = 0;
+    this.jumpBufferTimer = 0;
+  }
+
+  /** Stomped on by another player: pushed down hard and stunned for a moment. */
+  slam(speed: number, stunTime: number): void {
+    if (this.swing) this.releaseVine(false);
+    if (!this.grounded) this.vy = Math.max(this.vy, speed);
+    this.rising = false;
+    this.stunTimer = Math.max(this.stunTimer, stunTime);
+    this.jumpBufferTimer = 0;
+  }
+
+  /** Bumped sideways: horizontal speed set to `vx`, input ignored for `lock` seconds. */
+  shove(vx: number, lock: number): void {
+    if (this.swing) return;
+    this.vx = vx;
+    this.controlLockTimer = Math.max(this.controlLockTimer, lock);
+  }
+
+  // --- Vines ---------------------------------------------------------------------
+
+  /**
+   * Grab the first vine the body touches in mid-air, keeping the current momentum.
+   * `canHold` says whether a vine is free (only one player holds a vine at a time).
+   * Returns the vine grabbed, or null.
+   */
+  tryGrabVine(vines: readonly Vine[], canHold: (vineId: number) => boolean): Vine | null {
+    if (this.swing || this.grounded || this.regrabTimer > 0 || this.stunTimer > 0 || vines.length === 0) return null;
+    const { bodyWidth: w, bodyHeight: h } = this.tuning;
+    const cx = this.x + w / 2;
+    const cy = this.y + h / 2;
+    for (const v of vines) {
+      if (Math.abs(cx - v.ax) > VINE_GRAB_HALF_WIDTH) continue;
+      if (cy < v.ay + 0.3 || cy > v.ay + v.length + h / 2) continue;
+      if (!canHold(v.id)) continue;
+      const dx = cx - v.ax;
+      const dy = cy - v.ay;
+      const length = Math.min(Math.max(Math.hypot(dx, dy), SWING_MIN_LENGTH), v.length);
+      const angle = Math.atan2(dx, dy);
+      const nx = v.ax + length * Math.sin(angle) - w / 2;
+      const ny = v.ay + length * Math.cos(angle) - h / 2;
+      if (boxOverlapsSolid(this.level, nx, ny, w, h)) continue;
+      // Keep the part of the velocity along the swing's direction of travel.
+      const omega = (this.vx * Math.cos(angle) - this.vy * Math.sin(angle)) / length;
+      this.swing = { vineId: v.id, ax: v.ax, ay: v.ay, length, angle, omega };
+      this.x = nx;
+      this.y = ny;
+      this.grounded = false;
+      this.wallSide = 0;
+      this.wallSliding = false;
+      this.rising = false;
+      this.coyoteTimer = 0;
+      this.wallCoyoteTimer = 0;
+      return v;
+    }
+    return null;
+  }
+
+  /** Let go of the vine. `jump`: with the push upwards given by the jump button. */
+  releaseVine(jump: boolean): void {
+    if (!this.swing) return;
+    const t = this.tuning;
+    const max = t.runSpeed * RELEASE_MAX_SPEED;
+    this.vx = Math.max(-max, Math.min(max, this.vx * 1.1));
+    if (jump) {
+      this.vy = Math.min(this.vy, 0) - t.vineReleaseJump * this.derived.jumpVelocity;
+      this.rising = true;
+      this.controlLockTimer = RELEASE_LOCK;
+    }
+    this.swing = null;
+    this.regrabTimer = REGRAB_DELAY;
+  }
+
+  private stepSwing(dt: number, dir: number): void {
+    const s = this.swing!;
+    const t = this.tuning;
+    const { bodyWidth: w, bodyHeight: h } = t;
+    // Rigid pendulum; left/right pushes along the swing.
+    const alpha = (-this.derived.gravity * Math.sin(s.angle) + dir * t.swingPump) / s.length;
+    s.omega += alpha * dt;
+    s.omega *= Math.max(0, 1 - SWING_DAMPING * dt);
+    let angle = s.angle + s.omega * dt;
+    if (Math.abs(angle) > SWING_MAX_ANGLE) {
+      angle = Math.sign(angle) * SWING_MAX_ANGLE;
+      s.omega = -s.omega * 0.3;
+    }
+    const nx = s.ax + s.length * Math.sin(angle) - w / 2;
+    const ny = s.ay + s.length * Math.cos(angle) - h / 2;
+    if (boxOverlapsSolid(this.level, nx, ny, w, h)) {
+      // Swung into a wall: bounce back a little and stay where we are.
+      s.omega = -s.omega * 0.3;
+    } else {
+      s.angle = angle;
+      this.x = nx;
+      this.y = ny;
+    }
+    this.vx = s.length * s.omega * Math.cos(s.angle);
+    this.vy = -s.length * s.omega * Math.sin(s.angle);
+    if (Math.abs(this.vx) > 0.5) this.facing = this.vx > 0 ? 1 : -1;
+    this.grounded = false;
+    this.wallSide = 0;
+    this.wallSliding = false;
+  }
+
   private startJump(): void {
     this.rising = true;
     this.grounded = false;
@@ -213,6 +379,20 @@ export class CharacterController {
     this.y = dy > 0 ? row - h : row + 1;
     this.vy = 0;
     if (dy < 0) this.rising = false;
+
+    // Landing on a spring: thrown up to the full spring height, whatever the jump button does.
+    if (dy > 0) {
+      for (let cx = x0; cx <= x1; cx++) {
+        if (!isBouncyCell(this.level, cx, row)) continue;
+        this.vy = -this.derived.springVelocity;
+        this.rising = false;
+        this.jumpBufferTimer = 0;
+        this.coyoteTimer = 0;
+        this.bounceCount++;
+        this.lastBounceCell = row * this.level.width + cx;
+        break;
+      }
+    }
   }
 
   /**
