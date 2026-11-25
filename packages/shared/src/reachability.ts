@@ -27,7 +27,7 @@
 import { boxOverlapsSolid, cellSpan, isSolidCell, type Level } from "./level";
 import { CharacterController, type StepInput } from "./movement/controller";
 import { HAZARD_INSET, SIM_HZ, type MovementTuning } from "./movement/tuning";
-import { boxHitsHazard, hazardsOf, withSolidObjects, type Hazard, type PlacedObject } from "./objects";
+import { boxHitsHazard, hazardsOf, OBJECT_DEFS, withSolidObjects, type Hazard, type PlacedObject } from "./objects";
 
 const DT = 1 / SIM_HZ;
 
@@ -415,4 +415,22 @@ export function placementKeepsPath(
   if (!graph.reachable) return true;
   if (reachableWithout(graph, new Set([candidate.y * level.width + candidate.x]))) return true;
   return buildReachGraph(level, [...objects, candidate], tuning).reachable;
+}
+
+/**
+ * Whether removing `target` keeps the finish reachable. Removing a trap only frees cells,
+ * but removing a platform can take away the only step up to the finish.
+ */
+export function erasureKeepsPath(
+  level: Level,
+  objects: readonly PlacedObject[],
+  target: PlacedObject,
+  tuning: MovementTuning,
+  /** The graph for `objects`, if already built. */
+  graph?: ReachGraph,
+): boolean {
+  if (!OBJECT_DEFS[target.kind].solid) return true;
+  // Already blocked (should not happen): don't punish the player, like placementKeepsPath.
+  if (!(graph ?? buildReachGraph(level, objects, tuning)).reachable) return true;
+  return buildReachGraph(level, objects.filter((o) => o.id !== target.id), tuning).reachable;
 }

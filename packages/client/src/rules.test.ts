@@ -29,6 +29,20 @@ describe("rules", () => {
     expect(a).toEqual(b);
   });
 
+  it("eraser: never without the chance, at most one per offer, rare with the default chance", () => {
+    const rng = createRng(7);
+    for (let i = 0; i < 200; i++) expect(drawOffer(rng, 5, 0)).not.toContain("eraser");
+    let offersWithEraser = 0;
+    for (let i = 0; i < 2000; i++) {
+      const offer = drawOffer(rng, 5, cfg.eraserChance);
+      const erasers = offer.filter((k) => k === "eraser").length;
+      expect(erasers).toBeLessThanOrEqual(1);
+      expect(offer).toHaveLength(5);
+      offersWithEraser += erasers;
+    }
+    expect(offersWithEraser / 2000).toBeCloseTo(cfg.eraserChance, 1);
+  });
+
   it("finish 2, first +1, only finisher +1, kills +1 each", () => {
     expect(totals([r("a", 10), r("b", null, "a"), r("c", null, "a")])).toEqual({ a: 6, b: 0, c: 0 });
     expect(totals([r("a", 10), r("b", 12), r("c", null, "b")])).toEqual({ a: 3, b: 3, c: 0 });

@@ -6,7 +6,7 @@
  * protocol can be read in this one file. Times are server times in milliseconds
  * (Date.now() on the server) unless the name says otherwise.
  */
-import type { ObjectKind, PlacedObject } from "./objects";
+import type { CardKind, PlacedObject } from "./objects";
 import type { RoundVerdict, ScoreLine } from "./rules";
 
 export const SERVER_PORT = 2567;
@@ -62,9 +62,12 @@ export interface Ghost extends PlayerPose {
   status: RaceStatus;
 }
 
-/** A placement as chosen on the client: the server assigns ids and owners. */
+/**
+ * A placement as chosen on the client: the server assigns ids and owners.
+ * For the eraser, (x, y) is the cell of the object to remove.
+ */
 export interface PlacementChoice {
-  kind: ObjectKind;
+  kind: CardKind;
   x: number;
   y: number;
 }
@@ -78,7 +81,7 @@ export type ServerMessage =
       type: "placement";
       round: number;
       needed: number;
-      offer: ObjectKind[];
+      offer: CardKind[];
       endsAt: number;
       objects: PlacedObject[];
       /** Your own choice so far, when rejoining in the middle of placement. */
@@ -92,6 +95,8 @@ export type ServerMessage =
       objects: PlacedObject[];
       /** How many of your objects were refused because, together with the others', they cut the path. */
       refused: number;
+      /** How many of your erasers were lost: target already erased by someone else, or needed for the path. */
+      eraseRefused: number;
       raceStartsAt: number;
       raceEndsAt: number;
     }

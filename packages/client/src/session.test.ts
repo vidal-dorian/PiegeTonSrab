@@ -2,11 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   buildReachGraph,
   DEFAULT_MOVEMENT,
+  erasureKeepsPath,
   GameSession,
   parseLevel,
   TIMING,
   type LevelDefinition,
-  type ObjectKind,
+  type CardKind,
   type ServerMessage,
   type SessionIO,
 } from "@game/shared";
@@ -153,7 +154,7 @@ describe("GameSession", () => {
     s.addPlayer("b", "B");
     toPlacement(io, s, ["a", "b"]);
     // Each player puts a killing object in one lane and the rest in harmless cells of the top-left corner.
-    const choose = (offer: ObjectKind[], lane: { x: number; y: number }, spareX: number) => {
+    const choose = (offer: CardKind[], lane: { x: number; y: number }, spareX: number) => {
       const killer = offer.findIndex((k) => k === "saw" || k === "spikes");
       expect(killer, `offer ${offer.join(",")} has no trap`).toBeGreaterThanOrEqual(0);
       const kinds = [offer[killer]!, ...offer.filter((_, i) => i !== killer).slice(0, 2)];
@@ -184,6 +185,62 @@ describe("GameSession", () => {
     expect(block.block).toMatchObject({ kind: "platform", x: 12, y: 1, ownerId: "b" });
     s.handle("b", { type: "block", x: 14, y: 1 });
     expect(io.last("blockRefused", "b")!.reason).toMatch(/seul/);
+  });
+
+  it("no eraser in the first round, then erasers remove other players' objects only", () => {
+    const io = new FakeIO();
+    // Always offer an eraser once something can be erased, so the test does not depend on luck.
+    const s = new GameSession(io, "ABCD", [openField]);
+    (s as unknown as { cfg: { eraserChance: number } }).cfg.eraserChance = 1;
+    s.addPlayer("a", "A");
+    s.addPlayer("b", "B");
+    toPlacement(io, s, ["a", "b"]);
+    const place = (id: string, x0: number) => {
+      const offer = io.last("placement", id)!.offer;
+      expect(offer).not.toContain("eraser");
+      s.handle(id, { type: "placement", objects: offer.slice(0, 3).map((kind, i) => ({ kind, x: x0 + i, y: 0 })), done: true });
+    };
+    place("a", 3);
+    place("b", 10);
+    const placed = io.last("countdown", "a")!.objects;
+    // Nobody finishes: straight to the next round.
+    io.advance(TIMING.countdown);
+    for (const id of ["a", "b"]) s.handle(id, { type: "died", killerId: null, x: 1, y: 1, fell: true });
+    io.advance(TIMING.raceEndPause + 5_000);
+
+    const offerA = io.last("placement", "a")!.offer;
+    const offerB = io.last("placement", "b")!.offer;
+    expect(offerA.filter((k) => k === "eraser")).toHaveLength(1);
+    expect(offerB.filter((k) => k === "eraser")).toHaveLength(1);
+    const bobs = placed.find((o) => o.ownerId === "b")!;
+    const alices = placed.find((o) => o.ownerId === "a")!;
+    // A erases one of B's objects; B tries to erase one of its own (refused).
+    // Round 2 still needs 3 cards: the eraser plus two objects in harmless cells.
+    const rest = (offer: CardKind[], x0: number) =>
+      offer.filter((k) => k !== "eraser").slice(0, 2).map((kind, i) => ({ kind, x: x0 + i, y: 1 }));
+    s.handle("a", { type: "placement", objects: [{ kind: "eraser", x: bobs.x, y: bobs.y }, ...rest(offerA, 3)], done: true });
+    s.handle("b", { type: "placement", objects: [{ kind: "eraser", x: bobs.x + 1, y: bobs.y }, ...rest(offerB, 10)], done: true });
+    const cd = io.last("countdown", "a")!;
+    expect(cd.objects.some((o) => o.id === bobs.id)).toBe(false);
+    expect(cd.objects.some((o) => o.id === alices.id)).toBe(true);
+    expect(cd.objects).toHaveLength(6 - 1 + 4);
+    expect(cd.eraseRefused).toBe(0);
+    expect(io.last("countdown", "b")!.eraseRefused).toBe(1);
+  });
+
+  it("an eraser cannot remove the platform the path to the finish needs", () => {
+    // The finish sits on a ledge 8 rows above the floor: too high to reach without a step.
+    const row = (r: string) => "#" + r.padEnd(14, ".") + "#";
+    const rows = ["#".repeat(16), row(""), row(""), row("..........F"), row("........####")];
+    for (let i = 0; i < 7; i++) rows.push(row(""));
+    rows.push(row("S"), "#".repeat(16));
+    const level = parseLevel({ name: "ledge", rows });
+    const step = { id: 1, kind: "platform" as const, x: 6, y: rows.length - 6, ownerId: "b" };
+    const saw = { id: 2, kind: "saw" as const, x: 3, y: 2, ownerId: "b" };
+    expect(buildReachGraph(level, [], DEFAULT_MOVEMENT).reachable).toBe(false);
+    expect(buildReachGraph(level, [step, saw], DEFAULT_MOVEMENT).reachable).toBe(true);
+    expect(erasureKeepsPath(level, [step, saw], step, DEFAULT_MOVEMENT)).toBe(false);
+    expect(erasureKeepsPath(level, [step, saw], saw, DEFAULT_MOVEMENT)).toBe(true);
   });
 
   it("a player leaving during the race ends it when nobody else is running", () => {

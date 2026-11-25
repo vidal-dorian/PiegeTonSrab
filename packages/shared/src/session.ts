@@ -9,8 +9,8 @@
  */
 import { parseLevel, type Level, type LevelDefinition } from "./level";
 import { DEFAULT_MOVEMENT } from "./movement/tuning";
-import { canPlaceAt, type ObjectKind, type PlacedObject } from "./objects";
-import { PathGuard } from "./reachability";
+import { canPlaceAt, erasableAt, hasErasable, type CardKind, type PlacedObject } from "./objects";
+import { erasureKeepsPath, PathGuard } from "./reachability";
 import {
   createRng,
   DEFAULT_GAME_CONFIG,
@@ -57,7 +57,7 @@ interface Player {
   /** Took part in the current game (joined before it started). */
   inGame: boolean;
   // Placement
-  offer: ObjectKind[];
+  offer: CardKind[];
   choice: PlacementChoice[];
   doneAt: number | null;
   // Race
@@ -89,6 +89,7 @@ export class GameSession {
   private raceEndsAt = 0;
   private raceGuard: PathGuard | null = null;
   private refused = new Map<string, number>();
+  private eraseRefused = new Map<string, number>();
 
   private timers: Array<() => void> = [];
   private ghostTimer: (() => void) | null = null;
@@ -265,7 +266,8 @@ export class GameSession {
     this.needed = objectsForRound(this.cfg, this.round);
     this.placementEndsAt = this.io.now() + this.cfg.placementTime * 1000;
     for (const p of this.inGamePlayers()) {
-      p.offer = drawOffer(this.rng, this.needed + this.cfg.extraOffered);
+      const eraserChance = hasErasable(this.objects, p.id) ? this.cfg.eraserChance : 0;
+      p.offer = drawOffer(this.rng, this.needed + this.cfg.extraOffered, eraserChance);
       p.choice = [];
       p.doneAt = null;
       this.sendPlacement(p);
@@ -321,19 +323,35 @@ export class GameSession {
 
   /**
    * Apply everyone's placements one at a time, in the order players validated (then the
-   * others), refusing any object that is illegal or would cut the last path to the finish.
+   * others). Erasers go first, so they only ever remove objects of earlier rounds; an eraser
+   * is refused if its target is already gone (two players erased the same object) or if
+   * removing it would cut the path. Then objects are added, refusing any that is illegal
+   * or would cut the last path to the finish.
    */
   private endPlacement(): void {
     if (this.phase !== "placement" || !this.level) return;
     this.clearTimers();
     const order = this.inGamePlayers().sort((a, b) => (a.doneAt ?? Infinity) - (b.doneAt ?? Infinity));
-    const guard = new PathGuard(this.level, this.objects, DEFAULT_MOVEMENT);
     this.refused = new Map();
+    this.eraseRefused = new Map();
+    const count = (m: Map<string, number>, p: Player) => m.set(p.id, (m.get(p.id) ?? 0) + 1);
+    let remaining = this.objects;
     for (const p of order) {
       for (const c of p.choice) {
+        if (c.kind !== "eraser") continue;
+        const { target } = erasableAt(remaining, c.x, c.y, p.id);
+        if (target && erasureKeepsPath(this.level, remaining, target, DEFAULT_MOVEMENT)) {
+          remaining = remaining.filter((o) => o !== target);
+        } else count(this.eraseRefused, p);
+      }
+    }
+    const guard = new PathGuard(this.level, remaining, DEFAULT_MOVEMENT);
+    for (const p of order) {
+      for (const c of p.choice) {
+        if (c.kind === "eraser") continue;
         const obj: PlacedObject = { id: this.nextObjectId, kind: c.kind, x: c.x, y: c.y, ownerId: p.id };
         if (canPlaceAt(this.level, guard.objects, c.x, c.y) && guard.tryAdd(obj)) this.nextObjectId++;
-        else this.refused.set(p.id, (this.refused.get(p.id) ?? 0) + 1);
+        else count(this.refused, p);
       }
     }
     this.objects = [...guard.objects];
@@ -367,6 +385,7 @@ export class GameSession {
       round: this.round,
       objects: this.objects,
       refused: this.refused.get(p.id) ?? 0,
+      eraseRefused: this.eraseRefused.get(p.id) ?? 0,
       raceStartsAt: this.raceStartsAt,
       raceEndsAt: this.raceEndsAt,
     });

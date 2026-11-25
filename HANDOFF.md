@@ -154,6 +154,8 @@ Neutral (black and white):
 | Glue | Slows the player and reduces jump height |
 | Eraser | Removes an object already placed. Must stay rare in the draw. |
 
+Eraser rules (Default, 2026-11-25): the eraser is a card, not an object. It counts as one of the round's objects. During placement the player clicks an object placed by another player in an earlier round (never their own, never the level's); it is marked with a cross and can be taken back like any other choice. At the end of placement the server applies all erasers first, in validation order, then the new objects. An eraser is lost if its target was already erased by someone else, or if removing it would cut the path to the finish (a platform can be the only step up). Each offer holds at most one eraser, with a 15% chance (`eraserChance` in the game config), and only once another player's object is in the level, so never in round 1 or in solo.
+
 The vine was Dorian's own addition. Placing it on an empty cell creates a one-cell solid anchor block with the vine hanging below it (3 or 4 cells long). A player who touches it in mid-air grabs it automatically, keeps their momentum, swings like a pendulum, and lets go by pressing jump. Only one player can hold it at a time; the others pass through. Start with a rigid rope of fixed length, no rope simulation.
 
 First batch to implement (Decided): saw, spikes, cannon, spring, platform, vine. The other nine come after the first playtests with friends.
@@ -226,7 +228,7 @@ The playtest comes at step 4, before the art, on purpose: use plain rectangles u
 - Maximum width of scrolling levels (proposed: about 2 screens, 64 cells).
 - After how many rounds the object count drops from 3 to 2 (Default: after round 3).
 - Whether a catch-up bonus is needed for the last-placed player (only if playtests show the leader running away).
-- How rare the eraser should be.
+- How rare the eraser should be (Default: 15% chance per offer, see Eraser rules; tune after playtests).
 
 ## Where to start
 

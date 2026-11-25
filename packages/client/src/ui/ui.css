@@ -116,6 +116,8 @@
 .card .tag.neutral { background: var(--ink); }
 .card.selected { box-shadow: var(--shadow); transform: translateY(-3px); outline: 3px solid var(--orange); }
 .card.used { opacity: 0.3; cursor: default; }
+/* The eraser is rare: a dashed border makes it stand out in the tray. */
+.card.rare { border-style: dashed; }
 .ui-tray .row { display: flex; gap: 14px; align-items: center; font-size: 14px; }
 .ui-tray .hint { min-height: 1.2em; font-size: 14px; }
 .ui-tray .hint.bad { color: var(--red); font-weight: 700; }

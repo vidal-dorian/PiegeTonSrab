@@ -3,7 +3,7 @@
  * The game world is drawn by Phaser; everything textual or clickable is plain DOM,
  * which is simpler to lay out and style. Text is always set with textContent.
  */
-import { OBJECT_DEFS, type ObjectKind } from "@game/shared";
+import { cardInfo, type CardKind } from "@game/shared";
 import "./ui.css";
 
 const FAMILY_TAG = { kill: "TUE", help: "AIDE", neutral: "NEUTRE" } as const;
@@ -22,7 +22,7 @@ export interface TrayState {
   others?: Array<{ name: string; done: boolean }>;
   /** This player validated and is waiting for the others. */
   waiting?: boolean;
-  cards: Array<{ kind: ObjectKind; used: boolean }>;
+  cards: Array<{ kind: CardKind; used: boolean }>;
   selected: number | null;
   placed: number;
   needed: number;
@@ -110,8 +110,9 @@ export class Overlay {
     this.trayHandlers = handlers;
     const cards = el("div", "cards");
     s.cards.forEach((c, i) => {
-      const def = OBJECT_DEFS[c.kind];
+      const def = cardInfo(c.kind);
       const card = el("button", "card");
+      if (c.kind === "eraser") card.classList.add("rare");
       if (c.used) card.classList.add("used");
       if (s.selected === i) card.classList.add("selected");
       card.append(el("span", "key", String(i + 1)), el("span", "name", def.name), el("span", `tag ${def.family}`, FAMILY_TAG[def.family]));

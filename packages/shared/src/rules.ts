@@ -2,7 +2,7 @@
  * Game rules: round timing, object draw, scoring and end of game (see HANDOFF.md).
  * Pure functions, so the server can run exactly the same rules in build step 4.
  */
-import { OBJECT_KINDS, type ObjectKind } from "./objects";
+import { OBJECT_KINDS, type CardKind, type ObjectKind } from "./objects";
 
 export interface GameConfig {
   /** Score that ends the game: 10 (short game) or 25 (long game). */
@@ -20,6 +20,11 @@ export interface GameConfig {
   extraOffered: number;
   /** Maximum points from kills per player per round. */
   killCap: number;
+  /**
+   * Chance (0 to 1) that a player's offer for a round holds one eraser. Never more than one
+   * per offer, and only when there is an object of another player to erase.
+   */
+  eraserChance: number;
 }
 
 export const SHORT_GAME = 10;
@@ -35,6 +40,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   switchAfterRound: 3,
   extraOffered: 2,
   killCap: 2,
+  eraserChance: 0.15,
 };
 
 /** Objects each player places in round `round` (1-based). */
@@ -54,15 +60,24 @@ export function createRng(seed: number): () => number {
   };
 }
 
-/** Relative chance of each object in the draw. The eraser (later) will get a low weight. */
+/** Relative chance of each object in the draw. The eraser is drawn apart (GameConfig.eraserChance). */
 export const DRAW_WEIGHTS: Record<ObjectKind, number> = {
   saw: 1,
   spikes: 1,
   platform: 1,
 };
 
-/** Random objects offered to one player for one round. */
-export function drawOffer(rng: () => number, count: number): ObjectKind[] {
+/**
+ * Random cards offered to one player for one round. With probability `eraserChance`, one
+ * of them (at a random position) is replaced by the eraser.
+ */
+export function drawOffer(rng: () => number, count: number, eraserChance = 0): CardKind[] {
+  const offer: CardKind[] = drawObjects(rng, count);
+  if (count > 0 && rng() < eraserChance) offer[Math.floor(rng() * count)] = "eraser";
+  return offer;
+}
+
+function drawObjects(rng: () => number, count: number): ObjectKind[] {
   const total = OBJECT_KINDS.reduce((s, k) => s + DRAW_WEIGHTS[k], 0);
   const offer: ObjectKind[] = [];
   for (let i = 0; i < count; i++) {
