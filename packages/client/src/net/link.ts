@@ -16,6 +16,7 @@ import {
   type ServerMessage,
 } from "@game/shared";
 import { ClockSync } from "./clock";
+import { playerKey, rememberRoomInUrl } from "./playerKey";
 
 export interface GameLink {
   readonly myId: string;
@@ -110,7 +111,9 @@ export class OnlineLink extends BaseLink implements GameLink {
   static async connect(name: string, code: string | null): Promise<OnlineLink> {
     const client = new Client(serverUrl());
     try {
-      const room = code ? await client.joinById(code.toUpperCase(), { name }) : await client.create(ROOM_NAME, { name });
+      const options = { name, key: playerKey() };
+      const room = code ? await client.joinById(code.toUpperCase(), options) : await client.create(ROOM_NAME, options);
+      rememberRoomInUrl(room.roomId);
       return new OnlineLink(room);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);

@@ -63,6 +63,11 @@ type Phase = "lobby" | "carousel" | "placement" | "countdown" | "race" | "raceEn
 
 interface Player {
   id: string;
+  /**
+   * Random key the player's browser keeps (localStorage) and sends when joining, so that
+   * after a reload, a closed tab or a long disconnection it can take its place back.
+   */
+  key: string;
   name: string;
   color: number;
   connected: boolean;
@@ -131,8 +136,16 @@ export class GameSession {
   // --- Players ------------------------------------------------------------------
 
   /** Returns an error message (in French, shown to the player) or null if the player joined. */
-  addPlayer(id: string, rawName: string): string | null {
-    if (this.phase !== "lobby") return "La partie a déjà commencé.";
+  addPlayer(id: string, rawName: string, rawKey: unknown = ""): string | null {
+    const key = cleanKey(rawKey);
+    if (this.phase !== "lobby") {
+      // A player of this game coming back (page reloaded, tab closed, connection lost for
+      // longer than the reconnection window): they take their place back.
+      const back = this.returningPlayer(rawName, key);
+      if (!back) return "La partie a déjà commencé. Pour reprendre ta place, rejoins avec le même pseudo.";
+      this.takeOver(back, id);
+      return null;
+    }
     if (this.players.size >= MAX_PLAYERS) return `Le salon est plein (${MAX_PLAYERS} joueurs).`;
     // The colour index is also the player's spawn seat (spawnCell, level.ts): unique in the
     // room, so each body starts on its own cell of the spawn pad. Clients read it from the lobby.
@@ -141,6 +154,7 @@ export class GameSession {
     const name = cleanName(rawName) || `Joueur ${this.players.size + 1}`;
     this.players.set(id, {
       id,
+      key,
       name,
       color,
       connected: true,
@@ -159,6 +173,60 @@ export class GameSession {
     if (!this.hostId) this.hostId = id;
     this.broadcastLobby();
     return null;
+  }
+
+  /**
+   * The player of this game a newcomer is, if any: the one with the same browser key, else
+   * the only disconnected one with the same name (another browser or device). The key may
+   * match a player the session still thinks connected (the old connection is not detected
+   * dead yet, a few seconds after a reload); a name only matches a disconnected player, so
+   * nobody can take the place of someone still playing.
+   */
+  private returningPlayer(rawName: string, key: string): Player | null {
+    const players = this.inGamePlayers();
+    if (key) {
+      const byKey = players.find((p) => p.key === key);
+      if (byKey) return byKey;
+    }
+    const name = cleanName(rawName).toLowerCase();
+    if (!name) return null;
+    const byName = players.filter((p) => !p.connected && p.name.toLowerCase() === name);
+    return byName.length === 1 ? byName[0]! : null;
+  }
+
+  /**
+   * Player `p` comes back under the connection `newId`: same seat, colour, score and objects.
+   * Everything the session keys by player id is renamed, then the player is brought up to
+   * date like after a reconnection. The old connection, if it still exists, now names nobody.
+   */
+  private takeOver(p: Player, newId: string): void {
+    const old = p.id;
+    if (old === newId) return;
+    const rename = (id: string | null | undefined) => (id === old ? newId : id);
+    const renameKeys = <V>(m: Map<string, V>) => new Map([...m].map(([k, v]) => [rename(k)!, v] as const));
+    p.id = newId;
+    this.players = renameKeys(this.players);
+    this.scores = renameKeys(this.scores);
+    this.refused = renameKeys(this.refused);
+    this.unplaced = renameKeys(this.unplaced);
+    if (this.hostId === old) this.hostId = newId;
+    for (const o of [...this.objects, ...(this.raceGuard?.objects ?? [])]) {
+      if (o.ownerId === old) (o as PlacedObject).ownerId = newId;
+    }
+    for (const q of this.players.values()) {
+      q.killedBy = rename(q.killedBy) ?? null;
+      q.pushedBy = rename(q.pushedBy) ?? null;
+    }
+    for (const [vine, holder] of this.vineHolders) this.vineHolders.set(vine, rename(holder)!);
+    this.lastStomp = new Map(
+      [...this.lastStomp].map(([k, t]) => [k.split(">").map((id) => rename(id)).join(">"), t] as const),
+    );
+    if (this.overMsg) {
+      const totals = Object.fromEntries(Object.entries(this.overMsg.totals).map(([id, v]) => [rename(id)!, v]));
+      this.overMsg = { ...this.overMsg, winner: rename(this.overMsg.winner)!, totals };
+    }
+    // Back in the game: like a reconnection (a race restarts from the spawn, resync).
+    this.setConnected(newId, true);
   }
 
   /** The player left for good. */
@@ -724,6 +792,11 @@ export class GameSession {
     this.ghostTimer?.();
     this.ghostTimer = null;
   }
+}
+
+/** Browser keys are short random strings; anything else is ignored. */
+function cleanKey(raw: unknown): string {
+  return typeof raw === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(raw) ? raw : "";
 }
 
 function cleanName(raw: unknown): string {

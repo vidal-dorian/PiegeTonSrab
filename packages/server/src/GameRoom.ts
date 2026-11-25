@@ -51,8 +51,9 @@ export class GameRoom extends Room {
     });
   }
 
-  override onJoin(client: Client, options?: { name?: string }): void {
-    const error = this.session.addPlayer(client.sessionId, options?.name ?? "");
+  override onJoin(client: Client, options?: { name?: string; key?: string }): void {
+    // `key` lets a player who reloaded the page take their place back in a running game.
+    const error = this.session.addPlayer(client.sessionId, options?.name ?? "", options?.key);
     // Refuse the join itself: a message sent from here never reaches the client (it has not
     // finished joining), and the player would only see a closed connection.
     if (error) throw new ServerError(JOIN_REFUSED_CODE, error);

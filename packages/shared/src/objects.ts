@@ -291,13 +291,17 @@ export function withSolidObjects(level: Level, objects: readonly PlacedObject[])
   return { ...level, solid, bounce };
 }
 
-/** Number of free cells from (x, y) going (dx, dy), stopping at the first solid cell or after `max`. */
-function freeRun(collision: Level, x: number, y: number, dx: number, dy: number, max: number): number {
+/**
+ * Number of free cells from (x, y) going (dx, dy), stopping at the first solid cell or after
+ * `max`. With `stopAtPad`, the spawn pad stops it too.
+ */
+function freeRun(collision: Level, x: number, y: number, dx: number, dy: number, max: number, stopAtPad = false): number {
   let n = 0;
   for (let cx = x + dx, cy = y + dy; n < max; cx += dx, cy += dy) {
     // The left and right edges are walls; above and below the level, shots fly on to the cap.
     if (cx < 0 || cx >= collision.width) break;
     if (cy >= 0 && cy < collision.height && collision.solid[cy * collision.width + cx]) break;
+    if (stopAtPad && isSpawnPadCell(collision, cx, cy)) break;
     n++;
   }
   return n;
@@ -313,7 +317,10 @@ export function prepareObjects(level: Level, objects: readonly PlacedObject[]): 
   return objects.map((o) => {
     if (o.kind === "cannon") {
       const { dx, dy } = DIR_VECTORS[dirOf(o)];
-      return { ...o, dir: dirOf(o), range: freeRun(collision, o.x, o.y, dx, dy, CANNON_MAX_RANGE) };
+      // Balls break on the edge of the spawn pad: the pad is where the players start, and a
+      // cannon aimed into it (from above, past S's column) would shell one seat from the very
+      // start of every race, for the rest of the game. The path check only looks from S.
+      return { ...o, dir: dirOf(o), range: freeRun(collision, o.x, o.y, dx, dy, CANNON_MAX_RANGE, true) };
     }
     if (o.kind === "vine") return { ...o, range: freeRun(collision, o.x, o.y, 0, 1, VINE_MAX_CELLS) };
     return o;

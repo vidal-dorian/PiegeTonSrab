@@ -37,6 +37,10 @@ an offline solo game (10 or 25 points, same rules running in the browser), free 
 top of the menu; after that they move to the bottom under "Apprendre" (the flag is localStorage `pts.tutorialDone`;
 delete it to get the new-player menu back). The lobby also has a "Règles" button.
 The rules panel closes with ✕, Escape, "Compris !" or a click outside.
+In a game, Escape pressed twice within 2 s quits (once only shows a reminder). A player who reloads the page, closes
+the tab or loses the connection for more than 30 s comes back by joining the room again: the address keeps the code
+(`?salon=ABCD`), and the session gives them their seat, score and objects back if they use the same browser
+(localStorage `pts.playerKey`) or, from another device, the same pseudo as a disconnected player.
 In the tutorial: Enter or "Étape suivante" skips a step, Escape or "Passer le tuto" goes back to the menu.
 Free practice has an editor (E, then 1-6 to pick an object, T to turn a cannon, click) to place objects by hand.
 

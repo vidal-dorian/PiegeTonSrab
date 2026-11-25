@@ -79,6 +79,12 @@ const MAX_CLOCK_LAG = 0.1;
 const REFUSAL_SHAKE_MS = 450;
 /** The "vine already taken" notice is repeated at most this often for the same vine, milliseconds. */
 const VINE_NOTICE_MS = 2000;
+/**
+ * Escape quits only when pressed twice within this long, milliseconds. One press is easy to
+ * make by reflex (leaving full screen, closing a panel), and it used to throw the player out
+ * of the game at once.
+ */
+const ESCAPE_CONFIRM_MS = 2000;
 /** How long the end-of-placement messages stay on screen, milliseconds. */
 const PLACEMENT_RESULT_MS = 6500;
 
@@ -165,6 +171,8 @@ export class GameScene extends Phaser.Scene {
   /** The "over" message, kept to show the end screen again if the host changes. */
   private overMsg: ServerMessageOf<"over"> | null = null;
   private spectating: string | null = null;
+  /** When Escape was last pressed (performance.now), for the second press that quits. */
+  private escapeAt = -Infinity;
   /** Bumped by each run of the scene, so a handler attached late never lands on a stopped one. */
   private handlerGen = 0;
   /** Vine id -> player holding it, as last told by the session. */
@@ -213,6 +221,7 @@ export class GameScene extends Phaser.Scene {
     this.myStatus = "running";
     this.overMsg = null;
     this.roomGen = 0;
+    this.escapeAt = -Infinity;
 
     this.gridGfx = drawLevel(this, this.level).grid;
     this.stains = new Stains(this);
@@ -284,7 +293,7 @@ export class GameScene extends Phaser.Scene {
     // Hide the level while the carousel spins, so it does not give the result away.
     this.cameras.main.setAlpha(0);
     carouselScreen.show(RACE_LEVELS, data.start.levelIndex, data.start.spinMs);
-    overlay.setHelp("Échap : quitter la partie");
+    overlay.setHelp("Échap deux fois : quitter la partie");
     // Messages that waited while the scene (re)started are replayed as soon as the handler is
     // set. Not from here: create() runs inside a Phaser frame, and the frame must not carry
     // a whole backlog (a reconnection, a tab left in the background). The microtask runs once
@@ -448,7 +457,7 @@ export class GameScene extends Phaser.Scene {
     this.player.reset();
     this.rebuildGraph();
     this.scanForRoom();
-    overlay.setHelp("Clic : poser ou reprendre · 1 à 3 : choisir l'objet · R ou clic droit : tourner le canon · Échap : quitter");
+    overlay.setHelp("Clic : poser ou reprendre · 1 à 3 : choisir l'objet · R ou clic droit : tourner le canon · Échap ×2 : quitter");
     this.renderTray();
     this.updateTopBar();
     this.showWholeLevel();
@@ -997,7 +1006,7 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.setZoom(1);
     this.followCam.snapTo(this.cameraTarget());
     overlay.showBanner("Prêt ?");
-    overlay.setHelp("Q/A ← · D → · Espace/Z/↑ saut · S/↓ lâcher la liane · Échap : quitter");
+    overlay.setHelp("Q/A ← · D → · Espace/Z/↑ saut · S/↓ lâcher la liane · Échap ×2 : quitter");
     // What became of our objects, named: refused ones and why, and those never placed in time.
     const lines = msg.refusedObjects
       ? refusedText(msg.refusedObjects)
@@ -1270,7 +1279,7 @@ export class GameScene extends Phaser.Scene {
     const parts: string[] = [];
     if (this.spectating) parts.push(`Tu regardes ${this.nameOf(this.spectating)} · ←/→ pour changer`);
     if (this.myStatus === "dead" && !this.blockPlaced) parts.push("Clic : poser ton bloc (1 par round)");
-    overlay.setHelp(parts.join(" · ") || "Échap : quitter");
+    overlay.setHelp(parts.join(" · ") || "Échap ×2 : quitter");
   }
 
   /** Why a dead player's block can't go on this cell, as far as this client can tell (null: try it). */
@@ -1506,7 +1515,16 @@ export class GameScene extends Phaser.Scene {
 
   private onKey(code: string): void {
     if (code === "Escape") {
-      this.quit();
+      const now = performance.now();
+      if (now - this.escapeAt <= ESCAPE_CONFIRM_MS) {
+        this.quit();
+        return;
+      }
+      this.escapeAt = now;
+      overlay.showNotice(
+        this.link.online ? "Appuie encore sur Échap pour quitter la partie" : "Appuie encore sur Échap pour revenir au menu",
+        ESCAPE_CONFIRM_MS,
+      );
       return;
     }
     const digit = /^Digit([1-9])$/.exec(code);
