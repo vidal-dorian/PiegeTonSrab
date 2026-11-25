@@ -55,7 +55,12 @@ const MARGIN_SIDE = 8;
 
 let textureCounter = 0;
 
-export function drawLevel(scene: Phaser.Scene, level: Level): LevelView {
+export interface DrawLevelOptions {
+  /** Draw the race mode's dashed start mat and "départ" note (default true). */
+  startPad?: boolean;
+}
+
+export function drawLevel(scene: Phaser.Scene, level: Level, options: DrawLevelOptions = {}): LevelView {
   const { width, height } = level;
 
   const grid = scene.add.graphics();
@@ -70,7 +75,7 @@ export function drawLevel(scene: Phaser.Scene, level: Level): LevelView {
   if (ctx) {
     ctx.translate(MARGIN_SIDE, MARGIN_TOP);
     drawTerrain(ctx, level);
-    drawStart(ctx, level);
+    if (options.startPad !== false) drawStart(ctx, level);
     if (level.finish) drawFinish(ctx, level.finish.x, level.finish.y);
   }
   const key = `terrain-${++textureCounter}`;

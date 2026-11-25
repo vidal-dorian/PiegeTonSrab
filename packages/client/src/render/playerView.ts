@@ -123,6 +123,8 @@ export function drawBlob(g: Phaser.GameObjects.Graphics, p: BlobPose): void {
 }
 
 export class PlayerView {
+  /** The pose drawn by the last update (null when hidden), for accessories drawn on top. */
+  lastPose: BlobPose | null = null;
   private g: Phaser.GameObjects.Graphics;
   private extras: Phaser.GameObjects.Graphics;
   private crown = false;
@@ -149,9 +151,20 @@ export class PlayerView {
     this.crown = on;
   }
 
-  /** Flattened for a moment (stomped on). */
-  squash(): void {
-    this.squashUntil = this.scene.time.now + STOMP_MS;
+  /** Flattened for a moment (stomped on; in co-op, Ruben landed on this player). */
+  squash(ms = STOMP_MS): void {
+    this.squashUntil = this.scene.time.now + ms;
+  }
+
+  /** Draw above other players (the local player) or at their depth. */
+  setDepth(depth: number): void {
+    this.g.setDepth(depth);
+    this.extras.setDepth(depth);
+  }
+
+  destroy(): void {
+    this.g.destroy();
+    this.extras.destroy();
   }
 
   /** Position in cells (top-left of the body). */
@@ -166,6 +179,7 @@ export class PlayerView {
     if (!visible) {
       this.g.clear();
       this.extras.clear();
+      this.lastPose = null;
       return;
     }
 
@@ -203,7 +217,7 @@ export class PlayerView {
       scaleX = 1.3;
     }
 
-    drawBlob(this.g, {
+    const pose: BlobPose = {
       x,
       y,
       color: this.color,
@@ -216,7 +230,9 @@ export class PlayerView {
       lookY: Math.max(-1, Math.min(1, c.vy / 12)),
       blink: (now + this.blinkSeed) % 3400 < 120,
       dizzy: c.stunTimer > 0,
-    });
+    };
+    this.lastPose = pose;
+    drawBlob(this.g, pose);
     const topShift = (1 - scaleY) * tuning.movement.bodyHeight;
     drawExtras(this.extras, visible, x, y + topShift, this.crown, c.stunTimer > 0, now);
   }

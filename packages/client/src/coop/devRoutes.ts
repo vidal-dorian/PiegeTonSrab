@@ -5,8 +5,12 @@
  * ?intro=Léo,Alice,Bob,Chloé   the first name plays Ruben, the others are his friends (0 to 4)
  *   &lot                        Ruben was drawn by lot (the intro announces it)
  *   &t=30                       start 30 seconds in
+ * ?coopLocal=2                 the co-op physics sandbox with two players on one keyboard
+ *                              (J1: Q/D, Z, S, R; J2: arrows, Suppr); 3 to 5 adds passive bodies
  */
 import type Phaser from "phaser";
+import { sandboxLevel } from "@game/shared/coop";
+import { SPLIT_KEYS } from "../input";
 import { PLAYER_COLORS } from "../render/playerColors";
 import { overlay } from "../ui/overlay";
 import { INTRO_SCENE_KEY, type IntroCast, type IntroSceneData } from "./intro/introContract";
@@ -34,6 +38,10 @@ export function introCastFromQuery(value: string | null, lot: boolean): IntroCas
 export function startDevRoute(game: Phaser.Game): boolean {
   if (!import.meta.env.DEV) return false;
   const params = new URLSearchParams(location.search);
+  if (params.has("coopLocal")) {
+    startCoopLocal(game, Number(params.get("coopLocal")) || 2);
+    return true;
+  }
   if (!params.has("intro")) return false;
   const data: IntroSceneData = {
     cast: introCastFromQuery(params.get("intro"), params.has("lot")),
@@ -48,4 +56,27 @@ export function startDevRoute(game: Phaser.Game): boolean {
   overlay.hideAll();
   game.scene.start(INTRO_SCENE_KEY, data);
   return true;
+}
+
+/** The co-op sandbox on one keyboard: friends in seat order, Ruben last in the chain. */
+function startCoopLocal(game: Phaser.Game, count: number): void {
+  const n = Math.max(2, Math.min(5, count));
+  const names = ["J1", "Alice", "Bob", "Chloé"];
+  const players = Array.from({ length: n }, (_, i) => {
+    const isRuben = i === n - 1;
+    return { name: isRuben ? "Ruben (J2)" : (names[i] ?? `J${i + 1}`), color: colorOf(isRuben ? 2 : [0, 1, 3, 4][i]!), isRuben };
+  });
+  // J1 drives the first body, J2 drives Ruben (the last one); the others stay passive.
+  const localKeys = players.map((_, i) => (i === 0 ? SPLIT_KEYS[0]! : i === n - 1 ? SPLIT_KEYS[1]! : null));
+  game.scene.stop("menu");
+  overlay.hideAll();
+  game.scene.start("coop", {
+    level: sandboxLevel,
+    players,
+    localKeys,
+    onExit: () => {
+      game.scene.stop("coop");
+      game.scene.start("menu");
+    },
+  });
 }
