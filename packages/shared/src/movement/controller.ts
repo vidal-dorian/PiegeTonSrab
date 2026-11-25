@@ -24,7 +24,7 @@ export interface StepInput {
 export const NO_INPUT: StepInput = { left: false, right: false, jumpHeld: false, jumpPressed: false, down: false };
 
 /** How far the body is probed to detect ground and walls it is touching, cells. */
-const CONTACT_PROBE = 0.01;
+export const CONTACT_PROBE = 0.01;
 /** Increment used when searching for a corner correction, cells. */
 const CORNER_STEP = 0.02;
 
@@ -71,24 +71,26 @@ export class CharacterController {
   bounceCount = 0;
   lastBounceCell = -1;
 
+  // Protected rather than private so the co-op controller (packages/shared/src/coop) can extend
+  // the same movement and save its whole state; the race mode never subclasses it.
   /** True while rising from a jump the player started; this is what the jump cut applies to. */
-  private rising = false;
-  private coyoteTimer = 0;
-  private jumpBufferTimer = 0;
-  private wallCoyoteTimer = 0;
-  private lastWallSide: -1 | 1 = 1;
-  private controlLockTimer = 0;
-  private regrabTimer = 0;
+  protected rising = false;
+  protected coyoteTimer = 0;
+  protected jumpBufferTimer = 0;
+  protected wallCoyoteTimer = 0;
+  protected lastWallSide: -1 | 1 = 1;
+  protected controlLockTimer = 0;
+  protected regrabTimer = 0;
   /** Down was held at the last step: no vine is grabbed meanwhile, so the player can drop past one. */
-  private dropHeld = false;
+  protected dropHeld = false;
   /** Vine let go of with Down: skipped until the body leaves its reach (inVineReach) or lands, so one tap is enough. */
-  private droppedVineId: number | null = null;
+  protected droppedVineId: number | null = null;
 
-  private derived: DerivedMovement;
+  protected derived: DerivedMovement;
 
   constructor(
-    private level: Level,
-    private tuning: MovementTuning,
+    protected level: Level,
+    protected tuning: MovementTuning,
   ) {
     this.derived = deriveMovement(tuning);
     this.respawn();
@@ -178,18 +180,11 @@ export class CharacterController {
     }
 
     // --- Horizontal speed ---------------------------------------------------
-    // During the wall-jump lock, horizontal speed is left untouched so the push off the wall lands.
-    if (this.controlLockTimer <= 0) {
-      const target = dir * t.runSpeed * (this.stunTimer > 0 ? t.stunSpeedFactor : 1);
-      let accel: number;
-      if (this.grounded) accel = dir !== 0 ? t.groundAccel : t.groundDecel;
-      else accel = dir !== 0 ? t.airAccel : t.airDecel;
-      this.vx = approach(this.vx, target, accel * dt);
-    }
+    this.updateHorizontal(dt, dir);
 
     // --- Jumps --------------------------------------------------------------
     if (this.jumpBufferTimer > 0) {
-      if (this.grounded || this.coyoteTimer > 0) {
+      if (this.canGroundJump()) {
         this.vy = -d.jumpVelocity;
         this.startJump();
       } else if (this.wallSide !== 0 || this.wallCoyoteTimer > 0) {
@@ -203,13 +198,7 @@ export class CharacterController {
     }
 
     // --- Gravity ------------------------------------------------------------
-    let gravity = d.gravity;
-    if (this.vy < 0) {
-      if (this.rising && !input.jumpHeld) gravity *= t.jumpCutGravityMultiplier;
-    } else {
-      this.rising = false;
-      gravity *= t.fallGravityMultiplier;
-    }
+    const gravity = this.gravityNow(input);
     const vyBefore = this.vy;
     this.vy += gravity * dt;
 
@@ -239,6 +228,39 @@ export class CharacterController {
     } else {
       this.wallCoyoteTimer = Math.max(0, this.wallCoyoteTimer - dt);
     }
+  }
+
+  /**
+   * Horizontal speed for this step. During the wall-jump lock, horizontal speed is left untouched
+   * so the push off the wall lands. (A hook: the co-op controller swings differently on the rope.)
+   */
+  protected updateHorizontal(dt: number, dir: number): void {
+    const t = this.tuning;
+    if (this.controlLockTimer <= 0) {
+      const target = dir * t.runSpeed * (this.stunTimer > 0 ? t.stunSpeedFactor : 1);
+      let accel: number;
+      if (this.grounded) accel = dir !== 0 ? t.groundAccel : t.groundDecel;
+      else accel = dir !== 0 ? t.airAccel : t.airDecel;
+      this.vx = approach(this.vx, target, accel * dt);
+    }
+  }
+
+  /** Whether a buffered jump can start from the ground now (standing, or within coyote time). */
+  protected canGroundJump(): boolean {
+    return this.grounded || this.coyoteTimer > 0;
+  }
+
+  /** Gravity for this step: stronger when falling, and when a jump is cut short. */
+  protected gravityNow(input: StepInput): number {
+    const t = this.tuning;
+    let gravity = this.derived.gravity;
+    if (this.vy < 0) {
+      if (this.rising && !input.jumpHeld) gravity *= t.jumpCutGravityMultiplier;
+    } else {
+      this.rising = false;
+      gravity *= t.fallGravityMultiplier;
+    }
+    return gravity;
   }
 
   // --- Pushes from outside (other players) --------------------------------------
@@ -385,7 +407,7 @@ export class CharacterController {
     this.wallSliding = false;
   }
 
-  private startJump(): void {
+  protected startJump(): void {
     this.rising = true;
     this.grounded = false;
     this.jumpBufferTimer = 0;
@@ -393,8 +415,9 @@ export class CharacterController {
     this.wallCoyoteTimer = 0;
   }
 
-  private moveX(dx: number): void {
-    if (dx === 0) return;
+  /** Move horizontally against the grid. Returns true if a wall stopped the body. */
+  protected moveX(dx: number): boolean {
+    if (dx === 0) return false;
     const { bodyWidth: w, bodyHeight: h } = this.tuning;
     this.x += dx;
     const [y0, y1] = cellSpan(this.y, h);
@@ -405,13 +428,15 @@ export class CharacterController {
       if (isSolidCell(this.level, col, cy)) {
         this.x = dx > 0 ? col - w : col + 1;
         this.vx = 0;
-        return;
+        return true;
       }
     }
+    return false;
   }
 
-  private moveY(dy: number): void {
-    if (dy === 0) return;
+  /** Move vertically against the grid. Returns true if the floor or a ceiling stopped the body (a spring bounce counts). */
+  protected moveY(dy: number): boolean {
+    if (dy === 0) return false;
     const { bodyWidth: w, bodyHeight: h } = this.tuning;
     this.y += dy;
     const [x0, x1] = cellSpan(this.x, w);
@@ -424,9 +449,9 @@ export class CharacterController {
         break;
       }
     }
-    if (!hit) return;
+    if (!hit) return false;
 
-    if (dy < 0 && this.tryCornerCorrection()) return;
+    if (dy < 0 && this.tryCornerCorrection()) return false;
 
     this.y = dy > 0 ? row - h : row + 1;
     this.vy = 0;
@@ -445,13 +470,14 @@ export class CharacterController {
         break;
       }
     }
+    return true;
   }
 
   /**
    * When the head hits the very edge of a ceiling, nudge the body sideways
    * so the jump continues instead of stopping dead. Returns true if it did.
    */
-  private tryCornerCorrection(): boolean {
+  protected tryCornerCorrection(): boolean {
     const max = this.tuning.cornerCorrection;
     const { bodyWidth: w, bodyHeight: h } = this.tuning;
     for (let shift = CORNER_STEP; shift <= max + 1e-9; shift += CORNER_STEP) {
@@ -466,7 +492,7 @@ export class CharacterController {
     return false;
   }
 
-  private senseContacts(): void {
+  protected senseContacts(): void {
     const { bodyWidth: w, bodyHeight: h } = this.tuning;
     this.grounded = this.vy >= 0 && boxOverlapsSolid(this.level, this.x, this.y + CONTACT_PROBE, w, h);
     if (this.grounded) {
@@ -479,7 +505,7 @@ export class CharacterController {
   }
 }
 
-function approach(value: number, target: number, maxDelta: number): number {
+export function approach(value: number, target: number, maxDelta: number): number {
   if (value < target) return Math.min(value + maxDelta, target);
   if (value > target) return Math.max(value - maxDelta, target);
   return value;
