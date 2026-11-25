@@ -6,7 +6,8 @@
 import { OBJECT_DEFS, type ObjectKind } from "@game/shared";
 import "./ui.css";
 
-const FAMILY_TAG = { kill: "TUE", help: "AIDE", neutral: "NEUTRE" } as const;
+/** Word on each object card for its colour family; also used by the rules screen. */
+export const FAMILY_TAG = { kill: "TUE", help: "AIDE", neutral: "NEUTRE" } as const;
 
 export interface TopBarState {
   round: number;

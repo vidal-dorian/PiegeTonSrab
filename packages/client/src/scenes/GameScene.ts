@@ -260,6 +260,7 @@ export class GameScene extends Phaser.Scene {
       case "playerDied":
         if (msg.id !== this.link.myId) this.stains.add(msg.x, msg.y, this.colorOf(msg.id));
         if (msg.id === this.spectating) this.pickSpectateTarget(1);
+        this.announceKill(msg);
         break;
       case "playerFinished":
         if (msg.id !== this.link.myId) overlay.showNotice(`${this.nameOf(msg.id)} est arrivé en ${msg.time.toFixed(2)} s`);
@@ -669,7 +670,9 @@ export class GameScene extends Phaser.Scene {
       if (outcome?.kind === "died") {
         const c = this.player.centre();
         if (!outcome.fell) this.stains.add(c.x, c.y, this.colorOf(this.link.myId));
-        this.link.send({ type: "died", killerId: outcome.killer?.id ?? null, x: c.x, y: c.y, fell: outcome.fell });
+        // Pushed into a trap shortly before: say by whom (push-kill). Pits never count.
+        const pushedBy = outcome.killer ? this.player.creditedPusher() : null;
+        this.link.send({ type: "died", killerId: outcome.killer?.id ?? null, x: c.x, y: c.y, fell: outcome.fell, pushedBy });
         this.myStatus = "dead";
         overlay.showBanner(outcome.killer ? `Touché : ${OBJECT_DEFS[outcome.killer.kind].name}` : "Tombé !", true);
         this.time.delayedCall(1200, () => this.phase === "race" && overlay.hideBanner());
@@ -726,6 +729,8 @@ export class GameScene extends Phaser.Scene {
       } else if (contact === "bump") {
         // Same x on both machines: break the tie by id, so the two players go opposite ways.
         const away = Math.sign(c.x - other.x) || (this.link.myId < g.id ? -1 : 1);
+        // A bump is mutual: each side counts the other as its pusher. On a vine the shove does nothing.
+        if (!c.swing) this.player.pushedBy(g.id);
         c.shove(away * m.shoveSpeed, m.shoveLock);
         this.effects.puff((c.x + other.x) / 2 + m.bodyWidth / 2, c.y + m.bodyHeight / 2);
       }
@@ -740,6 +745,7 @@ export class GameScene extends Phaser.Scene {
     if (victim === this.link.myId) {
       if (this.myStatus !== "running") return;
       this.player.controller.slam(m.stompSlamSpeed, m.stunTime);
+      this.player.pushedBy(by);
       this.player.syncVine();
       this.playerView.squash();
       const c = this.player.centre();
@@ -757,6 +763,38 @@ export class GameScene extends Phaser.Scene {
       g.stomped(m.stunTime);
       this.effects.pof(g.current.x + m.bodyWidth / 2, g.current.y);
     }
+  }
+
+  /**
+   * Tell everyone who died in whose trap, and who pushed them in. A push into the pusher's
+   * own trap is the big one (worth 2): it gets a "+2" burst where the victim died. Pits and
+   * map objects score nothing and the victim already has its own banner, so they stay quiet.
+   */
+  private announceKill(msg: ServerMessageOf<"playerDied">): void {
+    const owner = msg.killerOwner;
+    if (!owner) return;
+    const me = this.link.myId;
+    const victim = msg.id;
+    const pusher = msg.pushedBy;
+    const name = (id: string) => this.nameOf(id);
+    let text: string;
+    if (owner === victim) {
+      text = victim === me ? "Tu es mort dans ton propre piège !" : `${name(victim)} est mort dans son propre piège !`;
+    } else if (pusher === owner) {
+      if (owner === me) text = `Tu as poussé ${name(victim)} dans ton piège ! +2`;
+      else if (victim === me) text = `${name(owner)} t'a poussé dans son piège ! +2`;
+      else text = `${name(owner)} a poussé ${name(victim)} dans son piège ! +2`;
+      this.effects.pof(msg.x, msg.y - 0.6, "+2");
+    } else {
+      // The owner gets the kill (1 point); someone else pushing the victim in gets nothing.
+      const trap = owner === me ? "ton piège" : `le piège de ${name(owner)}`;
+      if (pusher === me) text = `Tu as poussé ${name(victim)} dans ${trap}`;
+      else if (pusher && victim === me) text = `${name(pusher)} t'a poussé dans ${trap}`;
+      else if (pusher) text = `${name(pusher)} a poussé ${name(victim)} dans ${trap}`;
+      else if (victim === me) text = `Tu es mort dans ${trap}`;
+      else text = `${name(victim)} est mort dans ${trap}`;
+    }
+    overlay.showNotice(text, 2500);
   }
 
   /** The score leader (alone in first place, with points) wears a crown. */
@@ -894,7 +932,15 @@ export class GameScene extends Phaser.Scene {
       headers: ["Arrivée", "1er", "Seul", "Pièges", "Round", "Total"],
       rows: msg.lines.map((l) => ({
         name: this.nameOf(l.playerId),
-        cells: [l.finish, l.first, l.onlyOne, l.kills, l.total, msg.totals[l.playerId] ?? 0].map(String),
+        cells: [
+          String(l.finish),
+          String(l.first),
+          String(l.onlyOne),
+          // Kill points; push-kills (2 points each) are pointed out so a "3" with one victim makes sense.
+          l.pushKills > 0 ? `${l.kills} (${l.pushKills} poussé${l.pushKills > 1 ? "s" : ""})` : String(l.kills),
+          String(l.total),
+          String(msg.totals[l.playerId] ?? 0),
+        ],
       })),
     });
   }

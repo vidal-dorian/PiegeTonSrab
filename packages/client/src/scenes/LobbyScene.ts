@@ -6,6 +6,7 @@ import Phaser from "phaser";
 import type { LobbyInfo } from "@game/shared";
 import type { GameLink } from "../net/link";
 import { overlay } from "../ui/overlay";
+import { rulesScreen } from "../ui/rulesScreen";
 import { lobbyScreen } from "../ui/screens";
 
 export class LobbyScene extends Phaser.Scene {
@@ -39,7 +40,11 @@ export class LobbyScene extends Phaser.Scene {
         this.leave(msg.message);
       }
     });
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => lobbyScreen.hide());
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      lobbyScreen.hide();
+      // The game may start while someone is still reading the rules.
+      rulesScreen.hide();
+    });
   }
 
   private render(): void {

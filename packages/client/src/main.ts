@@ -5,6 +5,7 @@ import { GameScene } from "./scenes/GameScene";
 import { LobbyScene } from "./scenes/LobbyScene";
 import { MenuScene } from "./scenes/MenuScene";
 import { SoloScene } from "./scenes/SoloScene";
+import { TutorialScene } from "./scenes/TutorialScene";
 
 /** Longest wait for the web fonts before starting anyway (offline, Google Fonts blocked...). */
 const FONT_TIMEOUT_MS = 2000;
@@ -44,8 +45,10 @@ function startGame(): void {
     // Input is read directly from the browser (see input.ts and the scenes), not through Phaser.
     input: { keyboard: false, gamepad: false, mouse: false, touch: false },
     // The first scene in the list starts automatically.
-    scene: [MenuScene, LobbyScene, GameScene, SoloScene],
+    scene: [MenuScene, LobbyScene, GameScene, SoloScene, TutorialScene],
   });
+  // Dev builds only: lets browser tests start a scene and read its state (window.game.scene...).
+  if (import.meta.env.DEV) (window as unknown as { game?: Phaser.Game }).game = game;
 
   createTuningPanel(() => {
     for (const scene of game.scene.getScenes(true)) {

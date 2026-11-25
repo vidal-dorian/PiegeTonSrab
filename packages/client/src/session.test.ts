@@ -140,6 +140,58 @@ describe("GameSession", () => {
     expect(score.totals).toEqual({ a: 5, b: 0 });
   });
 
+  /** Players a..d in the race, with three objects placed by "a" and three by "c". */
+  function toRaceWithTraps(ids: string[]) {
+    const { io, s } = setup();
+    for (const id of ids) s.addPlayer(id, id.toUpperCase());
+    toPlacement(io, s, ids);
+    const place = (id: string, x0: number) => {
+      const offer = io.last("placement", id)!.offer;
+      s.handle(id, { type: "placement", objects: offer.map((kind, i) => ({ kind, x: x0 + i, y: 0 })), done: true });
+    };
+    place("a", 3);
+    place("c", 12);
+    io.advance(35_000 + TIMING.placementGrace);
+    const objects = io.last("countdown", "a")!.objects;
+    io.advance(TIMING.countdown);
+    return { io, s, aTrap: objects.find((o) => o.ownerId === "a")!.id, cTrap: objects.find((o) => o.ownerId === "c")!.id };
+  }
+
+  it("push-kills: checks who pushed, tells everyone and scores 2 for a push into your own trap", () => {
+    const { io, s, aTrap, cTrap } = toRaceWithTraps(["a", "b", "c", "d"]);
+    io.advance(TIMING.contactGrace);
+    s.handle("b", { type: "died", killerId: aTrap, x: 4, y: 1, fell: false, pushedBy: "a" });
+    expect(io.last("playerDied")).toMatchObject({ id: "b", killerOwner: "a", pushedBy: "a" });
+    // Naming yourself as the pusher counts as nobody.
+    s.handle("c", { type: "died", killerId: aTrap, x: 4, y: 1, fell: false, pushedBy: "c" });
+    expect(io.last("playerDied")).toMatchObject({ id: "c", killerOwner: "a", pushedBy: null });
+    // Pushed by "a" into c's trap: the kill is c's, "a" gets nothing for it.
+    s.handle("d", { type: "died", killerId: cTrap, x: 13, y: 1, fell: false, pushedBy: "a" });
+    expect(io.last("playerDied")).toMatchObject({ id: "d", killerOwner: "c", pushedBy: "a" });
+    s.handle("a", { type: "finished", time: 20 });
+    io.advance(TIMING.raceEndPause);
+    const score = io.last("score")!;
+    expect(score.lines.find((l) => l.playerId === "a")).toMatchObject({ finish: 2, first: 1, onlyOne: 1, kills: 3, pushKills: 1, total: 7 });
+    expect(score.lines.find((l) => l.playerId === "c")).toMatchObject({ kills: 1, pushKills: 0, total: 1 });
+    expect(score.totals).toEqual({ a: 7, b: 0, c: 1, d: 0 });
+  });
+
+  it("push-kills: unknown pushers, pits and the start grace give no push credit", () => {
+    const { io, s, aTrap } = toRaceWithTraps(["a", "b", "c", "d"]);
+    // Nobody can push anybody while everyone still overlaps on the start cell.
+    s.handle("b", { type: "died", killerId: aTrap, x: 4, y: 1, fell: false, pushedBy: "a" });
+    expect(io.last("playerDied")).toMatchObject({ id: "b", killerOwner: "a", pushedBy: null });
+    io.advance(TIMING.contactGrace);
+    s.handle("c", { type: "died", killerId: aTrap, x: 4, y: 1, fell: false, pushedBy: "nobody" });
+    expect(io.last("playerDied")).toMatchObject({ id: "c", killerOwner: "a", pushedBy: null });
+    // A fall out of the level is nobody's trap, pushed or not.
+    s.handle("d", { type: "died", killerId: null, x: 4, y: 5, fell: true, pushedBy: "a" });
+    expect(io.last("playerDied")).toMatchObject({ id: "d", killerOwner: null, pushedBy: null });
+    s.handle("a", { type: "finished", time: 20 });
+    io.advance(TIMING.raceEndPause);
+    expect(io.last("score")!.lines.find((l) => l.playerId === "a")).toMatchObject({ kills: 2, pushKills: 0, total: 6 });
+  });
+
   it("the two-lanes level works as intended", () => {
     const level = parseLevel(twoLanes);
     const saw = (id: number, c: { x: number; y: number }) => ({ id, kind: "saw" as const, ...c });

@@ -5,6 +5,7 @@
 import { parseLevel, type LevelDefinition, type LobbyInfo } from "@game/shared";
 import { PLAYER_COLORS } from "../render/playerView";
 import { el, overlay } from "./overlay";
+import { rulesScreen } from "./rulesScreen";
 
 function screen(className: string): HTMLDivElement {
   const div = el("div", `${className} ui-panel`);
@@ -41,6 +42,18 @@ function saveName(name: string): void {
   }
 }
 
+/** Set to "1" by the tutorial scene when the tutorial ends or is skipped. */
+const TUTORIAL_DONE_KEY = "pts.tutorialDone";
+
+function tutorialDone(): boolean {
+  try {
+    return localStorage.getItem(TUTORIAL_DONE_KEY) === "1";
+  } catch {
+    // Storage unavailable: treat the player as new; the nudge is harmless.
+    return false;
+  }
+}
+
 export function cssColor(index: number): string {
   return "#" + (PLAYER_COLORS[index] ?? PLAYER_COLORS[0]).toString(16).padStart(6, "0");
 }
@@ -52,6 +65,8 @@ export interface MenuActions {
   join(name: string, code: string): void;
   solo(name: string, targetScore: number): void;
   practice(): void;
+  /** Start the short guided tutorial scene. */
+  tutorial(): void;
 }
 
 export class MenuScreen {
@@ -85,8 +100,21 @@ export class MenuScreen {
       button("Solo · 10 pts", () => actions.solo(getName(), 10)),
       button("Solo · 25 pts", () => actions.solo(getName(), 25)),
     );
+    // Tutorial and rules. A first-time player sees them first, with the tutorial in orange
+    // and a handwritten nudge; afterwards they move to the bottom, out of the way of the
+    // buttons a regular uses every evening.
+    const isNew = !tutorialDone();
+    const learnRow = el("div", "ui-row ui-learn");
+    learnRow.append(
+      button("Tutoriel (30 s)", () => actions.tutorial(), isNew),
+      button("Règles", () => rulesScreen.show()),
+    );
+    const learn: HTMLElement[] = isNew
+      ? [el("div", "ui-nudge", "Nouveau ? Commence ici"), learnRow]
+      : [el("div", "ui-sep", "Apprendre"), learnRow];
     this.div.replaceChildren(
-      el("h1", "", "Prototype"),
+      el("h1", "", "Piège Ton Srab"),
+      ...(isNew ? learn : []),
       nameField,
       button("Créer un salon", () => this.run(() => actions.create(getName())), true),
       joinRow,
@@ -94,6 +122,7 @@ export class MenuScreen {
       el("div", "ui-sep", "Hors ligne"),
       soloRow,
       button("Entraînement libre", () => actions.practice()),
+      ...(isNew ? [] : learn),
     );
     this.setError("");
     this.busy = false;
@@ -161,7 +190,10 @@ export class LobbyScreen {
     } else {
       parts.push(el("div", "wait", `Partie en ${info.targetScore} points · en attente de l'hôte…`));
     }
-    parts.push(button("Quitter", () => actions.leave()));
+    // Friends wait here before the game: the rules are one click away.
+    const bottom = el("div", "ui-row");
+    bottom.append(button("Règles", () => rulesScreen.show()), button("Quitter", () => actions.leave()));
+    parts.push(bottom);
     this.div.replaceChildren(...parts);
     this.div.hidden = false;
   }

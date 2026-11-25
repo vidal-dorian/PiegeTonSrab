@@ -8,6 +8,7 @@ import {
   findKiller,
   HAZARD_INSET,
   SIM_HZ,
+  TIMING,
   type Box,
   type Level,
   type MovementTuning,
@@ -40,6 +41,11 @@ export class LocalPlayer {
   onBounce: ((cell: number) => void) | null = null;
   /** The vine last reported through onVine. */
   private reportedVine: number | undefined;
+  /**
+   * The last time another player pushed this character (stomped on it or bumped it), on the
+   * round clock. A death on a trap soon after credits that player (push-kill, rules.ts).
+   */
+  private lastPush: { by: string; at: number } | null = null;
 
   constructor(
     private level: Level,
@@ -58,6 +64,18 @@ export class LocalPlayer {
     this.prevY = this.controller.y;
     this.accumulator = 0;
     this.time = 0;
+    this.lastPush = null;
+  }
+
+  /** Another player just pushed this character (only the latest push counts). */
+  pushedBy(playerId: string): void {
+    this.lastPush = { by: playerId, at: this.time };
+  }
+
+  /** Who gets the credit if this character dies on a trap now: the last pusher, while it is recent. */
+  creditedPusher(): string | null {
+    const p = this.lastPush;
+    return p && this.time - p.at <= TIMING.pushCredit / 1000 ? p.by : null;
   }
 
   setCollision(collision: Level): void {

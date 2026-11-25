@@ -21,7 +21,10 @@ export interface GameConfig {
    * exactly the objects they must place, drawn at random, so nobody picks their favourite.
    */
   extraOffered: number;
-  /** Maximum points from kills per player per round. */
+  /**
+   * Maximum number of victims that count for one player per round. The most valuable
+   * victims count first, so with push-kills (2 points each) this is up to 2 * killCap points.
+   */
   killCap: number;
 }
 
@@ -98,6 +101,22 @@ export interface RaceResult {
   finishTime: number | null;
   /** Owner of the object that killed this player, if any (the last one touched). */
   killedBy: string | null;
+  /**
+   * Player who pushed this one (stomp or bump) into the object that killed them, shortly
+   * before the death (see TIMING.pushCredit), if any. Optional so a result without it reads
+   * as "nobody pushed".
+   */
+  pushedBy?: string | null;
+}
+
+/**
+ * What one victim is worth to the owner of the trap that killed them: 2 if the owner pushed
+ * them into it themselves (decided 2026-11-25), else 1. A pusher who doesn't own the trap
+ * gets nothing: the trap's owner still gets the kill, so pushing people into others' traps
+ * only helps the others.
+ */
+export function killValue(victim: RaceResult, ownerId: string): number {
+  return victim.pushedBy === ownerId ? 2 : 1;
 }
 
 export interface ScoreLine {
@@ -105,7 +124,10 @@ export interface ScoreLine {
   finish: number;
   first: number;
   onlyOne: number;
+  /** Points from kills (plain kills 1, push-kills 2), after the cap. */
   kills: number;
+  /** How many of the counted kills were push-kills (worth 2 each), so the table can say so. */
+  pushKills: number;
   total: number;
 }
 
@@ -129,7 +151,7 @@ export interface RoundScore {
  */
 export function scoreRound(results: readonly RaceResult[], cfg: GameConfig, soloRules = false): RoundScore {
   const finishers = results.filter((r) => r.finishTime !== null);
-  const zero = (playerId: string): ScoreLine => ({ playerId, finish: 0, first: 0, onlyOne: 0, kills: 0, total: 0 });
+  const zero = (playerId: string): ScoreLine => ({ playerId, finish: 0, first: 0, onlyOne: 0, kills: 0, pushKills: 0, total: 0 });
 
   if (finishers.length === 0) return { verdict: "nobody-finished", lines: results.map((r) => zero(r.playerId)) };
   if (finishers.length === results.length && !soloRules) {
@@ -144,8 +166,14 @@ export function scoreRound(results: readonly RaceResult[], cfg: GameConfig, solo
       if (r.finishTime === firstTime) line.first = 1;
       if (finishers.length === 1) line.onlyOne = 1;
     }
-    const victims = results.filter((v) => v.killedBy === r.playerId && v.playerId !== r.playerId).length;
-    line.kills = Math.min(victims, cfg.killCap);
+    // Dying in your own trap scores nothing; map objects (no owner) and pits have killedBy null.
+    const values = results
+      .filter((v) => v.killedBy === r.playerId && v.playerId !== r.playerId)
+      .map((v) => killValue(v, r.playerId))
+      .sort((a, b) => b - a)
+      .slice(0, cfg.killCap);
+    line.kills = values.reduce((s, v) => s + v, 0);
+    line.pushKills = values.filter((v) => v === 2).length;
     line.total = line.finish + line.first + line.onlyOne + line.kills;
     return line;
   });

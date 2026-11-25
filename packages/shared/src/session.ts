@@ -66,6 +66,8 @@ interface Player {
   pose: PlayerPose | null;
   finishTime: number | null;
   killedBy: string | null;
+  /** Who pushed this player into the object that killed them (push-kill), if anyone. */
+  pushedBy: string | null;
   placedBlock: boolean;
   lastBlockRequest: number;
 }
@@ -130,6 +132,7 @@ export class GameSession {
       pose: null,
       finishTime: null,
       killedBy: null,
+      pushedBy: null,
       placedBlock: false,
       lastBlockRequest: -Infinity,
     });
@@ -372,6 +375,7 @@ export class GameSession {
       p.pose = null;
       p.finishTime = null;
       p.killedBy = null;
+      p.pushedBy = null;
       p.placedBlock = false;
       p.lastBlockRequest = -Infinity;
       this.sendCountdown(p);
@@ -415,9 +419,36 @@ export class GameSession {
     // The client says which object killed it; the kill goes to that object's owner.
     const killer = msg.killerId === null ? undefined : this.objects.find((o) => o.id === msg.killerId);
     p.killedBy = killer?.ownerId ?? null;
+    p.pushedBy = killer ? this.checkPusher(p, msg.pushedBy) : null;
     this.releaseVines(p.id);
-    this.io.broadcast({ type: "playerDied", id: p.id, x: num(msg.x), y: num(msg.y), fell: !!msg.fell });
+    this.io.broadcast({
+      type: "playerDied",
+      id: p.id,
+      x: num(msg.x),
+      y: num(msg.y),
+      fell: !!msg.fell,
+      killerOwner: p.killedBy,
+      pushedBy: p.pushedBy,
+    });
     this.checkRaceDone();
+  }
+
+  /**
+   * The pusher a dead player names, if it can be true: another player of this game, and not
+   * during the contact grace at the start of the race (no stomp or bump is possible then).
+   *
+   * Trust: the claim is otherwise taken as is, like the death itself (the victim's client
+   * already says which object killed it). Stomps could be checked against the ones this
+   * session relayed (lastStomp), but bumps send no message at all, so the server has nothing
+   * to check them against; checking only stomps would add code without closing the gap.
+   * This is a game among friends: a client that lies about pushes could lie about deaths too.
+   */
+  private checkPusher(victim: Player, claimed: unknown): string | null {
+    if (typeof claimed !== "string") return null;
+    const pusher = this.players.get(claimed);
+    if (!pusher || pusher.id === victim.id || !pusher.inGame) return null;
+    if (this.io.now() - this.raceStartsAt < TIMING.contactGrace) return null;
+    return pusher.id;
   }
 
   private onFinished(p: Player, msg: ClientMessageOf<"finished">): void {
@@ -548,7 +579,12 @@ export class GameSession {
   private showScore(): void {
     this.phase = "score";
     const players = this.inGamePlayers();
-    const results: RaceResult[] = players.map((p) => ({ playerId: p.id, finishTime: p.finishTime, killedBy: p.killedBy }));
+    const results: RaceResult[] = players.map((p) => ({
+      playerId: p.id,
+      finishTime: p.finishTime,
+      killedBy: p.killedBy,
+      pushedBy: p.pushedBy,
+    }));
     const rs = scoreRound(results, this.cfg, players.length === 1);
     for (const l of rs.lines) this.scores.set(l.playerId, (this.scores.get(l.playerId) ?? 0) + l.total);
     this.io.broadcast({
