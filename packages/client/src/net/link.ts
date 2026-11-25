@@ -33,17 +33,17 @@ export interface GameLink {
   leave(): void;
 }
 
-abstract class BaseLink {
+export abstract class BaseLink {
   private handler: ((msg: ServerMessage) => void) | null = null;
   private queue: ServerMessage[] = [];
   onStatus: ((status: "lost" | "back" | "closed") => void) | null = null;
 
   setHandler(handler: ((msg: ServerMessage) => void) | null): void {
     this.handler = handler;
-    if (!handler) return;
-    const pending = this.queue;
-    this.queue = [];
-    for (const m of pending) handler(m);
+    // One at a time, and only while this handler is still the one set: a handler that lets go
+    // in the middle (GameScene on gameStart, LobbyScene when the game starts) leaves the rest,
+    // in order, to the next one. Messages that arrive meanwhile are queued behind them.
+    while (handler && this.handler === handler && this.queue.length > 0) handler(this.queue.shift()!);
   }
 
   protected deliver(msg: ServerMessage): void {
@@ -64,11 +64,14 @@ export function serverUrl(): string {
  * Messages that are pointless once they are late, so they are not sent while the connection
  * is down. The network layer keeps only the last few messages sent while offline
  * (Colyseus: 10), and poses go out every 50 ms: without this they would push out, within
- * half a second, the messages that matter ("died", "finished", letting go of a vine...).
+ * half a second, the messages that matter ("died", "finished", the dead player's block...).
  * A ping sent offline would also come back with a meaningless round trip.
  */
 export function skipWhileOffline(msg: ClientMessage): boolean {
-  return msg.type === "pose" || msg.type === "ping";
+  // Vine grabs and stomps are stale too: the session releases the vines of a player who
+  // drops, and on reconnection the run restarts from the spawn. Replayed after the resync,
+  // an old "vine hold" would lock that vine for everyone.
+  return msg.type === "pose" || msg.type === "ping" || msg.type === "vine" || msg.type === "stomp";
 }
 
 export class OnlineLink extends BaseLink implements GameLink {
@@ -166,7 +169,8 @@ export class LocalLink extends BaseLink implements GameLink {
     const post = (msg: ServerMessage) => queueMicrotask(() => this.deliver(msg));
     this.session = new GameSession(
       {
-        now: () => Date.now(),
+        // The monotonic clock on both sides: a jump of the wall clock must not end a race.
+        now: () => performance.now(),
         send: (_id, msg) => post(msg),
         broadcast: post,
         setTimeout: (fn, ms) => {
@@ -190,7 +194,7 @@ export class LocalLink extends BaseLink implements GameLink {
   }
 
   serverNow(): number {
-    return Date.now();
+    return performance.now();
   }
 
   leave(): void {

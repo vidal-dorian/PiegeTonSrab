@@ -396,4 +396,23 @@ describe("GameSession", () => {
     io.advance(TIMING.raceEndPause);
     expect(io.last("score")!.verdict).toBe("nobody-finished");
   });
+
+  it("a player reconnecting on the end screen gets the end screen again, not a new game start", () => {
+    const { io, s } = setup();
+    s.addPlayer("a", "Alice");
+    s.addPlayer("b", "Bob");
+    toPlacement(io, s, ["a", "b"]);
+    // Jump to the end of the game: Alice reached the target.
+    const internals = s as unknown as { scores: Map<string, number>; afterScore(): void };
+    internals.scores.set("a", 10);
+    internals.afterScore();
+    const over = io.last("over")!;
+    expect(over.winner).toBe("a");
+    s.setConnected("b", false);
+    io.sent = [];
+    s.setConnected("b", true);
+    const toB = io.sent.filter((m) => m.to === "b").map((m) => m.msg.type);
+    expect(toB).toEqual(["lobby", "over"]);
+    expect(io.sent.find((m) => m.to === "b" && m.msg.type === "over")!.msg).toEqual(over);
+  });
 });

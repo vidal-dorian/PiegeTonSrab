@@ -1,15 +1,21 @@
 /**
  * Estimate of the server's clock, from ping/pong round trips.
  *
- * The estimate runs on the monotonic clock (performance.now), never on Date.now: the wall
- * clock of a player's machine can jump (time sync, sleep, a user changing it), and a jump
- * would shift every race deadline on that machine. Before this, one jump could leave a
+ * The estimate runs on the monotonic clock (performance.now), not on Date.now: the wall
+ * clock of a player's machine can be stepped (time sync, a user changing it), and that
+ * would shift every race deadline on that machine. Before this, such a step could leave a
  * player stuck on "Prêt ?" while the others raced, or show "Temps écoulé" at the start.
+ *
+ * The monotonic clock has its own jump: on macOS, iOS, Linux and Android it does not count
+ * the time the device sleeps (closed lid, locked phone), while the server's clock does.
+ * The server's clock can be stepped too. So samples are checked against each other: with
+ * both clocks running steadily, the true offset lies within rtt / 2 of every sample's
+ * offset, so two samples whose ranges don't overlap prove that a clock jumped in between.
+ * Then the older samples are dropped and the estimate restarts from the new one.
  *
  * Each pong gives one sample: server time ≈ s + rtt / 2 at the moment it arrives. The
  * sample with the shortest round trip has the least uncertainty, so that one is used, but
- * only among the recent samples (a sliding window): an old excellent sample can no longer
- * hide that the clocks moved apart, or that the route to the server changed.
+ * only among the recent samples (a sliding window), so that a change of route shows.
  * Pure (no timers, no network), so it can be unit-tested.
  */
 export interface ClockSample {
@@ -25,10 +31,14 @@ export interface ClockSample {
 export const CLOCK_WINDOW_MS = 20_000;
 /** A round trip longer than this says nothing useful about the clock (server stalled, lag spike). */
 export const MAX_USEFUL_RTT_MS = 2_000;
+/** Slack on the consistency check, for clock granularity, milliseconds. */
+export const JUMP_MARGIN_MS = 50;
 
 export class ClockSync {
   private samples: ClockSample[] = [];
   private best: ClockSample | null = null;
+  /** How many clock jumps were detected (tests, console). */
+  jumps = 0;
 
   /**
    * Record a pong. `sentAt` and `receivedAt` are local monotonic times (performance.now),
@@ -37,7 +47,15 @@ export class ClockSync {
   addSample(sentAt: number, receivedAt: number, serverTime: number): boolean {
     const rtt = receivedAt - sentAt;
     if (!Number.isFinite(rtt) || !Number.isFinite(serverTime) || rtt < 0 || rtt > MAX_USEFUL_RTT_MS) return false;
-    this.samples.push({ rtt, offset: serverTime + rtt / 2 - receivedAt, at: receivedAt });
+    const sample = { rtt, offset: serverTime + rtt / 2 - receivedAt, at: receivedAt };
+    this.prune(receivedAt);
+    if (this.best && Math.abs(sample.offset - this.best.offset) > (sample.rtt + this.best.rtt) / 2 + JUMP_MARGIN_MS) {
+      // A clock jumped (device sleep, time step): what was measured before no longer holds.
+      this.jumps++;
+      this.samples = [];
+      this.best = null;
+    }
+    this.samples.push(sample);
     this.prune(receivedAt);
     return true;
   }

@@ -43,6 +43,7 @@ import {
   type RaceStatus,
   type RefusedObject,
   type ServerMessage,
+  type ServerMessageOf,
 } from "./protocol";
 import { RACE_LEVELS } from "./levelList";
 
@@ -111,6 +112,9 @@ export class GameSession {
   private vineHolders = new Map<number, string>();
   /** "stomper>victim" -> time of the last accepted stomp. */
   private lastStomp = new Map<string, number>();
+
+  /** The end-of-game message, sent again to a player who reconnects on the end screen. */
+  private overMsg: ServerMessageOf<"over"> | null = null;
 
   private timers: Array<() => void> = [];
   private ghostTimer: (() => void) | null = null;
@@ -679,7 +683,8 @@ export class GameSession {
     }
     this.clearTimers();
     this.phase = "over";
-    this.io.broadcast({ type: "over", winner, totals: Object.fromEntries(this.scores), rounds: this.round });
+    this.overMsg = { type: "over", winner, totals: Object.fromEntries(this.scores), rounds: this.round };
+    this.io.broadcast(this.overMsg);
     this.broadcastLobby();
   }
 
@@ -691,6 +696,12 @@ export class GameSession {
     if (!p) return;
     this.io.send(id, { type: "lobby", lobby: this.lobbyInfo() });
     if (this.phase === "lobby" || !p.inGame) return;
+    // On the end screen: show it again. A gameStart would restart the client's game screen on
+    // the level carousel with nothing to follow, and hide the end screen and its buttons.
+    if (this.phase === "over") {
+      if (this.overMsg) this.io.send(id, this.overMsg);
+      return;
+    }
     this.io.send(id, { type: "gameStart", levelIndex: this.levelIndex, spinMs: 0, holdMs: 0 });
     if (this.phase === "placement") {
       this.sendPlacement(p);

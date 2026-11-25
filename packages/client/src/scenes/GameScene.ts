@@ -317,6 +317,9 @@ export class GameScene extends Phaser.Scene {
         this.player.seat = this.seatOf(this.link.myId);
         // Back to the lobby after the end of a game (online).
         if (!msg.lobby.inGame && this.phase === "over" && this.link.online) {
+          // Let go now, as for gameStart: the lobby only starts on the next frame, and what
+          // comes meanwhile (a quick new game) is for it.
+          this.link.setHandler(null);
           this.scene.start("lobby", { link: this.link, lobby: msg.lobby });
         } else if (this.phase === "over" && this.overMsg && hostBefore !== msg.lobby.hostId && this.link.online) {
           // The host left: the new host needs the "Rejouer" button, or nobody could restart.
