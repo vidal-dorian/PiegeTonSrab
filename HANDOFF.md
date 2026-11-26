@@ -595,6 +595,20 @@ Prediction wired (M4, 2026-11-26):
     platform-base clamp and the 8 cells/s glide. The bench file has a 60 s timeout (its rooms went over
     vitest's 5 s default on a shared machine).
 
+Status at the end of M4 (2026-11-26):
+
+- Done: step B is wired into the online screen (opt-in, `?predict=1`; step A stays the default because the
+  bench misses its 0.1 cell threshold at 50 ms). Two adversarial reviews: the build's skeptics (netcode and
+  browser) found 10 issues (8 fixed or mitigated, 2 left as designed), then the multi-axis M4 review
+  (predictor, integration and protocol, tests and bench) confirmed 8 more, all fixed; a fix whose first
+  version froze the screen on downlink stalls was refused by two skeptics and redone.
+- Checked: 537 tests, typecheck, build, `check-coop-level --all`, and a 3-browser online run through levels
+  1-5 both with step A and with `?predict=1` (identical server bodies on all screens, drawn equal to server
+  once settled, no console error).
+- Open: whether to turn prediction on by default, or to draw the other players on the server's timeline
+  (see "Open questions for Dorian").
+- Next: M5 (levels 6 to 10c, polish, docs, final review), when Dorian asks.
+
 ## Open questions for Dorian
 
 - Co-op prediction: on by default? It moves the own body on the next frame instead of about a third of a
