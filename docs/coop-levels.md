@@ -133,4 +133,5 @@ closed and accepted, deadly moments, Ruben's moment, communication moment.
 | # | Level | Notes |
 |---|---|---|
 | 1 | La Rentrée | [coop01.md](coop-levels/coop01.md) |
+| 2 | Le Labo Réseau | [coop02.md](coop-levels/coop02.md) |
 | 3 | L'Amphi | [coop03.md](coop-levels/coop03.md) |
