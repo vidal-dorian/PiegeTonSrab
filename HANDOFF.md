@@ -411,7 +411,7 @@ Rope and inputs after the M1 review (2026-11-26, 15 confirmed findings fixed):
   already queued for them (`coopSnap.pending`), and replays from each snapshot. The 0.06 cell measured at M1
   was one lucky run: see "Prediction wired (M4)" below for the bench over several runs.
 
-Room and clock after the M3 network review (protocol version 4):
+Room and clock after the M3 network review (protocol version 4; version 5 adds `coopSnap.ack`, see M4):
 
 - Level epochs: every `coopLevel` carries an `epoch`, bumped whenever tick 0 is set again (a level start, a
   rebuild, a resume, the clock moved after a server stall, which is now broadcast like a resume). Clients echo
@@ -483,10 +483,24 @@ Prediction wired (M4, 2026-11-26):
   snapshot reloads the copy and replays it with the own inputs not yet covered and the others' held keys and
   queued changes; own inputs the server still holds late (in `pending` with a past stamp) are replayed one
   per step from the next tick, as the server applies them.
+- Own inputs covered by a snapshot (after the M4 review): each `coopSnap` carries `ack`, every seat's last
+  stamp received on this clock (protocol version 5). An own input is part of the snapshot only if it is
+  acked and no longer in `pending`; one not received yet (an upstream stall: snapshots still come, inputs do
+  not) is replayed from when it can arrive (`at` = max(stamp, estimated arrival, next tick)), instead of
+  being taken as applied (a jump pressed in a 300 ms upstream stall used to fall back mid-air, sink 0.08 cell
+  into the floor and jump again). The own held keys at the base are the server's (`held[me]`), so whatever
+  the server forgot (a hidden tab, a silent player) is forgotten by the copy too. A hidden tab
+  (`visibilitychange`) sends `coopIdle` and replays it at its estimated arrival (`CoopPredictor
+  .forgetOwnInputs`): it used to leave the own body drawn 1.6-4 cells from the server's until the next key.
 - Smoothing: whatever a correction moves (bodies, crates, platforms, seesaws, balances, gates) keeps its
-  drawn place and the difference fades (half-life 60 ms). A rider (body or crate) is drawn with the offset of
-  the bottom of its pile, so a tower never comes apart; the rope is drawn between the drawn bodies. A
-  correction over 3 cells, or another attempt, snaps.
+  drawn place and the difference fades (half-life 60 ms), but a body's or crate's offset shrinks no faster
+  than 8 cells/s (`MAX_FADE_SPEED`): a friend's jump learnt a round trip late glides there instead of
+  jumping a cell in two frames. A rider's offset joins its carrier's the same way (it used to take it at
+  once, a pop of up to 2 cells when a body landed on another one with a different offset). Offsets never
+  stretch a rope link past max(its length in the copy, the rope), never draw a pile's base lower than what
+  it stands on, nor a rider lower on its carrier, and never draw a box into a solid cell (the offset keeps
+  only what fits). A correction over 3 cells, or another attempt, snaps. The rope is drawn between the drawn
+  bodies.
 - What only the server decides: the copy never steps into a death, a restart (R or after a death) or the
   win; it stops before that step and waits for the next snapshot, and while the server's world is in a death
   freeze or won, the copy is that world. Events (deaths, squashes, the key, the door, terminals, Claude's
@@ -496,34 +510,63 @@ Prediction wired (M4, 2026-11-26):
   copy. A new `coopLevel` restarts the screen, so the predictor is rebuilt on a new level, a rebuilt team, a
   resume or a moved clock. Spectators and `?coopLocal=2` keep their paths.
 - Default: OFF. `?predict=1` turns it on, `?predict=0` forces it off (`PREDICT_BY_DEFAULT` in
-  `predictedPlay.ts`; step A stays the fallback). The plan turns it on only if the bench passes, and the
-  plan's bench model (three players changing keys every ~200 ms, jumping every ~0.8 s) sits right on the
-  threshold: 0.108 cell at 50 ms (pooled over 4 runs; 5.1 % of snapshots over 0.1 cell). The bench test
-  checks that `PREDICT_BY_DEFAULT` matches its verdict. Every big correction comes from another player's
-  keys, which no client can know for a round trip (with only its own keys moving, none is over 0.1 cell).
+  `predictedPlay.ts`; step A stays the fallback). The plan turns it on only if the bench passes, and it does
+  not: with the plan's bench model (three players changing keys every ~200 ms, jumping every ~0.8 s) the own
+  body's corrections p95 is 0.182 cell at 50 ms, almost twice the 0.1 threshold (pooled over 4 runs, only
+  the 10 s while the keys change; 5.9 % of snapshots over 0.1 cell). The first M4 figure, 0.108, also
+  counted the idle seconds before and after the keys, all zeros. With more jitter it grows (the review
+  measured 0.236 at 50 +30 ms, 0.438 at 50 +60). The bench test checks that `PREDICT_BY_DEFAULT` matches its
+  verdict. Every big correction comes from another player's keys, which no client can know for a round trip
+  (with only its own keys moving, none is over 0.1 cell).
+- Known limit (the main reason to keep it off): the copy runs the other players a full lead ahead on their
+  last known keys, and their changes reach it about a round trip plus half a snapshot late (about 115 ms
+  at 50 ms one way, 250 ms at 120 ms). A friend who stops, turns or jumps is drawn wrong for that long and
+  then corrected, and this player's own body is corrected with them whenever they touch it (walking in a
+  line, carried, hauled). Remote bodies are drawn about 1 cell from the server's at the same tick (p95, sim,
+  stress keys, 50 ms; the browser review measured 1.5-1.8 cells where step A stays under 0.21). The 8 cells/s glide, the rider glide and the clamps make the
+  corrections smoother (sim, coop04, stress keys, 50 ms: frames where the own body's drawn speed changes by
+  over 0.3 cell per frame while the server's does not: 0.45 % -> 0.16 %; remote bodies 1.9 % -> 1.5 %; the
+  largest own jump between two frames 1.35 -> 0.66 cell), not right. Tried and dropped: letting the others'
+  arrows go a few ticks after the last known input (remote error p95 1.05 -> 1.08-1.53 cells, own 0.31 ->
+  0.44-0.82) and a velocity-continuous spring for the offsets (fewer jolts, larger errors, boxes into walls).
+  What would fix it is a design change for Dorian: draw the others on the server's timeline and predict
+  only this player and what it touches, against the plan's "everything stays attached".
+- Also as designed: before a fall death, the copy stops at the step before the death and waits for the
+  server, so the bodies hang still for about a lead plus a round trip (about 350 ms at 50 ms) before the
+  0.8 s freeze.
 - Bench (`coopPredictBench.test.ts`: a real CoopSession on a fake clock, three predicting clients with
   their clocks estimated from pings, msgpack, frames at 60/s; `benchNet.ts` holds the fake network):
   own-body corrections p95 at 20 / 50 / 100 ms one way (+5 / 10 / 20 jitter) with keys every ~200 ms:
-  0.000 / 0.108 / 0.353 cell (2.3 / 5.1 / 7.4 % over 0.1 cell); keys every ~400 ms at 50 ms: 0.000 (3.0 %).
-  No press lost anywhere. Scenarios: a 300 ms TCP stall (one correction up to 1.4 cells then back to 0),
-  a pause and resume (nothing advances, heartbeats only, rebuilt on the new epoch), a level change, a death
-  and restart (every screen stopped before the death and showed it only from the server), a haul by a remote
-  player (p95 0.000; drawn links never longer than the world's), riding a remote player's head (the rider is
-  drawn exactly on its carrier; its corrections are the carrier's). Replaying 20 steps of a 5-player level:
-  0.3-0.8 ms (median, levels 1-5).
-- Browser (3 Chromium, one per player, 50 ms each way through a delaying proxy; `page.routeWebSocket`
-  adds about 60 ms more each way on this machine; software GL, so Alice ran at about 25 frames/s with the
-  two others capped at 5): keydown to 2 px of visible motion of the own body, median of 10 presses:
-  predicted 1 frame (1 ms after the key event; 1-2 frames), step A 8 frames (261 ms; 280 ms without a flag,
-  337 ms through routeWebSocket). With the CPU throttled 4x: predicted 1 frame at 15 frames/s (advance 2.1 ms
-  median, 11.6 ms worst), step A 7 frames (375 ms) at 17 frames/s. The three screens agree once settled
-  (drawn and server bodies identical), no console error.
+  0.001 / 0.182 / 0.418 cell (2.6 / 5.9 / 8.1 % over 0.1 cell), over the 10 s while keys change; keys every
+  ~400 ms at 50 ms: 0.000 (3.4 %). No press lost anywhere. Scenarios: a 300 ms TCP stall (one correction up
+  to 1.4 cells then back to 0), a press during a 300 ms upstream-only stall (one jump arc, never below the
+  floor), a hidden tab while a key is held (back to the server's within a snapshot or two), a pause and
+  resume (nothing advances, heartbeats only, rebuilt on the new epoch), a level change, a death and restart
+  (every screen stopped before the death and showed it only from the server), a haul by a remote player
+  (p95 0.000; drawn links no longer than the world's), riding a remote player's head (while it rides, the
+  rider is drawn on its carrier as in the copy; its corrections are the carrier's), stress keys on the
+  sandbox and coop04 (no pile base drawn lower than its support, no box more than a blended step into a
+  wall, drawn links over the copy's by more than 0.1 cell in under 0.1 % of frames). Replaying 20 steps of
+  a 5-player level: 0.3-1.2 ms (median, levels 1-5). The per-snapshot corrections are kept only when
+  `CoopPredictor.record` is on (the bench); the screen keeps none.
+- Browser (after the M4 review; 3 Chromium, one per player, 50 ms each way through `page.routeWebSocket`,
+  which adds more on this machine: round trip measured 190 ms; software GL, Alice at about 22 frames/s
+  with the two others capped at 5): keydown to 2 px of visible motion of the own body, median of 10
+  presses: predicted 1 frame (1 ms after the key event; 1-2 frames), step A 9 frames (335 ms). With the
+  CPU throttled 4x: predicted 1 frame at 12 frames/s (advance 2.5 ms median, 7.2 ms p95, 19.8 ms worst),
+  step A 7 frames (464 ms) at 14 frames/s (advance 0.5 / 2.2 / 17.5 ms). Unthrottled on a quiet machine
+  the predicted advance is 0.4 ms median, 5 ms worst: the 25-93 ms spikes the review saw came with another
+  agent's browsers loading the machine. The three screens agree once settled (drawn and server bodies
+  identical), no console error. A hidden tab while holding Right: the own body is drawn on the server's
+  from the first check (0.5 s), where it stayed 3-4 cells off before.
 
 ## Open questions for Dorian
 
-- Co-op prediction: on by default? It moves the own body on the next frame instead of about a quarter of a
-  second later, but the plan's bench is at 0.108 cell for a 0.1 threshold (see "Prediction wired (M4)").
-  Try `?predict=1` in the playtest; turning it on is `PREDICT_BY_DEFAULT = true` and the bench's check.
+- Co-op prediction: on by default? It moves the own body on the next frame instead of about a third of a
+  second later, but the plan's bench gives 0.182 cell at 50 ms, almost twice its 0.1 threshold, and the
+  other players are drawn up to 1-2 cells off and corrected whenever they change keys (see "Prediction
+  wired (M4)", known limit). Try `?predict=1` in the playtest. Turning it on is `PREDICT_BY_DEFAULT = true`
+  and the bench's check; drawing the others on the server's timeline would be a change to the plan.
 
 - Maximum width of scrolling levels (proposed: about 2 screens, 64 cells).
 - Whether a catch-up bonus is needed for the last-placed player (only if playtests show the leader running away).
