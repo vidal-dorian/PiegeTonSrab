@@ -4,13 +4,15 @@
  * level, the game screen (CoopScene) takes over the link.
  */
 import Phaser from "phaser";
-import type { CoopIntroCast, CoopLobbyInfo, CoopServerMessage } from "@game/shared/coop";
+import { COOP_LEVELS, type CoopIntroCast, type CoopLobbyInfo, type CoopServerMessage } from "@game/shared/coop";
 import { PLAYER_COLORS } from "../render/playerColors";
 import { overlay } from "../ui/overlay";
 import { COOP_SCENE_KEY, type CoopSceneData } from "./CoopScene";
 import { INTRO_SCENE_KEY, type IntroCast, type IntroSceneData } from "./intro/introContract";
 import type { CoopLink } from "./net/coopLink";
 import { coopBanner, coopLobbyScreen } from "./ui/coopScreens";
+import { loadCleared } from "./progress";
+import { levelLabel } from "./ui/coopText";
 
 export const COOP_LOBBY_KEY = "coopLobby";
 
@@ -120,12 +122,14 @@ export class CoopLobbyScene extends Phaser.Scene {
       {
         setRuben: (id) => this.link.send({ type: "coopRuben", playerId: id }),
         start: () => this.link.send({ type: "coopStart" }),
+        play: (index) => this.link.send({ type: "coopPlay", index }),
         replayIntro: () => {
           if (this.lobby) this.playIntro(castFromLobby(this.lobby), 0, false);
         },
         leave: () => this.toMenu(),
       },
       import.meta.env.DEV,
+      COOP_LEVELS.map((l) => ({ label: levelLabel(COOP_LEVELS, l), cleared: loadCleared().has(l.id) })),
     );
   }
 
@@ -166,6 +170,9 @@ export class CoopLobbyScene extends Phaser.Scene {
     this.link.onStatus = null;
     this.link.leave();
     this.stopIntro();
+    // Also called by the game screen when leaving a level: this scene is stopped by then, and its
+    // start("menu") would only stop itself, leaving the game screen running over the menu.
+    this.scene.stop(COOP_SCENE_KEY);
     this.scene.start("menu", message ? { message } : {});
   }
 }

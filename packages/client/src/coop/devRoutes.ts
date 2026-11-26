@@ -5,19 +5,30 @@
  * ?intro=Léo,Alice,Bob,Chloé   the first name plays Ruben, the others are his friends (0 to 4)
  *   &lot                        Ruben was drawn by lot (the intro announces it)
  *   &t=30                       start 30 seconds in
- * ?coopLocal=2                 the co-op physics sandbox with two players on one keyboard
+ * ?coopLocal=2                 a co-op level with two players on one keyboard
  *                              (J1: Q/D, Z, S, R; J2: arrows, Suppr); 3 to 5 adds passive bodies
+ *   &level=<id>                 which level: a campaign id, or "showcase" for one of every thing
+ *                              (default: the first level of the campaign)
  */
 import type Phaser from "phaser";
-import { sandboxLevel } from "@game/shared/coop";
+import { COOP_LEVELS, type CoopLevelDef } from "@game/shared/coop";
 import { SPLIT_KEYS } from "../input";
 import { PLAYER_COLORS } from "../render/playerColors";
 import { overlay } from "../ui/overlay";
+import { showcaseLevel } from "./devShowcase";
 import { INTRO_SCENE_KEY, type IntroCast, type IntroSceneData } from "./intro/introContract";
 
 /** Seat colours in seat order, as a room would give them. */
 function colorOf(seat: number): number {
   return PLAYER_COLORS[seat % PLAYER_COLORS.length]!;
+}
+
+/** Levels the dev tool can open: the campaign, then the showcase. */
+export const DEV_LEVELS: readonly CoopLevelDef[] = [...COOP_LEVELS, showcaseLevel];
+
+/** The level asked for by `?level=` (unknown or missing: the first). */
+export function devLevel(id: string | null): CoopLevelDef {
+  return DEV_LEVELS.find((l) => l.id === id) ?? DEV_LEVELS[0]!;
 }
 
 export function introCastFromQuery(value: string | null, lot: boolean): IntroCast {
@@ -39,7 +50,7 @@ export function startDevRoute(game: Phaser.Game): boolean {
   if (!import.meta.env.DEV) return false;
   const params = new URLSearchParams(location.search);
   if (params.has("coopLocal")) {
-    startCoopLocal(game, Number(params.get("coopLocal")) || 2);
+    startCoopLocal(game, Number(params.get("coopLocal")) || 2, devLevel(params.get("level")));
     return true;
   }
   if (!params.has("intro")) return false;
@@ -58,8 +69,8 @@ export function startDevRoute(game: Phaser.Game): boolean {
   return true;
 }
 
-/** The co-op sandbox on one keyboard: friends in seat order, Ruben last in the chain. */
-function startCoopLocal(game: Phaser.Game, count: number): void {
+/** A co-op level on one keyboard: friends in seat order, Ruben last in the chain. */
+function startCoopLocal(game: Phaser.Game, count: number, level: CoopLevelDef): void {
   const n = Math.max(2, Math.min(5, count));
   const names = ["J1", "Alice", "Bob", "Chloé"];
   const players = Array.from({ length: n }, (_, i) => {
@@ -72,9 +83,10 @@ function startCoopLocal(game: Phaser.Game, count: number): void {
   overlay.hideAll();
   game.scene.start("coop", {
     mode: "local",
-    level: sandboxLevel,
+    level,
     players,
     localKeys,
+    levels: DEV_LEVELS,
     onExit: () => {
       game.scene.stop("coop");
       game.scene.start("menu");

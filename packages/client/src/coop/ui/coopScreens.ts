@@ -7,6 +7,7 @@
 import type { CoopLobbyInfo } from "@game/shared/coop";
 import { el, overlay } from "../../ui/overlay";
 import { cssColor } from "../../ui/screens";
+import { levelPicker, type LevelChoice } from "./coopCleared";
 import "./coop.css";
 
 function panel(className: string): HTMLDivElement {
@@ -30,14 +31,18 @@ export interface CoopLobbyActions {
   /** Claim the role (my id), give it (host), or free it (null). */
   setRuben(playerId: string | null): void;
   start(): void;
+  /** Host, between levels: play this level. */
+  play(index: number): void;
   replayIntro(): void;
   leave(): void;
 }
 
 export class CoopLobbyScreen {
   private div = panel("ui-lobby ui-coop-lobby");
+  /** The level the host clicked in the list, for the server's next level it was picked against. */
+  private picked: { index: number; next: number } | null = null;
 
-  show(info: CoopLobbyInfo, myId: string, actions: CoopLobbyActions, allowSolo: boolean): void {
+  show(info: CoopLobbyInfo, myId: string, actions: CoopLobbyActions, allowSolo: boolean, levels: readonly LevelChoice[] = []): void {
     const isHost = info.hostId === myId;
     const list = el("ul");
     for (const p of info.players) {
@@ -92,7 +97,21 @@ export class CoopLobbyScreen {
       rubenNote,
     ];
     const connected = info.players.filter((p) => p.connected).length;
-    if (isHost) {
+    if (info.phase === "select" && levels.length > 0) {
+      // Between levels: the host picks the next one (the server's next is preselected).
+      if (this.picked && this.picked.next !== info.levelIndex) this.picked = null;
+      if (isHost) {
+        const selected = Math.min(this.picked?.index ?? info.levelIndex, levels.length - 1);
+        const list = levelPicker(levels, selected, (i) => {
+          this.picked = { index: i, next: info.levelIndex };
+          this.show(info, myId, actions, allowSolo, levels);
+        });
+        parts.push(el("div", "coop-next", "Niveau suivant"), list, button("Jouer", () => actions.play(selected), true), button("Rejouer l'histoire", () => actions.start()));
+      } else {
+        const host = info.players.find((p) => p.id === info.hostId)?.name ?? "l'hôte";
+        parts.push(el("div", "wait", `${host} choisit le prochain niveau…`));
+      }
+    } else if (isHost) {
       if (connected >= 2 || allowSolo) {
         parts.push(button(connected >= 2 ? "Lancer l'histoire" : "Lancer seul (test)", () => actions.start(), true));
       } else {

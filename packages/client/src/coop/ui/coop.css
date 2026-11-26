@@ -28,3 +28,284 @@
 }
 .coop-banner-title { font-family: var(--font-marker); font-size: 30px; line-height: 1.1; }
 .coop-banner-sub { margin-top: 6px; font-size: 15px; opacity: 0.8; }
+
+/* --- Game screen: HUD ------------------------------------------------------------------- */
+
+.coop-hud {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 6px 10px 6px 18px;
+  font-size: 15px;
+  white-space: nowrap;
+  border-radius: 999px;
+  max-width: calc(100vw - 32px);
+  box-sizing: border-box;
+}
+.coop-hud-level { font-family: var(--font-title); font-weight: 600; font-size: 17px; }
+.coop-hud-try { font-weight: 500; display: inline-block; }
+.coop-hud-try.bump { animation: coop-bump 360ms cubic-bezier(0.3, 1.6, 0.6, 1); }
+@keyframes coop-bump { from { transform: scale(1.25) rotate(-5deg); } to { transform: none; } }
+.coop-hud-time {
+  font-family: var(--font-title);
+  font-weight: 700;
+  font-size: 17px;
+  min-width: 3.4ch;
+  text-align: center;
+  padding: 1px 10px;
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.coop-hud-key, .coop-hud-in {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border: 2px dashed var(--ink);
+  border-radius: 999px;
+  font-size: 14px;
+}
+.coop-hud-key.found { border-style: solid; }
+/* Ruben's USB key: an orange stick with its plug. */
+.coop-usb {
+  position: relative;
+  width: 18px;
+  height: 10px;
+  border: 2px solid var(--ink);
+  border-radius: 3px;
+  background: var(--orange);
+  margin-right: 6px;
+}
+.coop-usb::after {
+  content: "";
+  position: absolute;
+  left: 100%;
+  top: 1px;
+  width: 5px;
+  height: 4px;
+  border: 2px solid var(--ink);
+  border-left: none;
+  background: var(--surface);
+}
+.coop-pebble {
+  display: inline-block;
+  width: 13px;
+  height: 14px;
+  border: 2px solid var(--ink);
+  border-radius: 50% 50% 40% 40% / 58% 58% 42% 42%;
+  flex: none;
+}
+
+/* R held: a ring filling up, with who holds it. */
+.coop-restart {
+  position: absolute;
+  top: 70px;
+  right: 18px;
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  column-gap: 10px;
+  padding: 8px 14px 8px 8px;
+  background: var(--surface);
+  border: var(--outline);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  --p: 0;
+}
+.coop-restart-dial {
+  grid-row: span 3;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 2.5px solid var(--ink);
+  display: grid;
+  place-items: center;
+  font-family: var(--font-title);
+  font-weight: 700;
+  font-size: 18px;
+  background:
+    radial-gradient(circle, var(--surface) 0 13px, transparent 14px),
+    conic-gradient(var(--orange) calc(var(--p) * 1turn), var(--line) 0);
+}
+.coop-restart-title { font-family: var(--font-title); font-weight: 600; font-size: 15px; }
+.coop-restart-who { display: flex; gap: 5px; align-items: center; font-size: 13px; }
+.coop-restart-who span:not(.coop-pebble) { margin-right: 4px; }
+.coop-restart-need { font-size: 12px; opacity: 0.75; }
+
+/* The level card when a level starts. */
+.coop-levelcard {
+  position: absolute;
+  top: 30%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-1.5deg);
+  padding: 16px 30px 18px;
+  text-align: center;
+  pointer-events: none;
+  max-width: calc(100vw - 48px);
+  box-sizing: border-box;
+  animation: ui-pop 220ms cubic-bezier(0.3, 1.6, 0.6, 1);
+}
+.coop-levelcard-title { font-family: var(--font-title); font-weight: 700; font-size: 34px; line-height: 1.1; }
+.coop-levelcard-quote { margin-top: 8px; font-family: var(--font-marker); font-size: 20px; }
+.coop-levelcard-by { font-family: var(--font-text); font-size: 14px; opacity: 0.7; }
+.coop-levelcard-sub { margin-top: 10px; font-family: var(--font-marker); font-size: 26px; }
+.coop-levelcard-sub:empty { display: none; }
+
+/* --- Claude's bubbles ------------------------------------------------------------------- */
+
+.coop-claude {
+  position: absolute;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  width: max-content;
+  max-width: min(460px, calc(100vw - 32px));
+  pointer-events: none;
+  box-sizing: border-box;
+}
+.coop-claude-badge {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--surface);
+  display: grid;
+  place-items: center;
+  font-family: var(--font-title);
+  font-weight: 700;
+  font-size: 19px;
+  border: 2.5px solid var(--ink);
+  box-shadow: var(--shadow-small);
+}
+.coop-claude-body {
+  position: relative;
+  padding: 7px 14px 9px;
+  background: var(--surface);
+  border: var(--outline);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+}
+/* The bubble's tail points at the badge. */
+.coop-claude-body::before {
+  content: "";
+  position: absolute;
+  left: -11px;
+  top: 10px;
+  border: 7px solid transparent;
+  border-right: 9px solid var(--ink);
+  border-left: none;
+}
+.coop-claude-name { font-family: var(--font-title); font-weight: 700; font-size: 13px; opacity: 0.7; }
+.coop-claude-text { font-size: 16px; line-height: 1.3; }
+.coop-claude.pop .coop-claude-body { animation: coop-say 260ms cubic-bezier(0.3, 1.6, 0.6, 1); }
+@keyframes coop-say { from { transform: scale(0.7); opacity: 0; } to { transform: none; opacity: 1; } }
+.coop-claude-death { left: 50%; bottom: 34px; transform: translateX(-50%); }
+/* Above a terminal: centred on its top, the tail pointing down at the badge under it. */
+.coop-claude-term { transform: translate(-50%, -100%); flex-direction: column; align-items: center; gap: 0; max-width: 300px; }
+.coop-claude-term .coop-claude-badge { width: 26px; height: 26px; font-size: 15px; order: 2; margin-top: 9px; }
+.coop-claude-term .coop-claude-body::before {
+  left: 50%;
+  top: auto;
+  bottom: -11px;
+  transform: translateX(-50%);
+  border: 7px solid transparent;
+  border-top: 9px solid var(--ink);
+  border-bottom: none;
+}
+.coop-claude-term .coop-claude-text { font-size: 15px; }
+
+/* --- End-of-level card and the level list ----------------------------------------------- */
+
+.coop-cleared {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(520px, calc(100vw - 32px));
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 22px 26px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  pointer-events: auto;
+}
+.coop-cleared-head { display: flex; align-items: center; gap: 14px; }
+.coop-cleared h2 { margin: 0; font-family: var(--font-title); font-weight: 700; font-size: 26px; line-height: 1.1; }
+.coop-cleared-stamp {
+  flex: none;
+  font-family: var(--font-marker);
+  font-size: 17px;
+  padding: 3px 10px;
+  border: 2.5px solid var(--ink);
+  border-radius: 8px;
+  background: var(--orange);
+  transform: rotate(-8deg);
+  box-shadow: var(--shadow-small);
+}
+.coop-cleared-sub { font-family: var(--font-marker); font-size: 17px; transform: rotate(-0.5deg); }
+.coop-titles { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; align-items: center; }
+.coop-titles li { display: contents; }
+.coop-title-name { font-family: var(--font-title); font-weight: 600; font-size: 17px; white-space: nowrap; }
+.coop-title-holders { display: flex; flex-wrap: wrap; gap: 5px; }
+.coop-title-value { grid-column: 2; margin-top: -4px; font-size: 13px; opacity: 0.75; }
+.coop-title-none { grid-column: span 2; font-size: 14px; opacity: 0.75; }
+.coop-name {
+  font-weight: 700;
+  font-size: 14px;
+  padding: 1px 9px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+}
+.coop-next { margin-top: 4px; font-family: var(--font-marker); font-size: 16px; transform: rotate(-1deg); align-self: flex-start; }
+.coop-wait { font-size: 15px; opacity: 0.8; text-align: center; padding: 6px 0 2px; }
+.coop-levels {
+  list-style: none;
+  margin: 0;
+  padding: 3px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 230px;
+  overflow-y: auto;
+}
+.coop-level {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  font: inherit;
+  font-size: 15px;
+  text-align: left;
+  color: var(--ink);
+  background: var(--surface);
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.coop-level:hover { background: var(--hatch), var(--surface); }
+.coop-level.chosen { outline: 3px solid var(--orange); outline-offset: 1px; font-weight: 700; box-shadow: var(--shadow-small); }
+.coop-level-tick {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 13px;
+}
+.coop-level.cleared .coop-level-tick { background: var(--ink); color: var(--surface); }
+.ui-coop-lobby .coop-levels { max-height: 190px; }
