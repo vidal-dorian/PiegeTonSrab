@@ -5,8 +5,8 @@
  * the right). The chain is F0 - F1 - ... - the last friend - R. Map, beats and numbers:
  * docs/coop-levels/coop04.md.
  */
-import { cond, enter, friends, hold, idle, jumpTo, roleIndex, seq, wait, walk, type CoopSolution, type Goal, type Phase, type Role } from "../bots";
-import { BIT_DOWN, BIT_DOWN_PRESS, BIT_LEFT, BIT_RIGHT } from "../inputBits";
+import { cond, enter, friends, hold, jumpTo, mount, roleIndex, seq, wait, walk, type CoopSolution, type Goal, type Phase, type Role } from "../bots";
+import { BIT_LEFT, BIT_RIGHT } from "../inputBits";
 import type { CoopWorld } from "../world";
 
 // --- Helpers (goals and conditions the toolbox does not have) --------------------------------
@@ -20,12 +20,8 @@ const feetBelow = (role: Role, y: number) => (w: CoopWorld) => {
 const crateAt = (char: string, x: number) => (w: CoopWorld) => w.crates.some((c) => c.thing.char === char && c.x >= x - 1e-3);
 /** Crate `char` has fallen with its top to y or below. */
 const crateDown = (char: string, y: number) => (w: CoopWorld) => w.crates.some((c) => c.thing.char === char && c.y >= y - 1e-3);
-/** The role's centre is at or right of x. */
-const cxAtLeast = (role: Role, x: number) => (w: CoopWorld) => w.bodies[roleIndex(role, w.bodies.length)]!.cx >= x;
 /** Every listed role stands near its x. */
 const allNear = (spots: Array<[Role, number]>, tol = 0.35) => cond.all(...spots.map(([r, x]) => cond.near(r, x, tol)));
-/** The key is carried by one of these roles. */
-const carriedBy = (roles: Role[]) => (w: CoopWorld) => roles.some((r) => w.props.keyCarrier === roleIndex(r, w.bodies.length));
 
 const never = { jump: "never" as const };
 
@@ -34,26 +30,6 @@ function walkTo(spots: Array<[Role, number]>): Phase["do"] {
   const d: Phase["do"] = {};
   for (const [r, x] of spots) d[r] = walk(x, never);
   return d;
-}
-
-/** Take the key from `from` (↓ next to its carrier) whenever `from` carries it. */
-function takeKey(from: Role): Goal {
-  let pressedAt = -100;
-  return {
-    label: `take the key from ${from}`,
-    step(c) {
-      const j = roleIndex(from, c.w.bodies.length);
-      if (c.w.props.keyCarrier !== j) return 0;
-      const a = c.w.bodies[c.i]!;
-      const b = c.w.bodies[j]!;
-      if (Math.hypot(a.cx - b.cx, a.cy - b.cy) <= 1.35 && c.t - pressedAt > 8) {
-        pressedAt = c.t;
-        return BIT_DOWN | BIT_DOWN_PRESS;
-      }
-      return 0;
-    },
-    done: (c) => c.w.props.keyCarrier === c.i,
-  };
 }
 
 /**
@@ -92,69 +68,6 @@ function behind(role: Role, d: number): Goal {
   };
 }
 
-/** Come up to crate `char` from the left without pushing it, then jump over it and land at dx right of it. */
-function hopOver(char: string, dx: number): Goal {
-  let jump: Goal | null = null;
-  let t0 = 0;
-  return {
-    label: `hop over ${char}`,
-    step(c) {
-      const crate = c.w.crates.find((k) => k.thing.char === char)!;
-      const b = c.w.bodies[c.i]!;
-      if (!jump) {
-        const gap = crate.x - (b.x + b.width);
-        if (gap > 0.25) return BIT_RIGHT;
-        if (Math.abs(b.vx) > 0.5 || !b.grounded) return 0;
-        jump = jumpTo(crate.x + crate.w + dx, { rise: 0.12 });
-        t0 = c.t;
-      }
-      return jump.step({ w: c.w, i: c.i, t: c.t - t0 });
-    },
-    done: (c) => jump?.done?.({ w: c.w, i: c.i, t: c.t - t0 }) === true,
-  };
-}
-
-/** Walk up to `base` from the left until blocked (by it, or by what it stands on), then jump onto its head. */
-function climbOnto(base: Role): Goal {
-  let jump: Goal | null = null;
-  let t0 = 0;
-  let still = 0;
-  return {
-    label: `climb onto ${base}`,
-    step(c) {
-      const b = c.w.bodies[c.i]!;
-      const o = c.w.bodies[roleIndex(base, c.w.bodies.length)]!;
-      if (!jump) {
-        still = b.grounded && Math.abs(b.vx) < 0.3 ? still + 1 : 0;
-        if (o.cx - b.cx > 1.0 && still < 6) return BIT_RIGHT;
-        jump = jumpTo(o.cx, { rise: 0.15 });
-        t0 = c.t;
-      }
-      return jump.step({ w: c.w, i: c.i, t: c.t - t0 });
-    },
-    done: (c) => jump?.done?.({ w: c.w, i: c.i, t: c.t - t0 }) === true,
-  };
-}
-
-/** Pursue `goal` if this body is the highest of `roles` when the goal starts (its feet highest), else stand still. */
-function whenHighest(roles: Role[], goal: Goal): Goal {
-  let mine: boolean | null = null;
-  return {
-    label: `if highest: ${goal.label}`,
-    step(c) {
-      if (mine === null) {
-        const feet = (r: Role) => {
-          const b = c.w.bodies[roleIndex(r, c.w.bodies.length)]!;
-          return b.y + b.height;
-        };
-        const best = roles.reduce((a, r) => (feet(r) < feet(a) ? r : a));
-        mine = roleIndex(best, c.w.bodies.length) === c.i;
-      }
-      return mine ? goal.step(c) : 0;
-    },
-  };
-}
-
 /** Standing on `base`, walk along its head until the centre is at x (a leaning tower). */
 function shiftOn(base: Role, x: number): Goal {
   return {
@@ -179,18 +92,20 @@ const DUCT_END = 13.4;
 /** Beat 2: the rack at x 27-29 in the 1-high tunnel (row 8), the ditch at 32-34, its stop at 35. */
 const RACK_FRONT = 26.55;
 /**
- * Beat 3: the second tower at x 40 (rows 7-8), plate w at 41-45, the duct's roof (row 7) up to
- * x 39 with the cage gate at 38 and the key at 37; the floor sensor at 49-51, M3 at 51, the exit
- * shaft J3 at 52, the landing from 53 (row 5), the door at 60.
+ * Beat 3: the lab x 40-47 (floor row 9, ceiling row 5: 3 high), the second tower at x 40
+ * (rows 7-8), plate w at x 43-48. The exit shaft T is x 48 (its floor is w's last cell, bare
+ * cables across its foot up to height 2); the landing from x 49 (floor row 5), the door at 50, the
+ * cage gate at 51, the key at 52.
  */
 const TOWER2_FRONT = 39.55;
-const KEY_SPOT = 38.15;
-const OFF_SENSOR = 48.4;
-const NEXT_SPOT = 50.5;
-const M3_SPOT = 51.5;
-const ON_TOWER2 = 52.5;
-const LIP_SPOT = 53.5;
-const DOOR = 60.5;
+/** Touching the tower once it stands in T. */
+const T_FRONT = 47.55;
+const ON_T = 48.5;
+const LANDING = 49.45;
+/** In the cage, past its gate, touching the key. */
+const KEY_SPOT = 52.2;
+/** Off plate w, in front of it. */
+const OFF_PLATE = 42.4;
 
 /** The team in chain order, left to right: F0 .. the last friend, Ruben on the right. */
 function chainOrder(n: number): Role[] {
@@ -263,90 +178,78 @@ function fosse(n: number): Phase[] {
   ];
 }
 
+
 // --- Beat 3, "Une caisse, deux usages" -------------------------------------------------------
 
-/** The queue pushes the tower onto plate w; F0, at the back, takes the key and comes back down. */
-function plateAndKey(n: number): Phase[] {
-  const b1 = chainOrder(n)[1]!; // right in front of F0: stays on plate w
-  return [
-    {
-      name: "3. the queue pushes the tower onto plate w (its weight frees one player); F0 stays behind, off it",
-      do: { "*": () => hold(1) },
-      until: cond.all(cond.gateOpen("c"), cxAtLeast(b1, 41.3)),
-      timeout: 10,
-    },
-    ...fetchKey(),
-  ];
+/** The queue pushes the PC tower along plate w until it stands in the exit shaft T (against its far wall). */
+function pushIntoShaft(): Phase[] {
+  return [{ name: "3. the queue pushes the PC tower along plate w into the exit shaft", do: { "*": () => hold(1) }, until: crateAt("t", 48), timeout: 10 }];
 }
 
-/** F0 jumps onto the duct's roof, takes the key through the cage gate and comes back down behind the queue. */
-function fetchKey(): Phase[] {
-  return [
-    { name: "3. F0 jumps onto the duct's roof", do: { F0: jumpTo(39.5, { rise: 0.15 }) }, until: cond.all(cond.standsAbove("F0", 7), (w) => w.bodies[0]!.cx < 40), timeout: 4 },
-    { name: "3. F0 takes the key through the open cage gate", do: { F0: walk(KEY_SPOT, never) }, until: cond.keyTaken, timeout: 6 },
-    { name: "3. F0 comes back down behind the queue", do: { F0: seq(walk(39.6, never), walk(40.45, { drop: true, jump: "never" })) }, until: cond.all(cond.near("F0", 40.45, 0.3), feetBelow("F0", 8.9)), timeout: 6 },
-  ];
+/** The queue from q[from] on, in front of the shaft: q[from] touching the tower. */
+function atShaft(q: Role[], from: number): Array<[Role, number]> {
+  return q.slice(from).map((r, j) => [r, T_FRONT - 0.86 * j] as [Role, number]);
 }
 
-/** The queue pushes the tower onto its rail under the exit shaft J3. */
-function pushToExit(): Phase[] {
-  return [{ name: "3. the queue pushes the tower under the exit", do: { "*": () => hold(1) }, until: crateAt("t", 52), timeout: 12 }];
-}
+const onTower = (r: Role): Phase => ({
+  name: `3. ${r} jumps onto the tower`,
+  do: { [r]: jumpTo(ON_T) },
+  until: cond.all(cond.standsAbove(r, 7), cond.near(r, ON_T, 0.3)),
+  timeout: 4,
+});
 
-/** One at a time from M3: onto the tower, up through the hatch onto the landing; then the key forward to Ruben, the door. */
-function exitHops(n: number): Phase[] {
-  const q = queue(n); // front to back: Ruben in M3 first
-  // Waiting for the hops: Ruben in M3, his neighbour next to him on the sensor, the others off it.
-  const waitSpot = (k: number) => (k === 1 ? NEXT_SPOT : OFF_SENSOR - 0.9 * (k - 2));
-  const back: Array<[Role, number]> = q.slice(1).map((r, k) => [r, waitSpot(k + 1)]);
+const toLanding = (r: Role): Phase => ({
+  name: `3. ${r} jumps up to the landing`,
+  do: { [r]: jumpTo(LANDING, { rise: 0.25 }) },
+  until: cond.all(cond.standsAbove(r, 5), cond.near(r, LANDING, 0.4)),
+  timeout: 4,
+});
+
+/**
+ * Ruben first up the tower to the landing, his neighbour onto the tower behind him (everyone but
+ * Ruben is on plate w: the tower's 2 make up for his); Ruben takes the key in the cage and goes in;
+ * then one at a time, each onto the tower while the one before is on the landing, up, and in.
+ */
+function exitUp(n: number): Phase[] {
+  const q = queue(n);
   const phases: Phase[] = [
-    { name: "3. everyone but Ruben steps back: one friend next to him, the others off the floor sensor", do: { R: idle(), ...walkTo(back) }, until: cond.all(cond.near("R", M3_SPOT, 0.35), allNear(back)), timeout: 8 },
+    onTower("R"),
+    { name: `3. ${q[1]} steps up to the tower`, do: walkTo(atShaft(q, 1)), until: allNear(atShaft(q, 1)), timeout: 4 },
+    toLanding("R"),
+    onTower(q[1]!),
+    { name: "3. Ruben takes the key in the open cage", do: { R: walk(KEY_SPOT, never), ...walkTo(atShaft(q, 2)) }, until: cond.keyTaken, timeout: 6 },
+    { name: "3. Ruben opens the door and goes in", do: { R: enter() }, until: cond.inside("R"), timeout: 6 },
   ];
-  // The hopper jumps onto the tower, the next one comes into M3 (and the one after next to it),
-  // the hopper jumps up and waits by the lip, the ones already up move on.
-  q.forEach((r, k) => {
-    const up: Phase["do"] = { [r]: jumpTo(LIP_SPOT, { rise: 0.25 }) };
-    for (let j = 0; j < k; j++) up[q[j]!] = walk(LIP_SPOT + 0.9 * (k - j), never);
-    const move: Array<[Role, number]> = [];
-    if (q[k + 1]) move.push([q[k + 1]!, M3_SPOT]);
-    if (q[k + 2]) move.push([q[k + 2]!, NEXT_SPOT]);
-    q.slice(k + 3).forEach((o, j) => move.push([o, OFF_SENSOR - 0.9 * j]));
-    phases.push({ name: `3. ${r} hops onto the tower`, do: { [r]: jumpTo(ON_TOWER2) }, until: cond.all(cond.standsAbove(r, 7), cond.near(r, ON_TOWER2, 0.35)), timeout: 4 });
-    if (move.length > 0) phases.push({ name: `3. ${q[k + 1]} comes into M3`, do: walkTo(move), until: allNear(move), timeout: 6 });
-    phases.push({ name: `3. ${r} jumps up to the exit landing`, do: up, until: cond.all(cond.standsAbove(r, 5), cond.near(r, LIP_SPOT, 0.4)), timeout: 4 });
-  });
-  // On the landing, left to right: F0 (with the key) .. Ruben. The key goes forward to Ruben, who opens the door.
-  const spots = q.map((r, k) => [r, DOOR - 0.3 - 0.9 * k] as [Role, number]);
-  phases.push({ name: "3. everyone walks to the door", do: walkTo(spots), until: allNear(spots), timeout: 10 });
-  for (let k = q.length - 2; k >= 0; k--) {
-    phases.push({ name: `3. ${q[k]} takes the key from ${q[k + 1]}`, do: { [q[k]!]: takeKey(q[k + 1]!) }, until: cond.any(carriedBy(q.slice(0, k + 1)), cond.doorOpen), timeout: 3 });
+  for (let k = 1; k < n; k++) {
+    // The next one stays close under him (the rope).
+    const up = toLanding(q[k]!);
+    phases.push({ ...up, do: { ...walkTo(atShaft(q, k + 1)), ...up.do } });
+    if (q[k + 1]) phases.push(onTower(q[k + 1]!));
+    phases.push({ name: `3. ${q[k]} goes in`, do: { [q[k]!]: enter(), ...walkTo(atShaft(q, k + 2)) }, until: cond.inside(q[k]!), timeout: 6 });
   }
-  phases.push({ name: "3. Ruben opens the door", do: { R: walk(DOOR, never) }, until: cond.doorOpen, timeout: 4 });
-  phases.push({ name: "3. everyone through the door", do: { "*": () => enter() }, until: cond.won, timeout: 20 });
   return phases;
 }
 
 const beats12 = (n: number): Phase[] => [...marchepiedPush(n), ...marchepiedClimb(n), ...haulAndLineUp(n), ...fosse(n)];
 
-export const solution: CoopSolution = (n) => [...beats12(n), ...plateAndKey(n), ...pushToExit(), ...exitHops(n)];
+export const solution: CoopSolution = (n) => [...beats12(n), ...pushIntoShaft(), ...exitUp(n)];
 
 // --- Shortcuts that must fail --------------------------------------------------------------
 //
 // Each one plays the solution up to the beat it tries to skip, then the attempt (the phase whose
-// name starts with "ATTEMPT", which must time out), then what would finish the level had the
-// attempt worked: if a change to the level let the attempt through, the shortcut would win and
-// the checks would catch it.
+// name starts with "ATTEMPT", which must time out or kill), then what would finish the level had
+// the attempt worked: if a change to the level let the attempt through, the shortcut would win
+// or fail later, and the checks would catch it.
 
 /**
  * A human tower in the shaft J without the PC tower: everyone walks into the duct and drops into
- * the shaft one after the other, each onto the head of the one below. From 4 players the tower
- * leans out of M (its base on the floor sensor) or stands in the pit under the rail.
+ * the shaft one after the other, each onto the head of the one below. At 4 players the tower
+ * leans out of M (its base on the floor sensor); at 5 it stands straight in J, its base in the
+ * crawl under the rail (a leaning 5-tower would not fit under M's ceiling).
  */
 function towerWithoutCrate(n: number): Phase[] {
   const order: Role[] = ["R", ...[...friends(n)].reverse()]; // bottom to top: Ruben first in the duct
   const top = order[order.length - 1]!;
-  // Where each one stands in the shaft (centres): leaning from M at 4 players, straight above
-  // the pit at 5 (a leaning 5-tower would not fit under M's ceiling), straight in J below that.
   const xs = n === 4 ? [15.0, 15.2, 15.4, 15.5] : order.map(() => UNDER_SHAFT);
   const duct: Array<[Role, number]> = order.map((r, k) => [r, DUCT_END - 0.85 * k]);
   const intoDuct: Phase["do"] = {};
@@ -355,11 +258,15 @@ function towerWithoutCrate(n: number): Phase[] {
   order.forEach((r, k) => {
     const base = order[k - 1];
     if (!base) {
-      phases.push({ name: "Ruben drops into the shaft", do: { R: walk(xs[0]!, { drop: true, jump: "never" }) }, until: cond.all(cond.near("R", xs[0]!, 0.12), feetBelow("R", 13.9)), timeout: 5 });
+      // At 5 Ruben falls through the rail into the crawl: his neighbour comes down into M (onto
+      // the floor sensor, alone: the hatch stays open) so that the rope lets him reach the floor.
+      const next: Phase["do"] = n === 5 ? { [order[1]!]: walk(M_SPOT, { drop: true, jump: "never" }) } : {};
+      phases.push({ name: "Ruben drops into the shaft", do: { ...next, R: walk(xs[0]!, { drop: true, jump: "never" }) }, until: cond.all(cond.near("R", xs[0]!, 0.12), feetBelow("R", 13.9)), timeout: 5 });
       return;
     }
-    // The others in the duct move up behind.
+    // The others in the duct move up behind (at 5, the next one comes down into M once it is free).
     const up = walkTo(order.slice(k + 1).map((o, j) => [o, DUCT_END - 0.85 * (j + 1)] as [Role, number]));
+    if (n === 5 && k === 1) up[order[2]!] = seq(wait(0.3), walk(M_SPOT, { drop: true, jump: "never" }));
     phases.push({ name: `${r} drops onto ${base}`, do: { ...up, [r]: walk(xs[k - 1]!, { drop: true, jump: "never", tol: 0.1 }) }, until: cond.all(cond.on(r, base), cond.near(r, xs[k - 1]!, 0.15)), timeout: 5 });
     phases.push({ name: `${r} steps along ${base}'s head`, do: { [r]: shiftOn(base, xs[k]!) }, timeout: 4 });
   });
@@ -377,46 +284,90 @@ function rackShortOne(n: number): Phase[] {
   ];
 }
 
-/** Beat 3 with everyone (F0 included) on plate w and the tower pushed off it: F0 races for the key. */
-function keyWithoutCrate(n: number): Phase[] {
-  const q = chainOrder(n);
-  const spots = q.map((r, j) => [r, 41.45 + 0.86 * j] as [Role, number]);
-  return [
-    { name: "the queue pushes the tower past plate w", do: { "*": () => hold(1) }, until: crateAt("t", 46.3), timeout: 10 },
-    { name: "everyone stands on plate w, F0 at its left end", do: walkTo(spots), until: allNear(spots, 0.2), timeout: 10 },
-    { name: "ATTEMPT: F0 leaves the plate and races for the key", do: { F0: seq(jumpTo(39.5, { rise: 0.15 }), walk(KEY_SPOT, never)) }, until: cond.keyTaken, timeout: 6 },
-    { name: "F0 comes back down", do: { F0: seq(walk(39.6, never), walk(40.45, { drop: true, jump: "never" })) }, until: cond.near("F0", 40.45, 0.3), timeout: 6 },
-    { name: "the queue walks back behind the tower", do: walkTo(q.map((r, j) => [r, 45.4 - 0.86 * (q.length - 1 - j)] as [Role, number])), timeout: 8 },
+/**
+ * Beat 3 without the step: the PC tower is left on plate w short of the shaft (its weight still
+ * counts); the front of the queue climbs over it and builds a human tower in column 47, next to
+ * the shaft (Ruben at the base; 3 bodies at most fit under the lab's ceiling), and its top jumps
+ * for the landing over the bare cables. This is what the old level's 4-5 player leaning wedge
+ * became: the cage is only reachable from the landing now.
+ */
+function towerBesideShaft(n: number): Phase[] {
+  const q = queue(n);
+  const order = q.slice(0, Math.min(n, 3)); // bottom to top: Ruben, his neighbour, the next one
+  const top = order[order.length - 1]!;
+  const phases: Phase[] = [
+    { name: "the queue pushes the tower onto plate w, short of the shaft", do: { "*": () => hold(1) }, until: crateAt("t", 44), timeout: 8 },
+    { name: "the queue steps back from the tower", do: walkTo(q.map((r, j) => [r, 43.3 - 0.86 * j] as [Role, number])), timeout: 1 },
   ];
+  order.forEach((r, k) => {
+    phases.push({ name: `${r} climbs onto the parked tower`, do: { [r]: jumpTo(44.5) }, until: cond.all(cond.standsAbove(r, 7), cond.near(r, 44.5, 0.3)), timeout: 4 });
+    // Off its far side: Ruben into column 47; the others down next to it, then onto the one there.
+    if (k === 0) {
+      phases.push({ name: `${r} walks off it into column 47`, do: { [r]: walk(47.45, { drop: true, jump: "never", tol: 0.1 }) }, until: cond.all(cond.near(r, 47.45, 0.12), feetBelow(r, 8.95)), timeout: 4 });
+      return;
+    }
+    // Ruben's neighbour drops next to him and climbs onto his head, leaning back towards the
+    // parked tower; the next one walks off the tower's top onto the neighbour's head.
+    const base = order[k - 1]!;
+    if (k === 1) {
+      phases.push({ name: `${r} walks off it next to column 47`, do: { [r]: walk(46.3, { drop: true, jump: "never", tol: 0.15 }) }, until: cond.all(cond.near(r, 46.3, 0.2), feetBelow(r, 8.95)), timeout: 4 });
+      phases.push({ name: `${r} climbs onto ${base}`, do: { [r]: mount(base) }, until: cond.on(r, base), timeout: 5 });
+      phases.push({ name: `${r} leans back on ${base}'s head`, do: { [r]: shiftOn(base, 46.7) }, timeout: 2 });
+    } else {
+      phases.push({ name: `${r} walks off it onto ${base}`, do: { [r]: walk(46.6, { drop: true, jump: "never", tol: 0.1 }) }, until: cond.on(r, base), timeout: 4 });
+    }
+  });
+  // Then the tower straightens up over column 47, bottom up.
+  order.slice(1).forEach((r, k) => phases.push({ name: `${r} steps along ${order[k]}'s head over column 47`, do: { [r]: shiftOn(order[k]!, 47.45) }, timeout: 2 }));
+  phases.push({ name: "ATTEMPT: the top of the human tower jumps for the landing", do: { [top]: jumpTo(LANDING, { rise: 0.05 }) }, until: cond.standsAbove(top, 5), timeout: 4 });
+  // Had it worked: the key (plate w carries the parked tower and everyone else), the door.
+  phases.push({ name: "the top takes the key", do: { [top]: walk(KEY_SPOT, never) }, until: cond.keyTaken, timeout: 6 });
+  phases.push({ name: "the top goes in", do: { [top]: enter() }, until: cond.inside(top), timeout: 6 });
+  return phases;
 }
 
-/** After the key, a human tower leaning from M3 (its base on the floor sensor) into the exit shaft. */
-function exitTowerWithoutCrate(n: number): Phase[] {
-  // Everyone, Ruben at the bottom, the friends on him in chain order, F0 (the free end of the
-  // chain) last, so nobody left on the floor holds the top back with the rope. Each climber has
-  // one try: with the hatch shut, the 4th finds no room in the shaft (and nobody can climb onto
-  // a head 3.6 high).
-  const order: Role[] = ["R", ...[...friends(n)].reverse()];
-  const xs = n === 2 ? [52.5, 52.5] : order.map((_, k) => Math.min(52.5, 51.9 + 0.25 * k));
-  // First everyone hops over the PC tower (left on plate w), front first.
-  const phases: Phase[] = queue(n).map((r, k) => ({ name: `${r} hops over the tower`, do: { [r]: hopOver("t", 0.6 + 0.9 * (n - 1 - k)) }, timeout: 5 }) as Phase);
-  const lineUp = (from: number) => walkTo(order.slice(from).map((r, j) => [r, 51.06 - 0.86 * j] as [Role, number]));
-  phases.push({ name: "Ruben stands at the edge of the exit shaft", do: { ...lineUp(1), R: walk(xs[0]!, { drop: true, jump: "never" }) }, until: cond.near("R", xs[0]!, 0.1), timeout: 10 });
+/**
+ * Beat 3 without the step, in the shaft itself: the PC tower is parked on plate w next to the
+ * shaft (x 46); Ruben climbs onto it and walks off into T to be the base of a human tower there
+ * (the friends would follow from the parked tower's top, onto the head below).
+ */
+function towerInShaft(n: number): Phase[] {
+  const q = queue(n);
+  const order = q.slice(0, Math.min(n, 3)); // bottom to top
+  const top = order[order.length - 1]!;
+  const onParked = (r: Role): Phase => ({ name: `${r} climbs onto the parked tower`, do: { [r]: seq(walk(45.55, never), wait(0.1), jumpTo(46.5)) }, until: cond.all(cond.standsAbove(r, 7), cond.near(r, 46.5, 0.3)), timeout: 4 });
+  const phases: Phase[] = [
+    { name: "the queue pushes the tower onto plate w, next to the shaft", do: { "*": () => hold(1) }, until: crateAt("t", 46), timeout: 8 },
+    { name: "the queue steps back from the tower", do: walkTo(q.map((r, j) => [r, 45.4 - 0.86 * j] as [Role, number])), timeout: 1 },
+    onParked("R"),
+    { name: "ATTEMPT: Ruben walks off it into the exit shaft, the base of a human tower", do: { R: walk(ON_T, { drop: true, jump: "never", tol: 0.1 }) }, until: cond.all(cond.near("R", ON_T, 0.15), feetBelow("R", 8.95)), timeout: 4 },
+  ];
   order.slice(1).forEach((r, k) => {
-    const base = order[k]!;
-    phases.push({ name: `${r} tries to climb onto ${base}`, do: { ...lineUp(k + 2), [r]: climbOnto(base) }, timeout: 6 });
-    phases.push({ name: `${r} steps along ${base}'s head`, do: { [r]: shiftOn(base, xs[k + 1]!) }, timeout: 4 });
+    phases.push(onParked(r));
+    phases.push({ name: `${r} walks off it onto ${order[k]}`, do: { [r]: walk(ON_T, { drop: true, jump: "never", tol: 0.1 }) }, until: cond.on(r, order[k]!), timeout: 4 });
   });
-  phases.push({
-    name: "ATTEMPT: the highest of the human tower jumps for the exit landing",
-    do: Object.fromEntries(order.map((r) => [r, whenHighest(order, jumpTo(LIP_SPOT, { rise: 0.25 }))])),
-    until: (w) => order.some((r) => cond.standsAbove(r, 5)(w)),
-    timeout: 5,
-  });
-  // Had it worked: the top hauls the others onto the landing.
-  const landing = queue(n).map((r, k) => [r, DOOR - 0.3 - 0.9 * k] as [Role, number]);
-  phases.push({ name: "the top hauls the others onto the landing", do: walkTo(landing), until: allNear(landing), timeout: 30 });
+  // The top's rope neighbour on the floor (from 4 players) gets onto the parked tower, close enough.
+  const next = q[order.length];
+  if (next) phases.push(onParked(next));
+  phases.push({ name: "the top steps right into the shaft (clear of the lab's ceiling)", do: { [top]: shiftOn(order[order.length - 2]!, ON_T) }, timeout: 2 });
+  phases.push({ name: "the top jumps for the landing", do: { [top]: seq(wait(0.2), jumpTo(LANDING, { rise: 0.25 })) }, until: cond.standsAbove(top, 5), timeout: 4 });
+  phases.push({ name: "the top takes the key", do: { [top]: walk(KEY_SPOT, never) }, until: cond.keyTaken, timeout: 6 });
+  phases.push({ name: "the top goes in", do: { [top]: enter() }, until: cond.inside(top), timeout: 6 });
   return phases;
+}
+
+/** Ruben is up, and F0 (the back of the queue) steps off plate w before he goes for the key. */
+function keyWithOneOff(n: number): Phase[] {
+  const q = queue(n);
+  return [
+    ...exitUp(n).slice(0, 4),
+    { name: "ATTEMPT: F0 steps off plate w, then Ruben goes for the key", do: { F0: walk(OFF_PLATE, never), R: seq(wait(1.2), walk(KEY_SPOT, never)) }, until: cond.all(cond.keyTaken, (w) => w.bodies[0]!.cx <= OFF_PLATE + 0.2), timeout: 5 },
+    // Back in the queue: onto the tower at 2 players (F0 is Ruben's neighbour), at the back otherwise.
+    ...(n === 2
+      ? [{ name: "F0 comes back", do: { F0: walk(T_FRONT, never) }, until: cond.near("F0", T_FRONT, 0.3), timeout: 4 }, onTower("F0")]
+      : [{ name: "F0 comes back", do: walkTo(atShaft(q, 2)), until: allNear(atShaft(q, 2)), timeout: 4 }]),
+    ...exitUp(n).slice(5),
+  ];
 }
 
 export const shortcuts: Record<string, CoopSolution> = {
@@ -426,9 +377,8 @@ export const shortcuts: Record<string, CoopSolution> = {
     // Had it worked: the top hauls the others, and the level goes on.
     ...haulAndLineUp(n, friends(n)[0]!),
     ...fosse(n),
-    ...plateAndKey(n),
-    ...pushToExit(),
-    ...exitHops(n),
+    ...pushIntoShaft(),
+    ...exitUp(n),
   ],
 
   /** Beat 2 with one pusher short of W. */
@@ -438,30 +388,16 @@ export const shortcuts: Record<string, CoopSolution> = {
     ...haulAndLineUp(n),
     ...rackShortOne(n),
     ...fosse(n).slice(1),
-    ...plateAndKey(n),
-    ...pushToExit(),
-    ...exitHops(n),
+    ...pushIntoShaft(),
+    ...exitUp(n),
   ],
 
-  /** Beat 3 in the wrong order: the tower goes straight under the exit, then F0 goes for the key with the others on plate w. */
-  "the tower under the exit first": (n) => {
-    const q = chainOrder(n);
-    const onPlate = q.slice(1).map((r, j) => [r, 41.45 + 0.86 * j] as [Role, number]);
-    return [
-      ...beats12(n),
-      ...pushToExit(),
-      { name: "everyone walks back onto plate w but F0", do: { F0: walk(40.45, never), ...walkTo(onPlate) }, until: cond.all(cond.near("F0", 40.45, 0.3), allNear(onPlate, 0.3)), timeout: 12 },
-      { ...fetchKey()[0]!, timeout: 4 },
-      { ...fetchKey()[1]!, name: "ATTEMPT: F0 goes for the key (the tower is not on plate w)" },
-      fetchKey()[2]!,
-      { name: "the queue walks back to the exit", do: walkTo(q.map((r, j) => [r, M3_SPOT - 0.86 * (q.length - 1 - j)] as [Role, number])), timeout: 10 },
-      ...exitHops(n),
-    ];
-  },
+  /** Beat 3 without the tower as a step: a human tower next to the exit shaft. */
+  "a human tower beside the exit shaft": (n) => [...beats12(n), ...towerBesideShaft(n)],
 
-  /** Beat 3 without the tower's weight: everyone on plate w, F0 leaves it and races for the key before the cage shuts. */
-  "the key without the tower": (n) => [...beats12(n), ...keyWithoutCrate(n), ...pushToExit(), ...exitHops(n)],
+  /** Beat 3 without the tower as a step: a human tower standing in the exit shaft. */
+  "a human tower in the exit shaft": (n) => [...beats12(n), ...towerInShaft(n)],
 
-  /** Beat 3's exit without the tower under it: a human tower on the floor sensor. */
-  "a human tower to the exit": (n) => [...beats12(n), ...plateAndKey(n), ...exitTowerWithoutCrate(n), ...exitHops(n).slice(-n - 2)],
+  /** Beat 3 without the whole class on plate w: Ruben up, one friend off it. */
+  "the key with a friend off the plate": (n) => [...beats12(n), ...pushIntoShaft(), ...keyWithOneOff(n)],
 };
