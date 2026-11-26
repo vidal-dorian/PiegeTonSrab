@@ -608,9 +608,12 @@ Prediction wired (M4, 2026-11-26):
   a burst of 6 on joining; the clock itself still trusts the best one), so jitter counts. The co-op link
   pings from the moment the room is joined, so the lobby (and the intro) fill the window before the first
   level.
-- When: once per level start, when `CoopScene` builds `OnlineDriver`. A `coopLevel` whose clock already runs
-  (`serverNow >= startsAt`: a resume after a dropped player, the clock moved after a server stall) continues
-  the level and keeps its choice, so the display never switches in the middle of a level. Spectators and
+- When: once per level start, when `CoopScene` builds `OnlineDriver`. A `coopLevel` that reaches the game
+  screen playing that same level, with its clock already running (`levelContinues`: a resume after a dropped
+  player, the clock moved after a server stall), continues the level and keeps its choice, so the display
+  never switches in the middle of a level. One that reaches the lobby or an end card is a level start, even
+  when its screen is built after the level's clock started (Phaser starts a scene on its next frame, and a
+  hidden tab draws none); the lobby and a new setting also forget the level's choice. Spectators and
   `?coopLocal=2` keep their paths; step A, when chosen, is the same code as before.
 - Lobby: the block sits above "Revoir l'intro / Quitter": three small buttons, one hint line per choice
   ("Instantanée si ton ping est bas, stable sinon." / "Tout reste fluide, tes touches répondent avec un petit
@@ -637,14 +640,23 @@ Prediction wired (M4, 2026-11-26):
 
   The worst player's p95 crosses 0.1 between 30 and 35 ms one way with 10 ms of jitter (noisy there: 0.07 to
   0.13), that is at a measured round trip of about 75-80 ms; with 20 ms of jitter at about 25 ms one way
-  (78 ms). Auto turns prediction on under 60 ms (23 ms one way +10: 0.048, half the limit) and off over 80
-  ms (where it starts failing).
-- Bench check (`coopPredictBench.test.ts`, replacing the `PREDICT_BY_DEFAULT` check): at the one-way
-  latency whose round trip is `AUTO_ON_BELOW_MS` (computed from the constant: 23 ms +10), the clients'
-  median recent round trip is within 5 ms of it and every player's p95 is under 0.1 cell (under 0.075,
-  both halves agreeing): 0.002 / 0.000 / 0.048, round trips 56-64 ms. At 50 ms +10 the verdict fails (both
-  halves) and every client's round trip (112-116 ms) is over `AUTO_OFF_ABOVE_MS`, so auto draws step A even
-  after a predicted level. With the threshold raised to 85 ms, the check runs at 35 ms +10 and fails.
+  (78 ms). The rows above are one draw each: 8 other sets of 8 runs at 23 ms +10 gave 0.011 to 0.083, two
+  with split halves. With 16 runs per set (12 sets per latency at 23, 28 and 40 ms, 6 at 25, 30, 32, 33, 35
+  and 50; +10 jitter), the worst player's p95 is 0.015-0.058 at 23 ms (halves always agreeing), 0.025-0.083
+  at 25, 0.037-0.084 at 28, 0.036-0.072 at 30, and the verdict fails in 1 of 6 sets at 32 ms (78 ms round
+  trip), 2 at 33 (80), 3 at 35 (85), 10 of 12 at 40 (94), 6 of 6 at 50 (114). The bench places the crossing
+  no more finely than that band. Auto turns prediction on under 60 ms (23 ms one way +10), 18 ms of round
+  trip under where the first sets fail, and off over 80 ms (where they start failing).
+- Bench check (`coopPredictBench.test.ts`, replacing the `PREDICT_BY_DEFAULT` check), 16 runs: at the
+  one-way latency whose round trip is `AUTO_ON_BELOW_MS` (computed from the constant: 23 ms +10), the
+  clients' median recent round trip is within 5 ms of it and every player's p95 is under 0.1 cell (under
+  0.075, both halves of 8 runs agreeing): 0.000 / 0.000 / 0.025, round trips 56-64 ms. At 50 ms +10 the
+  verdict fails (0.086 / 0.142 / 0.178; the halves are not asked, 8 runs passed there in 1 of 6 sets) and
+  every client's round trip (112-117 ms) is over `AUTO_OFF_ABOVE_MS`, so auto draws step A even after a
+  predicted level. The verdict alone cannot pin the low threshold (at 30 ms +10, a 75 ms round trip, it
+  still passes with 0.04-0.07), so the bench records where it starts failing (`BENCH_CROSSING_RTT_MS`,
+  78 ms) and checks that `AUTO_ON_BELOW_MS` sits at least 15 ms under it and `AUTO_OFF_ABOVE_MS` within
+  5 ms of it: a low threshold of 65, 70 or 75 ms fails that check by name.
 - Browser (3 Chromium, one per player, through a Node WebSocket proxy delaying each way + 5 ms jitter; my own
   server and Vite): at 15 ms one way the lobby shows "Auto : instantanée (ping 36-40 ms)" and level 1
   predicts on all three screens; switched to 50 ms in the middle of the level, all three keep predicting
@@ -677,7 +689,8 @@ Status at the end of M4 (2026-11-26):
 ## Open questions for Dorian
 
 - Co-op "Réactivité": playtest the setting. Auto predicts under a 60 ms round trip and draws step A over
-  80 ms (bench: the worst player's corrections cross 0.1 cell around 75-80 ms). Check that "Auto" picks
+  80 ms (bench: the worst player's corrections start crossing 0.1 cell at about 78 ms, and always do by
+  114 ms). Check that "Auto" picks
   what feels best on your connections (the lobby shows its decision and ping), that "Instantanée" is worth
   it for you (own body on the next frame, the others corrected when they change keys, up to 1-2 cells at
   50 ms one way), and whether the thresholds should move. Drawing the others on the server's timeline would

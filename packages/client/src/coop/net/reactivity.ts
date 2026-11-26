@@ -12,11 +12,16 @@
  *
  * The choice is made once per level start, when the online screen builds its driver. A coopLevel
  * that continues the same level (a resume after a pause, the clock moved after a server stall)
- * keeps the level's choice: the display never switches in the middle of a level.
+ * keeps the level's choice: the display never switches in the middle of a level. Only the game
+ * screen playing a level can be continued (levelContinues): a level started from the lobby or
+ * the end card is decided again, however late its screen is built (Phaser starts a scene on its
+ * next frame, and a hidden tab draws no frame), and the lobby and a new setting forget the choice.
  *
  * The thresholds come from the bench (coopPredictBench.test.ts checks it): the worst player's
  * own-body corrections stay under 0.1 cell (p95) at the one-way latency whose measured recent
- * round trip is AUTO_ON_BELOW_MS, and fail at 50 ms one way (where it is over AUTO_OFF_ABOVE_MS).
+ * round trip is AUTO_ON_BELOW_MS, and fail at 50 ms one way (where it is over AUTO_OFF_ABOVE_MS);
+ * AUTO_ON_BELOW_MS sits 15 ms or more under the round trip where the bench starts failing, and
+ * AUTO_OFF_ABOVE_MS at it.
  */
 
 export type Reactivity = "auto" | "stable" | "instant";
@@ -28,13 +33,15 @@ export const REACTIVITY_KEY = "coop.reactivity";
 
 /**
  * In auto, prediction turns on when the recent round trip is under this, ms (bench: about 23 ms
- * one way with 10 ms of jitter, where the worst player's p95 is about half the 0.1 cell limit)...
+ * one way with 10 ms of jitter, where the worst player's p95 is 0.015-0.06 over sets of 16 runs,
+ * under the 0.1 cell limit; 18 ms of round trip under where the bench starts failing)...
  */
 export const AUTO_ON_BELOW_MS = 60;
 /**
  * ...and off when it is over this, ms (bench: where the worst player's p95 starts crossing 0.1
- * cell, 32-35 ms one way with 10 ms of jitter, 25 with 20); in between, the previous auto choice
- * stays, so a round trip wobbling around one threshold does not flip the display at every level.
+ * cell, about 32 ms one way with 10 ms of jitter, 25 with 20; it always fails at 50); in between,
+ * the previous auto choice stays, so a round trip wobbling around one threshold does not flip the
+ * display at every level.
  */
 export const AUTO_OFF_ABOVE_MS = 80;
 
@@ -69,6 +76,8 @@ export function loadReactivity(storage: () => SettingStorage = defaultStorage): 
 /** Choose the setting: kept for this page, and remembered on this computer when storage allows. */
 export function saveReactivity(value: Reactivity, storage: () => SettingStorage = defaultStorage): void {
   chosen = value;
+  // The next level start reads the new setting, whatever the clock says.
+  forgetLevelChoice();
   try {
     storage().setItem(REACTIVITY_KEY, value);
   } catch {
@@ -138,6 +147,25 @@ export function predictionWanted(
   memory.levelId = levelId;
   memory.levelChoice = choice;
   return choice.predict;
+}
+
+/**
+ * Whether a coopLevel continues the level being played: `playing` is the level the game screen
+ * that received it was playing (null or undefined: none, the coopLevel came to the lobby or to an
+ * end card), and the level's clock already runs. Anything else is a level start, even a restart
+ * of the same level whose screen is built after its clock started.
+ */
+export function levelContinues(playing: string | null | undefined, level: { levelId: string; startsAt: number }, serverNow: number): boolean {
+  return playing != null && playing === level.levelId && serverNow >= level.startsAt;
+}
+
+/**
+ * Forget the choice made for the level being played (the lobby: no level goes on across it; a new
+ * setting). The auto rule's memory (the hysteresis) stays.
+ */
+export function forgetLevelChoice(): void {
+  memory.levelId = null;
+  memory.levelChoice = null;
 }
 
 /** The choice made at the latest level start, if any. */

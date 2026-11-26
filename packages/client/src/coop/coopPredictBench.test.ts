@@ -134,12 +134,24 @@ const CALM: KeyModel = { change: 0.02, jump: 0.005 };
 /** Runs pooled per latency (each run's keys and jitter differ)... */
 const SEEDS = [1, 2, 3, 4];
 /**
- * ...and for the runs that tie the auto threshold to the verdict (keys every ~200 ms), twice as
- * many: with 4 the verdict at 50 ms flipped in 2 of 6 equally valid seed sets.
+ * ...and for the runs that tie the auto threshold to the verdict (keys every ~200 ms), four times
+ * as many. With 4 the verdict at 50 ms flipped in 2 of 6 equally valid seed sets; with 8, the
+ * threshold run's halves (4 runs each) disagreed in 2 of 8 sets (worst player 0.011-0.083 at 23 ms
+ * +10). With 16, over 12 sets at 23 ms +10: worst player 0.015-0.058, halves always agreeing.
  */
-const VERDICT_SEEDS = [1, 2, 3, 4, 5, 6, 7, 8];
+const VERDICT_SEEDS = Array.from({ length: 16 }, (_, i) => i + 1);
 /** The jitter of the auto threshold's run, ms (one way, uniform 0..this). */
 const AUTO_JITTER = 10;
+/**
+ * Where the verdict starts failing on this bench (keys every ~200 ms, 10 ms of jitter, 16 runs
+ * per set), as the screens' recent round trip, ms. Calibration (HANDOFF.md): every set passes up
+ * to 30 ms one way (round trip about 75); the first sets fail at 32 ms (78); half of them at
+ * 33-35 ms (80-85); nearly all at 40 ms (94); all at 50 ms (114). The bench cannot place it more
+ * finely than that band, so the auto thresholds are set from its start, with this margin...
+ */
+const BENCH_CROSSING_RTT_MS = 78;
+/** ...the round trip between the low threshold and the crossing, ms (about 7 ms one way). */
+const AUTO_MARGIN_RTT_MS = 15;
 /**
  * The one-way latency whose recent round trip (ServerClock.recentRtt, the 75th percentile) is
  * about `rttMs` with `jitter`: two trips, plus about 1.5 jitter for the two trips' 75th
@@ -294,8 +306,8 @@ describe("co-op prediction bench (step B, the screen's PredictedPlay end to end)
   }
 
   // The plan's bench: three players changing keys every ~200 ms. At 50 ms the verdict fails (95 %
-  // of each player's own-body corrections are not all under 0.1 cell), both halves of the runs
-  // saying the same (else the seeds are too few to decide), and the auto rule draws step A there.
+  // of each player's own-body corrections are not all under 0.1 cell) and the auto rule draws step
+  // A there. (Not asked of the halves: there, 8 runs passed in 1 of 6 equally valid sets.)
   it.each([
     [20, 5, 0.1],
     [50, 10, 0.2],
@@ -307,8 +319,7 @@ describe("co-op prediction bench (step B, the screen's PredictedPlay end to end)
     expect(q).toBeLessThan(bound);
     if (latency === 50) {
       const v = predictionVerdict(run.runs);
-      expect(v.stable, `per-player p95 ${v.perPlayer.map(fmt).join(" / ")}, halves ${v.halves.join(" / ")}: too close to call, add seeds`).toBe(true);
-      expect(v.on, `worst player's p95 ${fmt(v.worst)} at 50 ms: prediction must not pass here`).toBe(false);
+      expect(v.on, `worst player's p95 ${fmt(v.worst)} at 50 ms (per player ${v.perPlayer.map(fmt).join(" / ")}): prediction must not pass here`).toBe(false);
       // Every screen's round trip is over the auto rule's high threshold: auto draws step A, even
       // for a screen that predicted on its previous level.
       for (const rtt of run.rtts) {
@@ -319,10 +330,20 @@ describe("co-op prediction bench (step B, the screen's PredictedPlay end to end)
     results.push(describeRun(`${latency} ms (+${jitter}), keys every ~200 ms`, run));
   });
 
+  // The auto rule's thresholds against where the bench starts failing: the low one far enough
+  // under it that a run's noise does not reach the limit, the high one at it. The verdict alone
+  // cannot pin them: at 30 ms one way (75 ms round trip) the worst player's p95 is still 0.04-0.07.
+  it("the auto thresholds sit where the bench's verdict starts failing, the low one with margin", () => {
+    expect(
+      AUTO_ON_BELOW_MS,
+      `AUTO_ON_BELOW_MS must sit ${AUTO_MARGIN_RTT_MS} ms of round trip under where the bench starts failing (${BENCH_CROSSING_RTT_MS} ms)`,
+    ).toBeLessThanOrEqual(BENCH_CROSSING_RTT_MS - AUTO_MARGIN_RTT_MS);
+    expect(Math.abs(AUTO_OFF_ABOVE_MS - BENCH_CROSSING_RTT_MS), `AUTO_OFF_ABOVE_MS is where the bench starts failing (${BENCH_CROSSING_RTT_MS} ms)`).toBeLessThanOrEqual(5);
+  });
+
   // The auto rule's low threshold, from the bench: at the one-way latency whose recent round trip
   // is AUTO_ON_BELOW_MS (with 10 ms of jitter), every player's p95 is under 0.1 cell, both halves
-  // agreeing. (Calibration, HANDOFF.md: the worst player's p95 crosses 0.1 around 32-35 ms one way
-  // with 10 ms of jitter, a recent round trip of about 80 ms, AUTO_OFF_ABOVE_MS.)
+  // (8 runs each) agreeing, with margin (the 12 sets of the calibration: 0.015-0.058).
   it(`at the auto threshold (${AUTO_ON_BELOW_MS} ms round trip: ${oneWayFor(AUTO_ON_BELOW_MS, AUTO_JITTER)} ms one way +${AUTO_JITTER}), keys every ~200 ms: each player's own corrections p95 under 0.1 cell`, () => {
     const latency = oneWayFor(AUTO_ON_BELOW_MS, AUTO_JITTER);
     const run = latencyRun(latency, AUTO_JITTER, STRESS, VERDICT_SEEDS);
@@ -334,7 +355,7 @@ describe("co-op prediction bench (step B, the screen's PredictedPlay end to end)
     expect(v.stable, `per-player p95 ${v.perPlayer.map(fmt).join(" / ")}, halves ${v.halves.join(" / ")}: too close to call, add seeds`).toBe(true);
     expect(v.on, `worst player's p95 ${fmt(v.worst)} at the auto threshold`).toBe(true);
     // With margin: well under the limit where auto turns prediction on.
-    expect(v.worst).toBeLessThan(0.075);
+    expect(v.worst, "worst player's p95 at the auto threshold").toBeLessThan(0.075);
     results.push(describeRun(`auto threshold: ${latency} ms (+${AUTO_JITTER}), keys every ~200 ms`, run));
   });
 

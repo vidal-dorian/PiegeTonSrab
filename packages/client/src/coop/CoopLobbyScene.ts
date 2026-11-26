@@ -11,7 +11,7 @@ import { overlay } from "../ui/overlay";
 import { COOP_SCENE_KEY, type CoopSceneData } from "./CoopScene";
 import { INTRO_SCENE_KEY, type IntroCast, type IntroSceneData } from "./intro/introContract";
 import type { CoopLink } from "./net/coopLink";
-import { loadReactivity, previewPrediction, saveReactivity } from "./net/reactivity";
+import { forgetLevelChoice, loadReactivity, previewPrediction, saveReactivity } from "./net/reactivity";
 import { coopBanner, coopLobbyScreen, type ReactivityControls } from "./ui/coopScreens";
 import { loadCleared } from "./progress";
 import { levelLabel } from "./ui/coopText";
@@ -66,6 +66,8 @@ export class CoopLobbyScene extends Phaser.Scene {
     this.lobby = data.lobby ?? null;
     this.introRunning = false;
     this.introDone = false;
+    // No level goes on across the lobby: the next one is a level start, its display decided again.
+    forgetLevelChoice();
     overlay.hideAll();
     if (this.lobby) this.render();
     this.link.onStatus = (status) => {

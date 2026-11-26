@@ -11,7 +11,9 @@ import {
   AUTO_OFF_ABOVE_MS,
   AUTO_ON_BELOW_MS,
   autoPredicts,
+  forgetLevelChoice,
   lastPredictionChoice,
+  levelContinues,
   loadReactivity,
   parseReactivity,
   predictionWanted,
@@ -117,6 +119,38 @@ describe("co-op reactivity: which display a screen uses", () => {
     // Continuing another level than the one decided (a reconnection into it): decided.
     expect(predictionWanted("", { setting: "auto", rttMs: 30, levelId: "coop03", continuing: true })).toBe(true);
     expect(lastPredictionChoice()?.rttMs).toBe(30);
+  });
+
+  it("a coopLevel continues a level only from the game screen playing it, with its clock running", () => {
+    const level = { levelId: "coop02", startsAt: 10_000 };
+    // A resume or a moved clock: the game screen was playing that level, whose clock runs.
+    expect(levelContinues("coop02", level, 12_000)).toBe(true);
+    expect(levelContinues("coop02", level, 10_000)).toBe(true);
+    // A restart of it whose clock has not started yet: a level start.
+    expect(levelContinues("coop02", level, 9_000)).toBe(false);
+    // Another level than the one played.
+    expect(levelContinues("coop01", level, 12_000)).toBe(false);
+    // From the lobby (nothing played) or the end card (the level was over), however late the
+    // screen is built (a hidden tab, a stall): a level start, decided again.
+    expect(levelContinues(undefined, level, 12_000)).toBe(false);
+    expect(levelContinues(null, level, 12_000)).toBe(false);
+  });
+
+  it("a fresh start of the same level is decided again once the lobby was shown or the setting changed", () => {
+    const storage = memoryStorage();
+    expect(predictionWanted("", { setting: "auto", rttMs: 30, levelId: "coop01" })).toBe(true);
+    // Back in the lobby, the player picks Stable: even read as continuing, coop01 draws step A.
+    saveReactivity("stable", () => storage);
+    expect(predictionWanted("", { setting: "stable", rttMs: 30, levelId: "coop01", continuing: true })).toBe(false);
+    // Picks Auto again, plays coop01; the lobby is shown again and the ping is now high.
+    saveReactivity("auto", () => storage);
+    expect(predictionWanted("", { setting: "auto", rttMs: 30, levelId: "coop01" })).toBe(true);
+    forgetLevelChoice();
+    expect(predictionWanted("", { setting: "auto", rttMs: 150, levelId: "coop01", continuing: true })).toBe(false);
+    // The lobby forgets the level's choice, not the auto rule's memory (the hysteresis).
+    expect(predictionWanted("", { setting: "auto", rttMs: 30, levelId: "coop02" })).toBe(true);
+    forgetLevelChoice();
+    expect(predictionWanted("", { setting: "auto", rttMs: (AUTO_ON_BELOW_MS + AUTO_OFF_ABOVE_MS) / 2, levelId: "coop03" })).toBe(true);
   });
 
   it("the lobby's preview decides nothing", () => {

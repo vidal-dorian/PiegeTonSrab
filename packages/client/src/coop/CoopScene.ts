@@ -49,7 +49,7 @@ import type { CoopLink } from "./net/coopLink";
 import { CoopInputSender } from "./net/inputSender";
 import { bracket, PlayoutClock } from "./net/playout";
 import { PredictedPlay } from "./net/predictedPlay";
-import { predictionWanted } from "./net/reactivity";
+import { levelContinues, predictionWanted } from "./net/reactivity";
 import { loadCleared, markCleared } from "./progress";
 import { CoopBodyView } from "./render/coopBodyView";
 import { stackLabels } from "./render/labelLayout";
@@ -99,6 +99,11 @@ export type CoopSceneData =
       link: CoopLink;
       lobby: CoopLobbyInfo | null;
       level: LevelMessage;
+      /**
+       * The level the previous game screen was playing when this coopLevel came (absent: it came
+       * to the lobby; null: to an end card). Only then can the coopLevel continue that level.
+       */
+      playing?: string | null;
       onExit: (message?: string) => void;
     };
 
@@ -423,14 +428,15 @@ export class CoopScene extends Phaser.Scene {
       this.driver = new LocalDriver(world, inputs, this.names);
     } else {
       const input = this.mySeat >= 0 ? new InputSource({ keys: COOP_KEYS, pad: "first", keepHeldKeys: true }) : null;
-      // Decided here, once per level start (reactivity.ts): a coopLevel whose clock already runs
-      // continues the level (a resume, a moved clock) and keeps its choice. A spectator draws step A.
+      // Decided here, once per level start (reactivity.ts): a coopLevel that came to the screen
+      // playing that level, with its clock already running, continues it (a resume, a moved clock)
+      // and keeps its choice. A spectator draws step A.
       const predict =
         this.mySeat >= 0 &&
         predictionWanted(location.search, {
           rttMs: data.link.recentRtt,
           levelId: data.level.levelId,
-          continuing: data.link.serverNow() >= data.level.startsAt,
+          continuing: levelContinues(data.playing, data.level, data.link.serverNow()),
         });
       this.online = new OnlineDriver(world, data.link, data.level.startsAt, data.level.epoch, input, this.mySeat, predict);
       this.driver = this.online;
@@ -514,7 +520,8 @@ export class CoopScene extends Phaser.Scene {
         // A new level, a new team, or the clock moved (after a pause or a server stall): start
         // over from it (new epoch, and nothing counts as sent).
         data.link.setHandler(null);
-        this.scene.restart({ ...data, level: msg });
+        // From the end card the level was over: what comes is a level start.
+        this.scene.restart({ ...data, level: msg, playing: this.clearedInfo ? null : data.level.levelId });
         return;
       case "coopPause":
         this.pausedFor = msg.waitingFor;
