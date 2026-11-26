@@ -69,7 +69,7 @@ export const coop05: CoopLevelDef = {
     { x: 4.5, y: 8.5, text: "Ruben pèse 2" },
     { x: 18, y: 4, text: "Mezzanine" },
     // A climber who waits behind the block, not on it, stops the next one (critic re-check, 3-5 players).
-    { x: 21.2, y: 6.6, text: "Attends sur le banc ↓" },
+    { x: 20, y: 7, text: "Attends sur le banc ↓" },
     { x: 19.5, y: 12.5, text: "Au bout : saute dans le bloc" },
     { x: 26, y: 4.2, text: "Une seule barre !" },
     { x: 25.6, y: 13.5, text: "Toi : pas de saut, tire à gauche" },
