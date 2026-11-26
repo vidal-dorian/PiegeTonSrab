@@ -6,5 +6,6 @@ import type { CoopLevelDef } from "./levelFormat";
 import { coop01 } from "./levels/coop01";
 import { coop02 } from "./levels/coop02";
 import { coop03 } from "./levels/coop03";
+import { coop04 } from "./levels/coop04";
 
-export const COOP_LEVELS: readonly CoopLevelDef[] = [coop01, coop02, coop03];
+export const COOP_LEVELS: readonly CoopLevelDef[] = [coop01, coop02, coop03, coop04];
