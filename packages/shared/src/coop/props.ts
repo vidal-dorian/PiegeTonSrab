@@ -489,9 +489,13 @@ export class CoopProps {
    */
   moveKinematic(host: PropsHost): void {
     for (const s of this.seesaws) {
-      // The heavier side goes down; equal weights bring the plank back level.
-      const target = s.snap !== 0 ? s.snap : s.loadL > s.loadR ? 1 : s.loadR > s.loadL ? -1 : 0;
+      // The heavier side goes down; equal weights on both sides bring the plank back level. An
+      // empty plank keeps its tilt, and so does a tied one within a step of level: a body on the
+      // middle cap with its feet over a pad stands on that pad at level and on the cap once the
+      // pad is a step lower, so levelling that last step would flip the plank every step.
       const speed = s.snap !== 0 ? PROPS.seesawSnapSpeed : PROPS.seesawSpeed;
+      const levels = s.loadL > 0 && Math.abs(s.t) > speed * COOP_DT;
+      const target = s.snap !== 0 ? s.snap : s.loadL > s.loadR ? 1 : s.loadR > s.loadL ? -1 : levels ? 0 : s.t;
       let t = approach(s.t, target, speed * COOP_DT);
       // t up: the right side rises; t down: the left side does.
       const rise = s.travel * Math.abs(t - s.t);

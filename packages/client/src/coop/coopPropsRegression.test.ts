@@ -2,7 +2,8 @@
  * Co-op level things: regression tests for the M3 engine review. A crate rises with what stands on
  * it; the rising side of a seesaw or balance never goes through a body (one it cannot lift, or one
  * landing on it); riding a lift into a switch block hits it; a body inside the door hits no switch;
- * a trapdoor opened by a pressed plate blames whoever pressed it; a tied seesaw levels.
+ * a trapdoor opened by a pressed plate blames whoever pressed it; a tied seesaw levels (but
+ * an empty one, or one within a step of level, keeps its tilt).
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -16,6 +17,7 @@ import {
   decodeWorld,
   encodeWorld,
   parseCoopLevel,
+  PROPS,
   type CoopEvent,
   type CoopLevelDef,
   type CoopPlayer,
@@ -27,6 +29,8 @@ const H = 0.9; // body height
 const TOL = 1e-4;
 
 const sec = (s: number) => Math.round(s / COOP_DT);
+/** How far a seesaw tilts in one step (in t). */
+const STEP_T = PROPS.seesawSpeed * COOP_DT;
 
 /** A closed room `w` x `h`: walls, a ceiling and a two-row floor (top at y = h - 2); S at (2, h - 3). */
 function room(w: number, h: number, draw: (set: (x: number, y: number, c: string) => void) => void = () => {}): string[] {
@@ -312,9 +316,73 @@ describe("a tied seesaw", () => {
     run(w, sec(1));
     expect(s.loadL).toBe(1);
     expect(s.loadR).toBe(1);
-    expect(s.t).toBe(0);
-    expect(s.left.y).toBe(15);
-    expect(s.right.y).toBe(15);
+    // Level to within the last step, which it keeps (see below).
+    expect(Math.abs(s.t)).toBeLessThanOrEqual(STEP_T);
+    expect(Math.abs(s.left.y - 15)).toBeLessThanOrEqual(s.travel * STEP_T + TOL);
+    expect(Math.abs(s.right.y - 15)).toBeLessThanOrEqual(s.travel * STEP_T + TOL);
+  });
+
+  // A 5-wide seesaw on row 11 (pads x 6-7 and 9-10, cap x 8), floor top at 12.
+  const capRows = () => {
+    const rows = room(20, 14);
+    rows[11] = "#.S...wwwww........#";
+    return def(rows, { w: { kind: "seesaw" } });
+  };
+  /** Steps `n` times; how often t changed and the supports body `i` had. */
+  const watch = (w: CoopWorld, i: number, n: number) => {
+    const s = w.props.seesaws[0]!;
+    let changes = 0;
+    let prev = s.t;
+    const supports = new Set<string>();
+    for (let k = 0; k < n; k++) {
+      w.step([]);
+      if (s.t !== prev) changes++;
+      prev = s.t;
+      supports.add(JSON.stringify(w.bodies[i]!.support));
+    }
+    return { changes, supports: supports.size };
+  };
+
+  it("stays still under a friend standing on the cap with his feet over a pad", () => {
+    // At level the friend stands on the pad (that side weighs 1 and goes down a step), then on the
+    // cap (0 against 0): levelling that step again would flip the plank on every step, forever.
+    for (const x of [8.3, 8.5, 7.8]) {
+      const w = world(capRows(), 2);
+      const s = w.props.seesaws[0]!;
+      w.placeBody(0, 4, 12 - H);
+      w.placeBody(1, x, 11 - H);
+      run(w, sec(1));
+      expect(watch(w, 1, sec(2))).toEqual({ changes: 0, supports: 1 });
+      expect(Math.abs(s.t)).toBeLessThanOrEqual(STEP_T);
+      expect(s.t).not.toBe(0);
+    }
+  });
+
+  it("stays still under one friend on each pad and one on the cap with his feet over a pad", () => {
+    // 2 against 1 at level, 1 against 1 a step off level.
+    const w = world(capRows(), 3);
+    const s = w.props.seesaws[0]!;
+    w.placeBody(0, 6.1, 11 - H);
+    w.placeBody(1, 9.6, 11 - H);
+    w.placeBody(2, 7.8, 11 - H);
+    run(w, sec(1));
+    expect(watch(w, 2, sec(2))).toEqual({ changes: 0, supports: 1 });
+    expect(s.loadL).toBe(1);
+    expect(s.loadR).toBe(1);
+    expect(Math.abs(s.t)).toBeLessThanOrEqual(STEP_T);
+  });
+
+  it("keeps its tilt when empty", () => {
+    const w = world(capRows(), 2);
+    const s = w.props.seesaws[0]!;
+    w.placeBody(0, 4, 12 - H);
+    w.placeBody(1, 6.1, 11 - H);
+    run(w, sec(1));
+    expect(s.t).toBe(1);
+    w.placeBody(1, 14, 12 - H);
+    run(w, sec(1));
+    expect(s.loadL + s.loadR).toBe(0);
+    expect(s.t).toBe(1);
   });
 });
 
