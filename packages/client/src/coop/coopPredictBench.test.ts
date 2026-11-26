@@ -5,11 +5,12 @@
  * predicted tick through CoopInputSender, a frame every 16.7 ms).
  *
  * Thresholds (the plan's, at 50 ms one way): no input lost, and 95 % of each player's own-body
- * corrections under 0.1 cell, over the seconds while keys change. Then the cases around it: a TCP
- * stall, a press stuck in a stalled upstream, a pause and resume, a level change, a death and restart
- * decided by the server, a tab hidden while a key is held, what the drawing offsets may not do (sink,
- * walls, rope links), a remote player hauling this player on the rope, this player riding a remote
- * player's head; and the replay's cost.
+ * corrections under 0.1 cell, over the seconds while keys change. Then the cases around it: TCP
+ * stalls (both ways, downlink only, past the copy's 1.75 s full-speed window), this screen's own
+ * link dead (silent or reported lost), a press stuck in a stalled upstream, a pause and resume, a
+ * level change, a death and restart decided by the server, a tab hidden while a key is held, what
+ * the drawing offsets may not do (sink, walls, rope links), a remote player hauling this player on
+ * the rope, this player riding a remote player's head; and the replay's cost.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -18,6 +19,7 @@ import {
   BIT_LEFT,
   BIT_RIGHT,
   COOP,
+  COOP_HZ,
   COOP_LEVELS,
   COOP_PROTOCOL_VERSION,
   CoopSession,
@@ -27,7 +29,7 @@ import {
   type CoopLevelDef,
 } from "@game/shared/coop";
 import { countServerPresses, Net, PredictingClient, predictionVerdict, quantile, rng, type Link } from "./benchNet";
-import { PREDICT_BY_DEFAULT } from "./net/predictedPlay";
+import { PREDICT_BY_DEFAULT, STALE_EASE_TICKS, STALE_FULL_TICKS } from "./net/predictedPlay";
 import { CoopPredictor } from "./net/predictor";
 
 /** A flat floor, 46 cells wide: hauling and riding. */
@@ -71,15 +73,17 @@ function room(opts: {
   levels?: CoopLevelDef[];
   /** TCP stalls of a player's link, both ways ([from, to] server times)... */
   stalls?: Record<string, Array<[number, number]>>;
-  /** ...or of its upstream only (its inputs are held, its snapshots keep coming). */
+  /** ...or of its upstream only (its inputs are held, its snapshots keep coming)... */
   upStalls?: Record<string, Array<[number, number]>>;
+  /** ...or of its downstream only (no snapshot reaches it, its inputs still reach the server). */
+  downStalls?: Record<string, Array<[number, number]>>;
   seed?: number;
 }): Room {
   const links = new Map<string, Link>();
   for (const id of IDS) {
     const stalls = opts.stalls?.[id] ?? [];
     links.set(`up:${id}`, { latency: opts.latency, jitter: opts.jitter, stalls: [...stalls, ...(opts.upStalls?.[id] ?? [])] });
-    links.set(`down:${id}`, { latency: opts.latency, jitter: opts.jitter, stalls });
+    links.set(`down:${id}`, { latency: opts.latency, jitter: opts.jitter, stalls: [...stalls, ...(opts.downStalls?.[id] ?? [])] });
   }
   const levels = opts.levels ?? [sandboxLevel];
   const net = new Net(links, opts.seed ?? 7);
@@ -192,6 +196,32 @@ function expectSettled(r: Room): void {
       expect(Math.abs(drawn[i]!.y - b.y), `${c.id}: body ${i} y`).toBeLessThan(0.01);
     });
   }
+}
+
+/**
+ * The drawn own body of `c` at each of its frames (a frame moves the predicted clock), to call
+ * every ms: `moves` the distance from the previous frame, `frozen` the frames it did not move.
+ */
+function ownMotion(c: PredictingClient): { sample: () => void; moves: number[]; frozen: number } {
+  let clock = Number.NaN;
+  let last: { x: number; y: number } | null = null;
+  const out = {
+    moves: [] as number[],
+    frozen: 0,
+    sample: () => {
+      const play = c.play!;
+      if (play.predictedTick === clock) return;
+      clock = play.predictedTick;
+      const b = play.frame().bodies[c.seat]!;
+      if (last) {
+        const d = Math.hypot(b.x - last.x, b.y - last.y);
+        out.moves.push(d);
+        if (d < 1e-6) out.frozen++;
+      }
+      last = { x: b.x, y: b.y };
+    },
+  };
+  return out;
 }
 
 function p95(values: readonly number[]): number {
@@ -398,37 +428,140 @@ describe("co-op prediction bench (step B, the screen's PredictedPlay end to end)
     results.push(`paused mid-jump: screens drawn ${fmt(worstVsSnapshot)} from the latest snapshot, ${fmt(worstVsServer)} from the server's frozen world`);
   });
 
-  it("stops a little past the newest snapshot when its own link goes silent", () => {
-    const t0 = 1_000_000 + 2700 + 1000;
-    const stall: Array<[number, number]> = [[t0, t0 + 5000]];
-    const r = room({ latency: 50, jitter: 10, levels: [flatLevel], stalls: { p1: stall } });
-    const server = (r.session as unknown as { world: CoopWorld }).world;
-    const me = r.client("p1");
-    const walker = r.clients.find((c) => c.seat === 2)!;
-    walker.keys = BIT_RIGHT;
-    r.run(t0 - r.net.t + 150);
-    // The server sees the drop and pauses; this screen hears nothing until the link comes back.
-    r.session.setConnected("p1", false);
-    const frozen = server.bodies.map((b) => b.x);
-    let ahead = 0;
-    let drawnOff = 0;
-    for (let k = 0; k < 45; k++) {
-      r.run(100);
-      const play = me.play!;
-      ahead = Math.max(ahead, play.predictor.tick - play.authority.tick);
-      const drawn = play.frame().bodies;
-      frozen.forEach((x, i) => (drawnOff = Math.max(drawnOff, Math.abs(drawn[i]!.x - x))));
+  it("draws a downlink stall of 500 ms or 1.5 s without a stop or a jump (the server runs, inputs still go up)", () => {
+    // Everyone holds Right on a flat floor; p1's snapshots are held (its inputs are not). The
+    // copy must keep running on its own keys meanwhile: a cap of 250 ms past the newest snapshot
+    // froze the own body for 15 / 73 frames and then jumped it 1.3 / 7.8 cells in one frame.
+    const line: string[] = [];
+    for (const ms of [500, 1500]) {
+      const t0 = 1_000_000 + 2700 + 1500;
+      const r = room({ latency: 50, jitter: 0, levels: [flatLevel], downStalls: { p1: [[t0, t0 + ms]] } });
+      const c = r.client("p1");
+      const server = (r.session as unknown as { world: CoopWorld }).world;
+      for (const k of r.clients) k.keys = BIT_RIGHT;
+      r.run(t0 - r.net.t - 300);
+      const motion = ownMotion(c);
+      const x0 = server.bodies[c.seat]!.x;
+      r.run(300 + ms + 600, () => motion.sample());
+      // The server kept running this player (its inputs got there).
+      expect(server.bodies[c.seat]!.x - x0).toBeGreaterThan((7 * (ms + 600)) / 1000);
+      expect(motion.frozen, `${ms} ms`).toBe(0);
+      const largest = Math.max(...motion.moves);
+      // Walking is 7 cells/s, 0.117 a frame: nothing on top of it but a small correction's glide.
+      expect(largest, `${ms} ms`).toBeLessThan(0.2);
+      expect(c.builds).toBe(1);
+      stopKeys(r.clients);
+      r.run(1500);
+      expectSettled(r);
+      line.push(`${ms} ms: own largest move ${fmt(largest)} a frame, ${motion.frozen} frozen frames`);
     }
-    // At most the lead, a one-way trip (under 10 ticks here) and 250 ms past the newest snapshot
-    // (it used to run on for the whole silence: 580 ticks, 15 cells after 4 s).
-    expect(ahead).toBeLessThanOrEqual(me.play!.lead + 10 + 30);
-    expect(drawnOff).toBeLessThan(3);
-    walker.keys = 0;
-    r.session.setConnected("p1", true);
-    r.run(2500);
-    expect(me.builds).toBeGreaterThan(1);
+    results.push(`downlink stall (p1, all walking): ${line.join("; ")}`);
+  });
+
+  it("goes through a 400 ms TCP stall both ways without stopping the drawing", () => {
+    const t0 = 1_000_000 + 2700 + 1500;
+    const r = room({ latency: 50, jitter: 10, levels: [flatLevel], stalls: { p1: [[t0, t0 + 400]] } });
+    const c = r.client("p1");
+    for (const k of r.clients) k.keys = BIT_RIGHT;
+    r.run(t0 - r.net.t - 300);
+    const motion = ownMotion(c);
+    r.run(300 + 400 + 600, () => motion.sample());
+    expect(motion.frozen).toBe(0);
+    // The server did not move this silent player for the last 150 ms of the stall: that correction glides.
+    expect(Math.max(...motion.moves)).toBeLessThan(0.3);
+    stopKeys(r.clients);
+    r.run(1500);
     expectSettled(r);
-    results.push(`own link silent 5 s: copy at most ${ahead} ticks past the newest snapshot, drawn at most ${fmt(drawnOff)} from the frozen world`);
+    results.push(`TCP stall 400 ms both ways (p1, all walking): own largest move ${fmt(Math.max(...motion.moves))} a frame, ${motion.frozen} frozen frames`);
+  });
+
+  it("stops at most 2 s past the newest snapshot when its own link goes silent, at once when it is reported lost", () => {
+    const line: string[] = [];
+    for (const reported of [false, true]) {
+      const t0 = 1_000_000 + 2700 + 1000;
+      const stall: Array<[number, number]> = [[t0, t0 + 5000]];
+      const r = room({ latency: 50, jitter: 10, levels: [flatLevel], stalls: { p1: stall } });
+      const server = (r.session as unknown as { world: CoopWorld }).world;
+      const me = r.client("p1");
+      const walker = r.clients.find((c) => c.seat === 2)!;
+      walker.keys = BIT_RIGHT;
+      r.run(t0 - r.net.t);
+      // The transport reported the drop (Colyseus onDrop: the socket closed).
+      if (reported) me.play!.setLinkLost(true);
+      r.run(150);
+      // The server sees the drop and pauses; this screen hears nothing until the link comes back.
+      r.session.setConnected("p1", false);
+      const frozen = server.bodies.map((b) => b.x);
+      let ahead = 0;
+      let drawnOff = 0;
+      let at3s: number[] = [];
+      for (let k = 0; k < 45; k++) {
+        r.run(100);
+        const play = me.play!;
+        ahead = Math.max(ahead, play.predictor.tick - play.authority.tick);
+        const drawn = play.frame().bodies;
+        frozen.forEach((x, i) => (drawnOff = Math.max(drawnOff, Math.abs(drawn[i]!.x - x))));
+        if (k === 30) at3s = drawn.map((b) => b.x);
+        // Bounded: nothing moves on this screen any more after 3 s (it used to run on for the
+        // whole silence: 580 ticks, 15 cells after 4 s, and the reconnection window is 30 s).
+        if (k > 30) drawn.forEach((b, i) => expect(b.x, `${reported}: body ${i} at ${k / 10} s`).toBe(at3s[i]));
+      }
+      const play = me.play!;
+      if (reported) {
+        // Held where it was when the link was reported lost: the lead, a one-way trip and a snapshot's
+        // interval past the newest.
+        expect(ahead).toBeLessThanOrEqual(play.lead + 16);
+        expect(drawnOff).toBeLessThan(2);
+      } else {
+        // At most the lead, a one-way trip (under 10 ticks here) and 2 s past the newest snapshot.
+        expect(ahead).toBeLessThanOrEqual(play.lead + 10 + STALE_FULL_TICKS + STALE_EASE_TICKS);
+        // Nobody drawn farther than 2 s of walking (7 cells/s) and the lead from the frozen world.
+        expect(drawnOff).toBeLessThan(((STALE_FULL_TICKS + STALE_EASE_TICKS + play.lead + 10) / COOP_HZ) * 7);
+      }
+      walker.keys = 0;
+      r.run(t0 + 5000 - r.net.t);
+      if (reported) play.setLinkLost(false);
+      r.session.setConnected("p1", true);
+      r.run(2500);
+      expect(me.builds).toBeGreaterThan(1);
+      expectSettled(r);
+      line.push(`${reported ? "reported lost" : "silent"}: copy at most ${ahead} ticks past the newest snapshot, drawn at most ${fmt(drawnOff)} from the frozen world`);
+    }
+    results.push(`own link dead 5 s: ${line.join("; ")}`);
+  });
+
+  it("eases to a stop after 1.75 s without a snapshot, then catches up without a jump", () => {
+    // A 2 s downlink stall: past the full-speed window the copy slows down to a stop, then the
+    // snapshots come back (a correction, smoothed) and it catches up with the clock at 1.5 times
+    // its speed. Catching up in one frame (up to MAX_STEPS_PER_FRAME steps) moved the own body
+    // 0.85 cell in a frame.
+    const t0 = 1_000_000 + 2700 + 1500;
+    const ms = 2000;
+    const r = room({ latency: 50, jitter: 0, levels: [flatLevel], downStalls: { p1: [[t0, t0 + ms]] } });
+    const c = r.client("p1");
+    for (const k of r.clients) k.keys = BIT_RIGHT;
+    r.run(t0 - r.net.t - 300);
+    const motion = ownMotion(c);
+    let behind = 0;
+    let caughtUp = -1;
+    r.run(300 + ms + 1500, (t) => {
+      motion.sample();
+      const play = c.play!;
+      const gap = Math.floor(play.predictedTick) - play.predictor.tick;
+      behind = Math.max(behind, gap);
+      if (t > t0 + ms && behind > 0 && caughtUp < 0 && gap <= 0) caughtUp = t - (t0 + ms);
+    });
+    // It was held back, and caught up within a second of the stall's end.
+    expect(behind).toBeGreaterThan(10);
+    expect(caughtUp).toBeGreaterThan(0);
+    expect(caughtUp).toBeLessThan(1000);
+    const largest = Math.max(...motion.moves);
+    expect(largest).toBeLessThan(0.3);
+    expect(c.builds).toBe(1);
+    stopKeys(r.clients);
+    r.run(1500);
+    expectSettled(r);
+    results.push(`downlink stall 2 s (p1, all walking): held at most ${behind} ticks behind the clock, caught up ${caughtUp} ms after, own largest move ${fmt(largest)} a frame, ${motion.frozen} frozen frames`);
   });
 
   it("rebuilds the predictor on a level change", () => {

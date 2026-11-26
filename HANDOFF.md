@@ -545,7 +545,9 @@ Prediction wired (M4, 2026-11-26):
   to 1.4 cells then back to 0), a press during a 300 ms upstream-only stall (one jump arc, never below the
   floor), a hidden tab while a key is held (back to the server's within a snapshot or two), a pause and
   resume (nothing advances, heartbeats only, the latest snapshot drawn as it is, rebuilt on the new epoch),
-  this screen's own link silent for 5 s (the copy stops 48 ticks past the newest snapshot), a level change, a death and restart
+  this screen's own link dead for 5 s (silent: the copy stops at most 2 s past the newest snapshot;
+  reported lost: it holds at once), downlink-only stalls of 500 ms and 1.5 s (no frozen frame, own body
+  at most 0.12 cell a frame) and of 2 s (eased stop and catch-up, 0.23), a level change, a death and restart
   (every screen stopped before the death and showed it only from the server), a haul by a remote player
   (p95 0.000; drawn links no longer than the world's), riding a remote player's head (while it rides, the
   rider is drawn on its carrier as in the copy; its corrections are the carrier's), stress keys on the
@@ -569,8 +571,23 @@ Prediction wired (M4, 2026-11-26):
     snap back on the resume. `PredictedPlay.setPaused(true)` now reloads the copy at the latest snapshot
     with no offset (`CoopPredictor.showBase`), as step A draws it.
   - A screen whose own link went silent (lost, no coopPause can reach it) kept playing the whole team on
-    for the reconnection window (15 cells after 4 s). The copy now runs at most the lead, a one-way trip
-    and 250 ms (`STALE_TICKS`) past the newest snapshot, and is drawn as it is while held back.
+    for the reconnection window (15 cells after 4 s). A first cap (the lead, a one-way trip and 250 ms
+    past the newest snapshot) broke ordinary stalls: with a downlink-only stall (server running, inputs
+    still going up) the own body froze for 15 / 73 frames at 500 ms / 1.5 s, then jumped up to 60 steps
+    in one frame (1.3 / 7.8 cells); both-ways stalls of 250-400 ms went from about 0.13 to 0.35-1.2 cell
+    in a frame. Now (`predictedPlay.ts`): the copy runs at full speed for 1.75 s past where it normally
+    is (`STALE_FULL_TICKS`), then slows to a stop by 2 s (`STALE_EASE_TICKS`, exponential); a link the
+    transport reports lost (Colyseus `onDrop`, `CoopScene` -> `OnlineDriver.setLinkLost`) holds it at
+    once; once held back it catches up at 1.5 times the clock's speed instead of in one frame.
+    Measured (sim, 50 ms one way, all holding Right on a flat floor): downlink stalls of 300 ms to 1.5 s: own largest move 0.124 cell a
+    frame, no frozen frame (as before the cap); 2 s: 0.233; 2.5 s: 0.369 (60 steps at once: 0.85 / 0.95);
+    both-ways 250 / 300 / 400 ms: 0.123 / 0.236 / 0.136 (as before the cap). Both-ways stalls of 800 ms
+    and more still snap 3.7-5 cells when they end, as before the cap: the server stops a player silent
+    for 250 ms, so its body is corrected back by what it walked on this screen. The price: a link
+    that dies silently (no `onDrop`) is drawn up to 2 s of play ahead before it stops (lost-link
+    probe, one friend walking: 8.9 cells at most, against 2.2 with the 250 ms cap and 15.8 growing
+    without a cap); reported lost at once, 2.5 cells at most (the friends held behind where the
+    server stopped them).
   - Bench: the verdict is per player over 8 runs (above). Tests that passed with their fix removed now
     fail: the upstream-stall jump checks the copy leaves the floor once (the drawn height hid a fall back
     and a second jump), the hidden tab bounds the correction on return (0.2 cell; 1.2 without the coopIdle

@@ -303,6 +303,11 @@ class OnlineDriver implements Driver {
     else this.sender.setPaused(paused);
   }
 
+  /** The link is lost and reconnecting (true) or back (false): a predicted world holds meanwhile. */
+  setLinkLost(lost: boolean): void {
+    this.play?.setLinkLost(lost);
+  }
+
   /** The snapshots around the drawing time: the later one in the world, the frame blended. */
   private place(): void {
     if (this.snaps.length === 0) return;
@@ -466,6 +471,7 @@ export class CoopScene extends Phaser.Scene {
         if (status === "closed") this.leave("Connexion au salon perdue.");
         else if (status === "lost") overlay.showNotice("Connexion perdue, reconnexion…", 0);
         else overlay.showNotice("Reconnecté !", 1500);
+        this.online?.setLinkLost(status === "lost");
       };
       data.link.setHandler((msg) => this.onMessage(msg));
     }

@@ -37,11 +37,25 @@ const SLOW_PER_TICK = 0.05;
 /** Steps simulated (and keys read) per frame at most, after a frozen tab or a clock jump. */
 const MAX_STEPS_PER_FRAME = 60;
 /**
- * How long the copy may go on without a snapshot, ticks (250 ms) past where it normally is (the
- * lead plus a one-way trip past the newest snapshot). A link that went silent (lost, or a long
- * stall) stops it there instead of playing the whole team on for the reconnection window.
+ * Without a snapshot, the copy runs on at full speed this long past where it normally is (the
+ * lead plus a one-way trip past the newest snapshot), ticks: 1.75 s, so a stall of a second and a
+ * half (the server still running, this player's inputs maybe still reaching it) is drawn as
+ * smoothly as any other moment...
  */
-const STALE_TICKS = Math.round(COOP_HZ * 0.25);
+export const STALE_FULL_TICKS = Math.round(COOP_HZ * 1.75);
+/**
+ * ...then it slows down (its speed divided by e every this many ticks, 250 ms), so it never goes
+ * more than STALE_FULL_TICKS + STALE_EASE_TICKS (2 s) past: a link that went silent for good does
+ * not play the whole team on for the reconnection window. A link the transport reports lost
+ * (`setLinkLost`) holds the copy at once.
+ */
+export const STALE_EASE_TICKS = Math.round(COOP_HZ * 0.25);
+/**
+ * Once held back (a silence past STALE_FULL_TICKS, a lost link), the copy catches up with the
+ * clock at most this much faster than it (1.5 times the speed): bodies speed up for a moment
+ * instead of jumping up to MAX_STEPS_PER_FRAME steps in one frame.
+ */
+const CATCH_UP = 0.5;
 
 export interface PredictedPlayIO {
   send(msg: CoopClientMessage): void;
@@ -64,6 +78,11 @@ export class PredictedPlay {
   private sampled = 0;
   private newest = -1;
   private paused = false;
+  /** The transport says the link is lost (reconnecting): the copy holds where it is. */
+  private linkLost = false;
+  /** The copy was held back behind the clock and is catching up (CATCH_UP), with its step budget. */
+  private catchingUp = false;
+  private catchUpBudget = 0;
 
   constructor(
     /** The world to draw: the predictor runs it. */
@@ -142,9 +161,35 @@ export class PredictedPlay {
       }
       this.sender.flush(now);
     }
-    const limit = this.newest + this.lead + Math.ceil((this.rttMs() / 2) * (COOP_HZ / 1000)) + STALE_TICKS;
-    this.predictor.advanceTo(Math.max(this.predictor.tick, Math.min(n, this.predictor.tick + MAX_STEPS_PER_FRAME, limit)));
+    const limit = this.staleLimit(n);
+    let target = Math.min(n, this.predictor.tick + MAX_STEPS_PER_FRAME, limit);
+    if (limit < n) this.catchingUp = true;
+    if (this.catchingUp) {
+      this.catchUpBudget = Math.min(this.catchUpBudget + dt * COOP_HZ * (1 + CATCH_UP), MAX_STEPS_PER_FRAME);
+      const steps = Math.floor(this.catchUpBudget);
+      this.catchUpBudget -= steps;
+      target = Math.min(target, this.predictor.tick + steps);
+    }
+    this.predictor.advanceTo(Math.max(this.predictor.tick, target));
+    // Caught up (or stopped before a step only the server decides: its snapshot moves it on).
+    if (this.predictor.tick >= n || this.predictor.waiting) {
+      this.catchingUp = false;
+      this.catchUpBudget = 0;
+    }
     this.predictor.fade(dt);
+  }
+
+  /**
+   * How far the copy may run this frame without newer snapshots, ticks: up to the clock `n` while
+   * snapshots come, eased to a stop STALE_FULL_TICKS past where it normally is (the lead plus a
+   * one-way trip past the newest snapshot), and not at all while the link is lost.
+   */
+  private staleLimit(n: number): number {
+    if (this.linkLost) return this.predictor.tick;
+    const normal = this.newest + this.lead + Math.ceil((this.rttMs() / 2) * (COOP_HZ / 1000));
+    const over = n - normal - STALE_FULL_TICKS;
+    if (over <= 0) return n;
+    return Math.floor(normal + STALE_FULL_TICKS + STALE_EASE_TICKS * (1 - Math.exp(-over / STALE_EASE_TICKS)));
   }
 
   /** What to draw this frame. */
@@ -164,6 +209,16 @@ export class PredictedPlay {
     this.paused = paused;
     this.sender.setPaused(paused);
     if (paused) this.predictor.showBase();
+  }
+
+  /**
+   * The transport lost the link and is reconnecting (true), or got it back (false). While lost,
+   * the copy holds where it is, drawn as it is (no snapshot can come, and the server stops the
+   * world for this player soon); keys are read and stamped as usual. Back, it catches up smoothly
+   * (a resume's coopLevel starts the screen over anyway).
+   */
+  setLinkLost(lost: boolean): void {
+    this.linkLost = lost;
   }
 
   /**
