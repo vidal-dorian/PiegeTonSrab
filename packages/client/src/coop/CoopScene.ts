@@ -214,7 +214,9 @@ class OnlineDriver implements Driver {
   private playout = new PlayoutClock();
   private out: PropFrame;
   private onVisibility = () => {
-    if (document.hidden) this.sender.idle();
+    if (!document.hidden) return;
+    if (this.play) this.play.idle();
+    else this.sender.idle();
   };
 
   constructor(
@@ -256,7 +258,7 @@ class OnlineDriver implements Driver {
     this.newest = msg.tick;
     const state = decodeWorld(msg.world);
     const held = Array.isArray(msg.held) ? msg.held : [];
-    if (this.play) this.play.onSnapshot(msg.tick, state, held, Array.isArray(msg.pending) ? msg.pending : []);
+    if (this.play) this.play.onSnapshot(msg.tick, state, held, Array.isArray(msg.pending) ? msg.pending : [], Array.isArray(msg.ack) ? msg.ack : undefined);
     else {
       this.playout.arrive(this.serverTick(), msg.tick);
       // What moves in this state, read once: frames blend between snapshots.

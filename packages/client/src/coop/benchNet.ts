@@ -222,7 +222,7 @@ export class PredictingClient {
         this.start(msg);
         return;
       case "coopSnap":
-        this.play?.onSnapshot(msg.tick, decodeWorld(msg.world), msg.held, msg.pending);
+        this.play?.onSnapshot(msg.tick, decodeWorld(msg.world), msg.held, msg.pending, msg.ack);
         return;
       case "coopPause":
         this.paused = msg.waitingFor !== null;
@@ -257,6 +257,7 @@ export class PredictingClient {
       serverTick: () => this.serverTick(),
       rtt: () => this.clock.rtt,
     });
+    this.play.predictor.record = true;
     this.builds++;
   }
 

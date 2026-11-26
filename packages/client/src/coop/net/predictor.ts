@@ -12,21 +12,31 @@
  * the server applies them exactly where this client did: then replaying changes nothing for this
  * client's own body. What it cannot know (another player's jump, a late input) shows up as a
  * correction, drawn smoothly: everything that moves is drawn at its predicted place plus an
- * offset that fades. A rider is drawn with the offset of what carries it, so a pile never comes
- * apart on screen; a correction larger than SNAP_DISTANCE (a restart, a reconnection) is not
- * smoothed.
+ * offset that fades, no faster than MAX_FADE_SPEED. A rider's offset joins its carrier's the same
+ * way, so a pile stays together on screen; offsets never stretch a rope link, sink a thing into
+ * what it stands on or draw a box into a wall. A correction larger than SNAP_DISTANCE (a restart,
+ * a reconnection) is not smoothed.
+ *
+ * Which own inputs a snapshot already covers comes from the server's ack (its last stamp
+ * received from this client), so an input stuck on the way (an upstream stall) is replayed when
+ * it can arrive instead of being taken as applied; a hidden tab's coopIdle is replayed too.
  *
  * What cannot be undone is the server's alone: the copy never steps into a death, a restart or
  * the win. It stops just before such a step and waits for the next snapshot (the server may not
  * agree); while the server's own world is in a death freeze or won, the copy is that world.
  */
-import { CoopWorld, HELD_BITS, PRESS_BITS, COOP_HZ, type CoopWorldState } from "@game/shared/coop";
+import { COOP, CoopWorld, HELD_BITS, PRESS_BITS, COOP_HZ, type CoopWorldState } from "@game/shared/coop";
 import { captureFrame, copyFrame, lerpFrame, newFrame, type FrameBox, type PropFrame } from "../render/propFrame";
 
 export type DrawBox = FrameBox;
 
-/** Offsets fade by half every this long, seconds. */
+/** Offsets fade by half every this long, seconds... */
 const HALF_LIFE = 0.06;
+/**
+ * ...but a thing's offset shrinks no faster than this, cells per second: a large correction (a
+ * friend's jump learnt a round trip late) glides there instead of jumping a cell in two frames.
+ */
+const MAX_FADE_SPEED = 8;
 /** A correction larger than this is a teleport (a restart, a reconnection): no smoothing, cells. */
 export const SNAP_DISTANCE = 3;
 /** Inputs kept ahead of the latest snapshot, at most. */
@@ -54,18 +64,38 @@ interface Base {
   pending: Array<Array<[number, number]>>;
 }
 
+/** One of this client's input changes. */
+interface OwnInput {
+  /** Its stamp: the tick the server applies it at when it gets there in time. */
+  tick: number;
+  bits: number;
+  /** When it should reach the server, server ticks (from the shortest round trip; -Infinity: at once). */
+  arrives: number;
+  /** The first tick the replay may apply it at: its stamp, or later if it cannot be there by then. */
+  at: number;
+  /** Not an input sent: the server forgetting this player's keys and queue there (coopIdle). */
+  forget?: boolean;
+}
+
+/** A forget is kept this long after it should have reached the server, ticks (jitter). */
+const FORGET_KEEP = 12;
+
 export class CoopPredictor {
   /** Tick of the predicted world (0 before the first snapshot). */
   tick = 0;
-  /** The size of this client's own correction at each snapshot, cells (for tests and the bench). */
+  /**
+   * The size of this client's own correction at each snapshot, cells, while `record` is on (for
+   * tests and the bench; the screen leaves it off, or the list would grow for the whole level).
+   */
   readonly corrections: number[] = [];
+  record = false;
   /** The copy stopped before a step only the server decides (a death, a restart, the win). */
   waiting = false;
   private base: Base | null = null;
   private dirty = false;
-  /** This client's input changes, [tick, bits], in tick order; presses count on their tick only. */
-  private inputs: Array<[number, number]> = [];
-  /** This client's held bits at the base tick (from the inputs already covered by the server). */
+  /** This client's input changes the server had not applied at the base tick, in sending order. */
+  private inputs: OwnInput[] = [];
+  /** This client's held bits at the base tick, as the server applies them. */
   private heldAtBase = 0;
   /** How many of `inputs` the predicted world has applied, and the held bits after them. */
   private applied = 0;
@@ -81,6 +111,9 @@ export class CoopPredictor {
   private off = newFrame();
   /** The tick the last advanceTo asked for. */
   private target = 0;
+  /** Scratch for fade: each node's pile base, and each rider's offset minus its base's (x, y). */
+  private bases: number[] = [];
+  private diffs: number[] = [];
 
   constructor(
     /** The world this client draws (predicted). */
@@ -100,35 +133,77 @@ export class CoopPredictor {
   }
 
   /**
-   * The authoritative world at `tick`, with every seat's held bits at that tick and the input
-   * changes the server already holds for later ticks (the others' are replayed exactly).
+   * The authoritative world at `tick`, with every seat's held bits at that tick, the input changes
+   * the server already holds for later ticks (the others' are replayed exactly) and, when the
+   * server says it, each seat's last stamp it received (`ack`).
    */
-  onSnapshot(tick: number, state: CoopWorldState, held: readonly number[], pending: ReadonlyArray<ReadonlyArray<readonly [number, number]>> = []): void {
+  onSnapshot(
+    tick: number,
+    state: CoopWorldState,
+    held: readonly number[],
+    pending: ReadonlyArray<ReadonlyArray<readonly [number, number]>> = [],
+    ack?: readonly number[],
+  ): void {
     if (this.base && tick <= this.base.tick) return;
     this.base = { tick, state, held: held.slice(), pending: pending.map((q) => q.map(([t, b]) => [t, b] as [number, number])) };
     this.dirty = true;
-    // Inputs up to the snapshot are part of it: keep only the held state they leave. Those the
-    // server still holds (they reached it late) apply one per step from the next tick there, the
-    // way the replay applies a late change.
-    const late = new Set((pending[this.me] ?? []).filter(([t]) => t <= tick).map(([t]) => t));
-    const keep: Array<[number, number]> = [];
-    for (const input of this.inputs) {
-      if (input[0] > tick || late.has(input[0])) keep.push(input);
-      else this.heldAtBase = input[1] & HELD_BITS;
+    // Which own inputs the server had applied by `tick`: those it received (stamped up to its ack;
+    // without one, those that had time to get there) and no longer holds. They are a prefix of
+    // the inputs (TCP keeps them in order, the server applies its queue in order).
+    const queued = new Set((pending[this.me] ?? []).map(([t]) => t));
+    const acked = ack?.[this.me];
+    const received = (input: OwnInput) => queued.has(input.tick) || (acked !== undefined ? input.tick <= acked : input.arrives <= tick + 1);
+    let lastHeld: number | null = null;
+    let k = 0;
+    for (; k < this.inputs.length; k++) {
+      const input = this.inputs[k]!;
+      // A forget is done once it surely got there, or once the server received an input sent after it.
+      const applied = input.forget
+        ? tick >= input.at + FORGET_KEEP || this.inputs.some((later, j) => j > k && !later.forget && acked !== undefined && later.tick <= acked)
+        : received(input) && !queued.has(input.tick) && input.tick <= tick;
+      if (!applied) break;
+      if (!input.forget) lastHeld = input.bits & HELD_BITS;
     }
-    this.inputs = keep;
+    this.inputs.splice(0, k);
+    // The others: those the server holds apply from their stamp (one per step from the next tick
+    // if it is past, as the server does); those still on the way, when they can get there.
+    for (const input of this.inputs) {
+      if (input.forget) continue;
+      input.at = received(input) ? input.tick : Math.max(input.tick, Math.ceil(input.arrives), tick + 1);
+    }
+    // The server's word on the keys held when it gives its ack (it also knows when it forgot them:
+    // a hidden tab, a silent player); else what the inputs it applied leave.
+    if (acked !== undefined) this.heldAtBase = (held[this.me] ?? 0) & HELD_BITS;
+    else if (lastHeld !== null) this.heldAtBase = lastHeld;
   }
 
-  /** This client sent `bits` for `tick` (stamped with the predicted tick), in sending order. */
-  addInput(tick: number, bits: number): void {
-    this.inputs.push([tick, bits]);
+  /**
+   * This client sent `bits` for `tick` (stamped with the predicted tick), in sending order;
+   * `arrives` is when it should reach the server, server ticks (default: at once).
+   */
+  addInput(tick: number, bits: number, arrives = -Infinity): void {
+    const at = Math.max(tick, Math.ceil(arrives));
+    this.inputs.push({ tick, bits, arrives, at });
     // Already simulated past it (the server's clock ran ahead): the next advance replays it.
-    if (tick <= this.tick && this.base) this.dirty = true;
+    if (at <= this.tick && this.base) this.dirty = true;
     if (this.inputs.length > MAX_INPUTS) {
       const drop = this.inputs.length - MAX_INPUTS;
       this.inputs.splice(0, drop);
       this.applied = Math.max(0, this.applied - drop);
     }
+  }
+
+  /**
+   * The tab was hidden: the server forgets this player's queue and held keys when the coopIdle
+   * reaches it (`arrives`, server ticks). Inputs that would apply later never will; the keys are
+   * none from then on (the window lost the focus, so none is held when it comes back).
+   */
+  forgetOwnInputs(arrives: number): void {
+    const at = Math.max(this.base ? this.base.tick + 1 : 1, Math.ceil(arrives));
+    this.inputs = this.inputs.filter((input) => input.at < at);
+    this.inputs.push({ tick: at, bits: 0, arrives, at, forget: true });
+    this.applied = Math.min(this.applied, this.inputs.length - 1);
+    if (this.base) this.dirty = true;
   }
 
   /**
@@ -144,23 +219,105 @@ export class CoopPredictor {
     return true;
   }
 
-  /** Fade the drawing offsets by `dt` seconds; a rider takes the offset of what carries it. */
+  /**
+   * Fade the drawing offsets by `dt` seconds. A rider keeps its offset relative to the bottom of
+   * its pile, and that difference fades the same way, so a pile comes together on screen without
+   * a jump. Then what the offsets may not do: stretch a rope link past what it is in the world,
+   * draw a thing standing on its support lower than it, or draw a box into a solid cell.
+   */
   fade(dt: number): void {
     const k = Math.pow(0.5, dt / HALF_LIFE);
+    const step = MAX_FADE_SPEED * dt;
     const o = this.off;
-    for (const b of o.bodies) {
-      b.x = shrink(b.x * k);
-      b.y = shrink(b.y * k);
-    }
-    for (const list of [o.crates, o.seesaws, o.balances, o.movers, o.gates]) for (let i = 0; i < list.length; i++) list[i] = shrink(list[i]! * k);
     const w = this.world;
     const n = w.bodies.length;
+    const bases = this.bases;
+    bases.length = w.nodeCount;
+    const diffs = this.diffs;
     for (let node = 0; node < w.nodeCount; node++) {
-      const base = this.pileBase(node);
+      const base = (bases[node] = this.pileBase(node));
       if (base === node) continue;
       const [bx, by] = this.offsetOf(base, n);
-      this.setOffset(node, n, bx, by);
+      const [rx, ry] = this.offsetOf(node, n);
+      diffs[2 * node] = rx - bx;
+      diffs[2 * node + 1] = ry - by;
     }
+    for (const b of o.bodies) fadeVec(b, k, step);
+    fadePairs(o.crates, k, step);
+    fadePairs(o.movers, k, step);
+    for (const list of [o.seesaws, o.balances, o.gates]) for (let i = 0; i < list.length; i++) list[i] = shrink(list[i]! * k);
+    this.holdLinks();
+    for (let node = 0; node < w.nodeCount; node++) if (bases[node] === node) this.clampToTerrain(node, n, true);
+    const v = { x: 0, y: 0 };
+    for (let node = 0; node < w.nodeCount; node++) {
+      const base = bases[node]!;
+      if (base === node) continue;
+      v.x = diffs[2 * node]!;
+      // Never drawn sunk into what carries it.
+      v.y = Math.min(0, diffs[2 * node + 1]!);
+      fadeVec(v, k, step);
+      const [bx, by] = this.offsetOf(base, n);
+      this.setOffset(node, n, bx + v.x, by + v.y);
+      this.clampToTerrain(node, n, false);
+    }
+  }
+
+  /** A rope link is drawn between the drawn bodies: their offsets never make it longer than it is in the world (or than the rope, slack). */
+  private holdLinks(): void {
+    const w = this.world;
+    const chain = w.chain;
+    const o = this.off.bodies;
+    for (let k = 0; k + 1 < chain.length; k++) {
+      const a = w.bodies[chain[k]!]!;
+      const b = w.bodies[chain[k + 1]!]!;
+      const oa = o[chain[k]!];
+      const ob = o[chain[k + 1]!];
+      if (!oa || !ob) continue;
+      const dx = a.x - b.x;
+      const dy = a.y - b.y;
+      const ex = oa.x - ob.x;
+      const ey = oa.y - ob.y;
+      const room = Math.max(Math.hypot(dx, dy), COOP.ropeLength);
+      if (Math.hypot(dx + ex, dy + ey) <= room) continue;
+      // The share t of their difference that keeps the link at `room`: |d + t e| = room.
+      const ee = ex * ex + ey * ey;
+      const de = dx * ex + dy * ey;
+      const t = Math.max(0, (-de + Math.sqrt(Math.max(0, de * de - ee * (dx * dx + dy * dy - room * room)))) / ee);
+      const mx = (oa.x + ob.x) / 2;
+      const my = (oa.y + ob.y) / 2;
+      oa.x = mx + (t * ex) / 2;
+      oa.y = my + (t * ey) / 2;
+      ob.x = mx - (t * ex) / 2;
+      ob.y = my - (t * ey) / 2;
+    }
+  }
+
+  /**
+   * A pile's base standing on something is never drawn lower than it (`base`; a rider is kept off
+   * its carrier by its own offset), and no box is drawn into a solid cell: the offset gives up
+   * what goes in of its vertical part, else of its horizontal part, else all of it.
+   */
+  private clampToTerrain(node: number, n: number, base: boolean): void {
+    let [ox, oy] = this.offsetOf(node, n);
+    if (ox === 0 && oy === 0) return;
+    const w = this.world;
+    if (base && oy > 0 && w.supportOf(node)) oy = 0;
+    let x: number, y: number, bw: number, bh: number;
+    if (node < n) {
+      const b = w.bodies[node]!;
+      [x, y, bw, bh] = [b.x, b.y, b.width, b.height];
+    } else {
+      const c = w.crates[node - n]!;
+      [x, y, bw, bh] = [c.x, c.y, c.collider.w, c.collider.h];
+    }
+    const hits = (dx: number, dy: number) => boxInTerrain(w, x + dx, y + dy, bw, bh);
+    if (hits(ox, oy)) {
+      // Keep as much of the offset as fits (up to the cell's face), so the box stops there.
+      if (!hits(ox, 0)) oy *= fits((f) => !hits(ox, f * oy));
+      else if (!hits(0, oy)) ox *= fits((f) => !hits(f * ox, oy));
+      else ox = oy = 0;
+    }
+    this.setOffset(node, n, ox, oy);
   }
 
   /**
@@ -213,7 +370,7 @@ export class CoopPredictor {
       if (wasTick === this.tick) {
         const a = before.bodies[this.me];
         const b = this.cur.bodies[this.me];
-        if (a && b) this.corrections.push(Math.hypot(a.x - b.x, a.y - b.y));
+        if (a && b && this.record) this.corrections.push(Math.hypot(a.x - b.x, a.y - b.y));
       }
       this.addCorrection(before, this.cur);
     } else zero(this.off);
@@ -277,10 +434,10 @@ export class CoopPredictor {
     const next = this.tick + 1;
     let mine = this.heldNow;
     const input = this.inputs[this.applied];
-    if (input && input[0] <= next) {
+    if (input && input.at <= next) {
       this.applied++;
-      this.heldNow = input[1] & HELD_BITS;
-      mine = this.heldNow | (input[1] & PRESS_BITS);
+      this.heldNow = input.bits & HELD_BITS;
+      mine = this.heldNow | (input.bits & PRESS_BITS);
     }
     const bits = this.world.bodies.map((_, i) => (i === this.me ? mine : this.otherBits(i, next)));
     this.world.step(bits);
@@ -360,6 +517,45 @@ export class CoopPredictor {
 
 function shrink(v: number): number {
   return Math.abs(v) < 1e-4 ? 0 : v;
+}
+
+/** An offset fades by `k`, shrinking by at most `step` cells. */
+function fadeVec(v: { x: number; y: number }, k: number, step: number): void {
+  const len = Math.hypot(v.x, v.y);
+  const left = Math.max(len * k, len - step);
+  const s = len < 1e-4 || left < 1e-4 ? 0 : left / len;
+  v.x *= s;
+  v.y *= s;
+}
+
+function fadePairs(list: number[], k: number, step: number): void {
+  const v = { x: 0, y: 0 };
+  for (let i = 0; i + 1 < list.length; i += 2) {
+    v.x = list[i]!;
+    v.y = list[i + 1]!;
+    fadeVec(v, k, step);
+    list[i] = v.x;
+    list[i + 1] = v.y;
+  }
+}
+
+/** The largest share in [0, 1] that is `ok` (ok(0) holds), to a sixty-fourth. */
+function fits(ok: (f: number) => boolean): number {
+  let lo = 0;
+  let hi = 1;
+  for (let i = 0; i < 6; i++) {
+    const mid = (lo + hi) / 2;
+    if (ok(mid)) lo = mid;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/** Whether a box overlaps a solid cell of the level (a hair of overlap is contact, not overlap). */
+function boxInTerrain(w: CoopWorld, x: number, y: number, bw: number, bh: number): boolean {
+  const e = 1e-3;
+  for (let cy = Math.floor(y + e); cy <= Math.floor(y + bh - e); cy++) for (let cx = Math.floor(x + e); cx <= Math.floor(x + bw - e); cx++) if (w.solidCell(cx, cy)) return true;
+  return false;
 }
 
 function zero(f: PropFrame): void {

@@ -14,7 +14,7 @@ export const COOP_ROOM_NAME = "coop";
  * Bumped whenever the co-op rules or messages change: every machine must simulate the same world,
  * so a tab still running an older build is refused with a message asking to reload.
  */
-export const COOP_PROTOCOL_VERSION = 4;
+export const COOP_PROTOCOL_VERSION = 5;
 /**
  * The server stops waiting for the story intro after this long, milliseconds: its length (87 s,
  * INTRO_DURATION_S on the client) plus 10 s for whoever paused on a frame or joined late.
@@ -87,8 +87,10 @@ export type CoopServerMessage =
   | { type: "coopLevel"; index: number; levelId: string; seats: CoopSeat[]; startsAt: number; epoch: number }
   /**
    * The world at `tick`: encodeWorld bytes, the referee's events since the last snapshot, each
-   * seat's held input bits at that tick, and the input changes the server already received for
-   * later ticks (clients predict the others with them, presses included).
+   * seat's held input bits at that tick, the input changes the server already received for
+   * later ticks (clients predict the others with them, presses included), and each seat's last
+   * stamp received on this level's clock (0: none), so a predicting client knows which of its own
+   * changes the server had at that tick, even when its upstream stalled.
    */
   | {
       type: "coopSnap";
@@ -97,6 +99,7 @@ export type CoopServerMessage =
       events: CoopRefereeEvent[];
       held: number[];
       pending: Array<Array<[number, number]>>;
+      ack: number[];
     }
   /** The world waits for a dropped player (null: it goes on). */
   | { type: "coopPause"; waitingFor: string | null; until: number }

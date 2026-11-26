@@ -80,8 +80,17 @@ export class PredictedPlay {
 
   /** Ticks ahead of the server the copy runs (and the keys are stamped). */
   get lead(): number {
+    return predictionLead(this.rttMs());
+  }
+
+  private rttMs(): number {
     const rtt = this.io.rtt();
-    return predictionLead(Number.isFinite(rtt) ? rtt : DEFAULT_RTT_MS);
+    return Number.isFinite(rtt) ? rtt : DEFAULT_RTT_MS;
+  }
+
+  /** When a message sent now should reach the server, server ticks. */
+  private arrival(): number {
+    return this.io.serverTick() + (this.rttMs() / 2) * (COOP_HZ / 1000);
   }
 
   /** The predicted tick now (fractional). */
@@ -89,12 +98,12 @@ export class PredictedPlay {
     return this.clock;
   }
 
-  onSnapshot(tick: number, state: CoopWorldState, held: readonly number[], pending: ReadonlyArray<ReadonlyArray<readonly [number, number]>>): void {
+  onSnapshot(tick: number, state: CoopWorldState, held: readonly number[], pending: ReadonlyArray<ReadonlyArray<readonly [number, number]>>, ack?: readonly number[]): void {
     if (tick <= this.newest) return;
     this.newest = tick;
     this.authority.load(state);
     this.held = held.slice();
-    this.predictor.onSnapshot(tick, state, held, pending);
+    this.predictor.onSnapshot(tick, state, held, pending, ack);
   }
 
   /**
@@ -117,11 +126,12 @@ export class PredictedPlay {
     const n = Math.floor(this.clock);
     if (take && n >= 1) {
       this.sampled = Math.max(this.sampled, n - MAX_STEPS_PER_FRAME, 0);
+      const arrives = this.arrival();
       while (this.sampled < n) {
         const s = ++this.sampled;
         const bits = take();
         const stamp = this.sender.sample(bits, s);
-        if (stamp !== null) this.predictor.addInput(stamp, bits);
+        if (stamp !== null) this.predictor.addInput(stamp, bits, arrives);
       }
       this.sender.flush(now);
     }
@@ -141,9 +151,13 @@ export class PredictedPlay {
     this.sender.setPaused(paused);
   }
 
-  /** The tab was hidden: the server touches nothing until the next input. */
+  /**
+   * The tab was hidden: the server touches nothing until the next input. The copy forgets this
+   * player's keys from when the server does (the input source drops them with the focus).
+   */
   idle(): void {
     this.sender.idle();
+    this.predictor.forgetOwnInputs(this.arrival());
   }
 
   /** Bodies holding R: the server's word, and this player's own R at once. */

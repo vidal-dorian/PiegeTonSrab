@@ -1,7 +1,7 @@
 /**
  * The predicted screen's parts (step B): the ?predict flag, stamps for the predicted tick, the
- * bounded lead, a copy that never steps into a death the server has not decided, riders drawn
- * with their carrier's offset. The end-to-end bench is coopPredictBench.test.ts.
+ * bounded lead, a copy that never steps into a death the server has not decided, own inputs
+ * replayed until the server's ack covers them. The end-to-end bench is coopPredictBench.test.ts.
  */
 import { describe, expect, it } from "vitest";
 import { BIT_RIGHT, COOP_HZ, COOP_STAMP_AHEAD, CoopWorld, parseCoopLevel, type CoopClientMessage, type CoopLevelDef } from "@game/shared/coop";
@@ -75,6 +75,33 @@ describe("co-op prediction parts", () => {
     predictor.advanceTo(server.tick + 10);
     expect(predictor.world.attempt).toBe(2);
     expect(predictor.offset(0)).toEqual({ x: 0, y: 0 });
+  });
+
+  it("replays an own input the server has not received yet, whatever its stamp", () => {
+    const level = parseCoopLevel(pit, 1);
+    const server = new CoopWorld(level, players);
+    const predictor = new CoopPredictor(new CoopWorld(level, players), 0);
+    predictor.onSnapshot(0, server.save(), [0], [], [0]);
+    // Right, stamped for tick 5 and expected there at tick 3; the upstream stalls instead.
+    predictor.addInput(5, BIT_RIGHT, 3);
+    predictor.advanceTo(20);
+    const x0 = server.bodies[0]!.x;
+    expect(predictor.world.bodies[0]!.x).toBeGreaterThan(x0);
+    // Tick 10: the server has nothing from this client (ack 0) and stood still.
+    for (let t = 0; t < 10; t++) server.step([0]);
+    predictor.onSnapshot(10, server.save(), [0], [[]], [0]);
+    predictor.advanceTo(20);
+    // Still walking: the input applies from tick 11, when it can get there, not dropped as applied.
+    const walked = predictor.world.bodies[0]!.x;
+    expect(walked).toBeGreaterThan(x0);
+    // Once received and applied (ack 5, the server holds Right), it is part of the snapshot.
+    for (let t = 0; t < 4; t++) server.step([BIT_RIGHT]);
+    predictor.onSnapshot(14, server.save(), [BIT_RIGHT], [[]], [5]);
+    predictor.advanceTo(20);
+    expect(predictor.world.bodies[0]!.x).toBeGreaterThan(server.bodies[0]!.x);
+    // The screen does not keep the corrections (only the bench turns `record` on).
+    expect(predictor.record).toBe(false);
+    expect(predictor.corrections).toEqual([]);
   });
 
   it("nothing advances while paused", () => {

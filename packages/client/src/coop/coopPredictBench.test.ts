@@ -5,9 +5,11 @@
  * predicted tick through CoopInputSender, a frame every 16.7 ms).
  *
  * Thresholds (the plan's, at 50 ms one way): no input lost, and 95 % of each player's own-body
- * corrections under 0.1 cell. Then the cases around it: a TCP stall, a pause and resume, a level
- * change, a death and restart decided by the server, a remote player hauling this player on the
- * rope, this player riding a remote player's head; and the replay's cost.
+ * corrections under 0.1 cell, over the seconds while keys change. Then the cases around it: a TCP
+ * stall, a press stuck in a stalled upstream, a pause and resume, a level change, a death and restart
+ * decided by the server, a tab hidden while a key is held, what the drawing offsets may not do (sink,
+ * walls, rope links), a remote player hauling this player on the rope, this player riding a remote
+ * player's head; and the replay's cost.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -58,14 +60,25 @@ interface Room {
   presses: ReturnType<typeof countServerPresses>;
   /** Run `ms` of the fake clock; `each` runs every ms after the clients' frames. */
   run(ms: number, each?: (t: number) => void): void;
+  /** Clients whose screen does not run (a hidden tab: no frame, no message read). */
+  frozen: Set<string>;
   client(id: string): PredictingClient;
 }
 
-function room(opts: { latency: number; jitter: number; levels?: CoopLevelDef[]; stalls?: Record<string, Array<[number, number]>>; seed?: number }): Room {
+function room(opts: {
+  latency: number;
+  jitter: number;
+  levels?: CoopLevelDef[];
+  /** TCP stalls of a player's link, both ways ([from, to] server times)... */
+  stalls?: Record<string, Array<[number, number]>>;
+  /** ...or of its upstream only (its inputs are held, its snapshots keep coming). */
+  upStalls?: Record<string, Array<[number, number]>>;
+  seed?: number;
+}): Room {
   const links = new Map<string, Link>();
   for (const id of IDS) {
     const stalls = opts.stalls?.[id] ?? [];
-    links.set(`up:${id}`, { latency: opts.latency, jitter: opts.jitter, stalls });
+    links.set(`up:${id}`, { latency: opts.latency, jitter: opts.jitter, stalls: [...stalls, ...(opts.upStalls?.[id] ?? [])] });
     links.set(`down:${id}`, { latency: opts.latency, jitter: opts.jitter, stalls });
   }
   const levels = opts.levels ?? [sandboxLevel];
@@ -78,15 +91,17 @@ function room(opts: { latency: number; jitter: number; levels?: CoopLevelDef[]; 
     net.clients.push(id);
   }
   const presses = countServerPresses(session);
+  const frozen = new Set<string>();
   const r: Room = {
     net,
     session,
     clients,
     presses,
+    frozen,
     run(ms, each) {
       net.advance(ms, (t) => {
         presses.watch();
-        for (const c of clients) c.tick();
+        for (const c of clients) if (!frozen.has(c.id)) c.tick();
         each?.(t);
       });
     },
@@ -178,18 +193,23 @@ const fmt = (v: number) => v.toFixed(3);
 describe("co-op prediction bench (step B, the screen's PredictedPlay end to end)", () => {
   const results: string[] = [];
 
-  /** Every player's own-body corrections over SEEDS runs of 10 s of random keys at this latency. */
+  /**
+   * Every player's own-body corrections over SEEDS runs of 10 s of random keys at this latency:
+   * only the snapshots of those 10 s (before the keys start and once they stop, every correction
+   * is 0 and would only dilute the share).
+   */
   function latencyRun(latency: number, jitter: number, model: KeyModel): { corr: number[]; presses: number; lead: number } {
     const corr: number[] = [];
     let presses = 0;
     let lead = 0;
     for (const seed of SEEDS) {
       const r = room({ latency, jitter, seed: latency * 10 + seed });
+      const from = r.clients.map((c) => c.allCorrections().length);
       r.run(10_000, randomKeys(r.clients, seed * 7 + latency, model));
+      r.clients.forEach((c, i) => corr.push(...c.allCorrections().slice(from[i])));
       stopKeys(r.clients);
       r.run(1500);
       presses += expectNoPressLost(r);
-      for (const c of r.clients) corr.push(...c.allCorrections());
       expectSettled(r);
       lead = r.clients[0]!.play!.lead;
     }
@@ -348,6 +368,104 @@ describe("co-op prediction bench (step B, the screen's PredictedPlay end to end)
     expectSettled(r);
   });
 
+  it("forgets this player's keys with the server when the tab is hidden while a key is held", () => {
+    for (const hiddenMs of [0, 1000]) {
+      const r = room({ latency: 50, jitter: 10, levels: [flatLevel] });
+      const c = r.clients.find((k) => k.seat === 2)!;
+      const server = (r.session as unknown as { world: CoopWorld }).world;
+      r.run(1000);
+      c.keys = BIT_RIGHT;
+      r.run(250);
+      // Hidden: the screen sends coopIdle, the window's blur clears the keys, frames stop.
+      c.play!.idle();
+      c.keys = 0;
+      r.frozen.add(c.id);
+      r.run(hiddenMs);
+      r.frozen.delete(c.id);
+      const before = c.allCorrections().length;
+      r.run(4000);
+      // Back with no key held: after a correction or two, the copy is the server's again.
+      const corr = c.allCorrections().slice(before);
+      expect(corr.slice(-60).every((x) => x < 0.01), `hidden ${hiddenMs} ms: ${corr.slice(-60).map(fmt).join(" ")}`).toBe(true);
+      const drawn = c.play!.frame().bodies[c.seat]!;
+      expect(Math.abs(drawn.x - server.bodies[c.seat]!.x)).toBeLessThan(0.01);
+      expectSettled(r);
+    }
+  });
+
+  it("draws one jump for a press stuck in a stalled upstream (snapshots still coming)", () => {
+    const t0 = 1_000_000 + 2700 + 1000;
+    const stall: Array<[number, number]> = [[t0, t0 + 300]];
+    const r = room({ latency: 50, jitter: 0, levels: [flatLevel], upStalls: { p2: stall } });
+    const c = r.client("p2");
+    const server = (r.session as unknown as { world: CoopWorld }).world;
+    r.run(t0 - r.net.t + 100);
+    const floor = c.play!.world.bodies[c.seat]!.y;
+    c.press |= BIT_JUMP_PRESS;
+    c.keys = BIT_JUMP;
+    const heights: number[] = [];
+    let serverPeak = 0;
+    r.run(900, (t) => {
+      if (t === t0 + 170) c.keys = 0;
+      if (t % 16 !== 0) return;
+      heights.push(floor - c.play!.frame().bodies[c.seat]!.y);
+      serverPeak = Math.max(serverPeak, floor - server.bodies[c.seat]!.y);
+    });
+    // One arc: up to its peak, then down to the floor and no lower (no fall back mid-air waiting for
+    // the server, no second jump once it applies the press).
+    const top = heights.indexOf(Math.max(...heights));
+    const peak = heights[top]!;
+    expect(serverPeak).toBeGreaterThan(0.5);
+    expect(peak).toBeGreaterThan(0.5);
+    for (let i = top + 1; i < heights.length; i++) expect(heights[i]!, `frame ${i}: ${heights.map(fmt).join(" ")}`).toBeLessThan(heights[i - 1]! + 0.02);
+    expect(Math.min(...heights)).toBeGreaterThan(-0.01);
+    expectNoPressLost(r);
+    results.push(`press in a 300 ms upstream stall: drawn jump peak ${fmt(peak)} (server ${fmt(serverPeak)}), one arc, never below the floor`);
+  });
+
+  it("never draws a body into what it stands on or into a wall, nor a rope link longer than the world's", () => {
+    let frames = 0;
+    let sink = 0;
+    let wall = 0;
+    const links: number[] = [];
+    for (const def of [sandboxLevel, COOP_LEVELS.find((l) => l.id === "coop04")!]) {
+      const r = room({ latency: 50, jitter: 10, levels: [def], seed: 31 });
+      const keys = randomKeys(r.clients, 13, STRESS);
+      r.run(8000, (t) => {
+        keys(t);
+        if (t % 16 !== 0) return;
+        for (const c of r.clients) {
+          const play = c.play!;
+          if (!play.predictor.synced) continue;
+          frames++;
+          const f = play.frame().bodies;
+          const w = play.world;
+          w.bodies.forEach((b, i) => {
+            const s = w.supportOf(i);
+            // Standing on the floor or on an object that is no body or crate: drawn no lower than the copy has it.
+            if (s && (s.kind === "terrain" || (w.colliderById(s.id)?.node ?? -1) < 0)) sink = Math.max(sink, f[i]!.y - b.y);
+            wall = Math.max(wall, depthInTerrain(w, f[i]!));
+          });
+          const chain = w.chain;
+          for (let k = 0; k + 1 < chain.length; k++) {
+            const a = f[chain[k]!]!;
+            const b = f[chain[k + 1]!]!;
+            const wa = w.bodies[chain[k]!]!;
+            const wb = w.bodies[chain[k + 1]!]!;
+            links.push(Math.hypot(a.x - b.x, a.y - b.y) - Math.max(Math.hypot(wa.x - wb.x, wa.y - wb.y), COOP.ropeLength));
+          }
+        }
+      });
+    }
+    expect(frames).toBeGreaterThan(2500);
+    expect(sink).toBeLessThan(0.02);
+    // The frame blends the last two steps: a hair into a cell at most.
+    expect(wall).toBeLessThan(0.1);
+    // Riders follow their carrier, which may pull a link a little: rarely, and by little.
+    expect(quantile(links, 0.999)).toBeLessThan(0.1);
+    results.push(`stress keys, sandbox and coop04: bases sunk at most ${fmt(sink)}, boxes into walls at most ${fmt(wall)}, links over the world's p99.9 ${fmt(quantile(links, 0.999))} max ${fmt(Math.max(...links))}`);
+  });
+
   it("keeps this player's corrections small while a remote player hauls it on the rope", () => {
     const r = room({ latency: 50, jitter: 10, levels: [flatLevel] });
     // Seats: p1, p2, then Ruben (p0, drawn by lot): p0 at the right end of the chain hauls p2.
@@ -467,6 +585,17 @@ describe("co-op prediction bench (step B, the screen's PredictedPlay end to end)
     console.log(`co-op prediction bench:\n  ${results.join("\n  ")}`);
   });
 });
+
+/** How deep a box goes into the level's solid cells, cells (the shallower axis of the deepest cell). */
+function depthInTerrain(w: CoopWorld, b: { x: number; y: number; w: number; h: number }): number {
+  let worst = 0;
+  for (let cy = Math.floor(b.y); cy <= Math.floor(b.y + b.h - 1e-6); cy++)
+    for (let cx = Math.floor(b.x); cx <= Math.floor(b.x + b.w - 1e-6); cx++) {
+      if (!w.solidCell(cx, cy)) continue;
+      worst = Math.max(worst, Math.min(Math.min(b.x + b.w, cx + 1) - Math.max(b.x, cx), Math.min(b.y + b.h, cy + 1) - Math.max(b.y, cy)));
+    }
+  return worst;
+}
 
 /** Ruben's seat in the bench rooms (drawn by lot: p0). */
 function hookSeat(r: Room): number {

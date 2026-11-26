@@ -75,6 +75,8 @@ interface Player {
   introDone: boolean;
   /** Input changes waiting for their tick, oldest first. */
   queue: Array<[number, number]>;
+  /** The last stamp received on this clock (0: none), echoed in the snapshots. */
+  lastStamp: number;
   held: number;
   /** Press edges not yet given to the world. */
   presses: number;
@@ -135,6 +137,7 @@ export class CoopSession {
       waiting: this.phase === "level" || this.phase === "intro",
       introDone: false,
       queue: [],
+      lastStamp: 0,
       held: 0,
       presses: 0,
       lastInputAt: -Infinity,
@@ -258,9 +261,11 @@ export class CoopSession {
     const horizon = Math.max(0, this.clockTarget(this.world)) + COOP_STAMP_AHEAD;
     for (const pair of raw.slice(0, 64)) {
       if (!Array.isArray(pair)) continue;
-      const tick = Math.min(Math.floor(num(pair[0])), horizon);
+      const stamp = Math.floor(num(pair[0]));
+      const tick = Math.min(stamp, horizon);
       const bits = Math.floor(num(pair[1])) & ALL_BITS;
       p.queue.push([tick, bits]);
+      if (stamp > p.lastStamp) p.lastStamp = stamp;
     }
     if (p.queue.length > MAX_QUEUE) p.queue.splice(0, p.queue.length - MAX_QUEUE);
     p.lastInputAt = this.io.now();
@@ -376,6 +381,7 @@ export class CoopSession {
   private clearInputs(): void {
     for (const p of this.players.values()) {
       p.queue = [];
+      p.lastStamp = 0;
       p.held = 0;
       p.presses = 0;
     }
@@ -512,7 +518,7 @@ export class CoopSession {
     const world = this.world;
     if (!world) return;
     this.lastSnapAt = this.io.now();
-    this.io.broadcast({ type: "coopSnap", tick: world.tick, world: encodeWorld(world.save()), events: this.events, held: this.heldBits(), pending: this.pendingInputs() });
+    this.io.broadcast({ type: "coopSnap", tick: world.tick, world: encodeWorld(world.save()), events: this.events, held: this.heldBits(), pending: this.pendingInputs(), ack: this.acks() });
     this.events = [];
   }
 
@@ -528,6 +534,11 @@ export class CoopSession {
       const p = this.players.get(s.id);
       return p && !this.silent(p, now) ? p.held : 0;
     });
+  }
+
+  /** Each seat's last stamp received on this clock. */
+  private acks(): number[] {
+    return this.seats.map((s) => this.players.get(s.id)?.lastStamp ?? 0);
   }
 
   /** Each seat's input changes received but not applied yet (at most 16), in the order they will apply. */
@@ -563,7 +574,7 @@ export class CoopSession {
     if (this.phase === "select" && this.lastCleared) this.io.send(id, this.lastCleared);
     if (this.phase === "level" && this.world) {
       this.io.send(id, this.levelMessage());
-      this.io.send(id, { type: "coopSnap", tick: this.world.tick, world: encodeWorld(this.world.save()), events: [], held: this.heldBits(), pending: this.pendingInputs() });
+      this.io.send(id, { type: "coopSnap", tick: this.world.tick, world: encodeWorld(this.world.save()), events: [], held: this.heldBits(), pending: this.pendingInputs(), ack: this.acks() });
       if (this.pausedFor) this.io.send(id, { type: "coopPause", waitingFor: this.pausedFor, until: this.pauseUntil });
     }
   }

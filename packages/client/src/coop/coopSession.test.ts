@@ -407,6 +407,27 @@ describe("co-op inputs across clock changes (level epochs)", () => {
     expect(epochOf(io)).not.toBe(old.epoch);
   });
 
+  it("each snapshot acks the last stamp received from each player, on this level's clock", () => {
+    const r = playing(["Léo", "Alice"]);
+    const { io, s } = r;
+    beat(r, r.ids, 300);
+    expect(io.last("coopSnap")!.ack).toEqual([0, 0]);
+    const stamp = tickNow(io) + 30;
+    s.handle("p1", { type: "coopIn", e: epochOf(io), k: [[stamp - 1, BIT_RIGHT], [stamp, 0]] });
+    beat(r, r.ids, 100);
+    // Still queued (its stamp is ahead) and acked; a far stamp is acked as sent, not as clamped.
+    expect(io.last("coopSnap")!.ack[seatOf(io, "p1")]).toBe(stamp);
+    expect(io.last("coopSnap")!.ack[seatOf(io, "p0")]).toBe(0);
+    s.handle("p0", { type: "coopIn", e: epochOf(io), k: [[tickNow(io) + 10 * COOP_HZ, BIT_RIGHT]] });
+    beat(r, r.ids, 100);
+    expect(io.last("coopSnap")!.ack[seatOf(io, "p0")]).toBeGreaterThan(tickNow(io) + 9 * COOP_HZ);
+    // A new clock (here the level started again) acks nothing yet.
+    s.handle(r.ids[0]!, { type: "coopPlay", index: 0 });
+    io.advance(COOP_LEVEL_LEAD_MS);
+    beat(r, r.ids, 200);
+    expect(io.last("coopSnap")!.ack).toEqual([0, 0]);
+  });
+
   it("a stamp far ahead of the clock applies at most half a second later", () => {
     const r = playing(["Léo", "Alice"]);
     const { io, s } = r;
