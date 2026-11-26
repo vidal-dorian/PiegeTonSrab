@@ -12,11 +12,15 @@ import { overlay } from "../ui/overlay";
 import { menuScreen } from "../ui/screens";
 
 export class MenuScene extends Phaser.Scene {
+  /** Counts the menu's visits: a room joined during an earlier visit is left, not opened. */
+  private visit = 0;
+
   constructor() {
     super("menu");
   }
 
   create(data: { message?: string }): void {
+    this.visit++;
     overlay.hideAll();
     // A shared link (?salon=ABCD) fills in the code.
     const code = new URLSearchParams(location.search).get("salon") ?? "";
@@ -45,12 +49,20 @@ export class MenuScene extends Phaser.Scene {
    * its mode (a code works for a race room and for a co-op room alike).
    */
   private async goOnline(name: string, code: string | null, roomName: string): Promise<void> {
+    const visit = this.visit;
+    // The player may have picked another entry (practice, solo, tutorial) while this was joining.
+    const gone = () => visit !== this.visit || !this.sys.isActive();
     try {
       const joined = await joinRoom(name, code, roomName, COOP_PROTOCOL_VERSION);
+      if (gone()) {
+        void joined.room.leave(true);
+        return;
+      }
       menuScreen.hide();
       if (joined.mode === "coop") this.scene.start("coopLobby", { link: new CoopOnlineLink(joined) });
       else this.scene.start("lobby", { link: OnlineLink.fromRoom(joined) });
     } catch (e) {
+      if (gone()) return;
       menuScreen.setError(e instanceof Error ? e.message : String(e));
     }
   }
