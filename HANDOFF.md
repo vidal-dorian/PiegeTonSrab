@@ -451,6 +451,23 @@ Known rope quirks, measured by the level bots, to check when playing (none is a 
 - What La Salle's first design needed and the engine does not do (options for M5): slack for a body thrown by
   a seesaw (the rope pulls a rising catapulted friend back, capping its flight near 4.3 at 2 players), and an
   impact on balance pans (a landing presses no harder than walking on).
+- The descending side of a seesaw or balance still goes through a body under it (the rising side no longer
+  does since the M3 review). Bounding it breaks La Salle's pulley, which relies on it.
+
+Status at the end of M3 (2026-11-26):
+
+- Done: the level things, titles and Claude's bubbles, the renderer, HUD, cleared card and level select,
+  the intro (Fable 5.2) synced online, and levels 1 to 5 ("La Rentrée", "Le Labo Réseau", "L'Amphi",
+  "La Salle de TP", "La Salle"). Each level has its bots at 2-5 players and shortcuts that must fail, and
+  went through a critic pass and a re-check (notes and review tables in `docs/coop-levels/coop0N.md`).
+- The M2+M3 review (server, engine, client) found 19 issues, all confirmed by a skeptic and fixed with
+  regression tests, each fix checked again by a second skeptic.
+- Checked: 508 tests, typecheck, build, `check-coop-level --all`, and a 3-browser online run (lobby, intro
+  skipped by all, levels 1-5 with identical views, no console error).
+- Known design debts, written in the level notes: in La Salle the flyer does not haul Ruben, and from 3
+  players Ruben is only the counterweight; a jump at the wrong time wastes the barbell (signed). La Salle de
+  TP is still the longest level. Three "must not reach" heights rest on the pinned 3.0 jump apex.
+- Next: M4 wires the predictor (written and benched, not yet used by the screen).
 
 ## Open questions for Dorian
 
