@@ -416,6 +416,20 @@ which bypasses `connect`: when merging, give `joinRoom` the same join options (`
 memory for race rooms, keep the generic `BaseLink<S>` with main's one-message-at-a-time handler loop, then
 delete the dead `connect`.
 
+Known rope quirks, measured by the level bots, to check when playing (none is a bug in the rules as written):
+
+- A friend hanging from the rope weighs on whoever holds it, so an "= 1" plate goes off for a moment when the
+  holder's neighbour jumps or drops below it with the rope taut (the 0.15 s hold hides short blips only).
+  Keep "= 1" plates where nobody needs to hang from the one standing on them.
+- A link bent over a corner is measured centre to centre, so an anchor standing back from a pit's edge can be
+  lifted off a balance pan by the friend hanging over the corner (La Salle: Ruben's neighbour waits one cell
+  from the pit).
+- A haul that ends level with the hauler never climbs over the lip (the pull is flat): the hauler must stand
+  higher than the lip or walk on.
+- What La Salle's first design needed and the engine does not do (options for M5): slack for a body thrown by
+  a seesaw (the rope pulls a rising catapulted friend back, capping its flight near 4.3 at 2 players), and an
+  impact on balance pans (a landing presses no harder than walking on).
+
 ## Open questions for Dorian
 
 - Maximum width of scrolling levels (proposed: about 2 screens, 64 cells).

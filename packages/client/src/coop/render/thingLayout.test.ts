@@ -2,7 +2,7 @@
  * Geometry of the co-op things on screen: link symbols, wires, counters, rigs, cell groups.
  */
 import { describe, expect, it } from "vitest";
-import { parseCoopLevel, type CoopThing } from "@game/shared/coop";
+import { COOP_LEVELS, parseCoopLevel, type CoopThing } from "@game/shared/coop";
 import { showcaseLevel } from "../devShowcase";
 import {
   alongPath,
@@ -49,6 +49,14 @@ describe("link symbols", () => {
     const marks = linkMarks(things);
     expect(marks.get("L7")).toEqual({ symbol: LINK_SYMBOLS[7], round: 0 });
     expect(marks.get("L8")).toEqual({ symbol: LINK_SYMBOLS[0], round: 1 });
+  });
+
+  it("a link that nothing drives gets no symbol (L'Amphi's still step)", () => {
+    const amphi = parseCoopLevel(COOP_LEVELS.find((l) => l.id === "coop03")!, 2);
+    const marks = linkMarks(amphi.things);
+    expect(marks.has("marche")).toBe(false);
+    expect(marks.has("place")).toBe(true);
+    expect(marks.get("relais")?.symbol).toBe("circle");
   });
 });
 

@@ -39,12 +39,18 @@ export function thingLink(def: ThingDef): string | null {
   }
 }
 
-/** One symbol per link, in reading order of the first thing that uses it. */
+/**
+ * One symbol per link, in reading order of the first thing that uses it. A link that no plate or
+ * terminal drives gets none: its gate or platform never moves, and a symbol would send players
+ * looking for a plate that does not exist (L'Amphi's still step).
+ */
 export function linkMarks(things: readonly CoopThing[]): Map<string, LinkMark> {
+  const driven = new Set<string>();
+  for (const t of things) if (t.def.kind === "plate" || t.def.kind === "terminal") driven.add(t.def.link);
   const out = new Map<string, LinkMark>();
   for (const t of things) {
     const link = thingLink(t.def);
-    if (link === null || out.has(link)) continue;
+    if (link === null || !driven.has(link) || out.has(link)) continue;
     const i = out.size;
     out.set(link, { symbol: LINK_SYMBOLS[i % LINK_SYMBOLS.length]!, round: Math.floor(i / LINK_SYMBOLS.length) });
   }
