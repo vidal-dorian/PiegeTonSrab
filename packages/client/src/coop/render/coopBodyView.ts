@@ -57,6 +57,17 @@ export class CoopBodyView {
     }
   }
 
+  /** Where the name label is (bottom centre and size, pixels), or null when hidden. */
+  labelBox(): { x: number; y: number; w: number; h: number } | null {
+    if (!this.label.visible) return null;
+    return { x: this.label.x, y: this.label.y, w: this.label.width, h: this.label.height };
+  }
+
+  /** Lift the name label (pixels) so it does not overlap a friend's. */
+  liftLabel(dy: number): void {
+    if (dy > 0) this.label.y -= dy;
+  }
+
   destroy(): void {
     this.view.destroy();
     this.band.destroy();

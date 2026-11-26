@@ -58,6 +58,12 @@ let textureCounter = 0;
 export interface DrawLevelOptions {
   /** Draw the race mode's dashed start mat and "départ" note (default true). */
   startPad?: boolean;
+  /**
+   * Draw the handwritten signs with one texture per draw call. Phaser's default batch samples up to
+   * 16 textures in one shader, which tears holes in rotated text on software WebGL (SwiftShader).
+   * Opt-in, so the race mode draws exactly as before.
+   */
+  singleTextureSigns?: boolean;
 }
 
 export function drawLevel(scene: Phaser.Scene, level: Level, options: DrawLevelOptions = {}): LevelView {
@@ -86,10 +92,11 @@ export function drawLevel(scene: Phaser.Scene, level: Level, options: DrawLevelO
   });
 
   for (const l of level.labels) {
-    scene.add
+    const t = scene.add
       .text(l.x * CELL_PX, l.y * CELL_PX, l.text, { fontFamily: FONT_MARKER, fontSize: "20px", color: INK_CSS })
       .setOrigin(0.5, 0.5)
       .setRotation(-0.04);
+    if (options.singleTextureSigns && "renderNodes" in scene.sys.renderer) t.setRenderNodeRole("BatchHandler", "BatchHandlerQuadSingle");
   }
   return { grid };
 }

@@ -46,6 +46,7 @@ import { GroupCamera } from "./groupCamera";
 import type { CoopLink } from "./net/coopLink";
 import { loadCleared, markCleared } from "./progress";
 import { CoopBodyView } from "./render/coopBodyView";
+import { stackLabels } from "./render/labelLayout";
 import { captureFrame, lerpFrame, newFrame, type PropFrame } from "./render/propFrame";
 import { RopeView } from "./render/ropeView";
 import { drawableTerrain, ThingViews } from "./render/thingViews";
@@ -405,7 +406,7 @@ export class CoopScene extends Phaser.Scene {
       this.driver = this.online;
     }
 
-    drawLevel(this, drawableTerrain(this.level), { startPad: false });
+    drawLevel(this, drawableTerrain(this.level), { startPad: false, singleTextureSigns: true });
     this.objects = new ObjectViews(this);
     this.objects.sync(this.level.objects);
     this.things = new ThingViews(this, this.level);
@@ -704,6 +705,11 @@ export class CoopScene extends Phaser.Scene {
       // A body carrying someone hides its name under the rider's.
       this.bodyViews[i]!.update(box.x, box.y, b, shown, !b.hasRider);
     });
+    // Friends side by side: stack their names instead of printing them over each other.
+    const labels = this.bodyViews.map((v) => v.labelBox());
+    const placed = labels.flatMap((l, i) => (l ? [{ i, box: l }] : []));
+    const lifts = stackLabels(placed.map((p) => p.box));
+    placed.forEach((p, k) => this.bodyViews[p.i]!.liftLabel(lifts[k]!));
     const segments = [];
     for (let k = 0; k + 1 < world.chain.length; k++) {
       const a = boxes[world.chain[k]!];
