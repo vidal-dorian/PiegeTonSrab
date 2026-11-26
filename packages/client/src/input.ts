@@ -98,10 +98,14 @@ export class InputSource {
     const down = (e: KeyboardEvent) => {
       // Typing in the tuning panel must not move the character.
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      // Ctrl, Cmd or Alt with a key is a browser shortcut (Ctrl+R reloads), not a game key.
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
       // Stop arrows and space from scrolling the page.
       if (this.isGameKey(e.code)) e.preventDefault();
-      if (e.repeat) return;
+      // An auto-repeat still says the key is held: a key held down while the scene restarted
+      // (a new InputSource) counts again. Only the first press is a press.
       this.keysDown.add(e.code);
+      if (e.repeat) return;
       if (this.jump.has(e.code)) this.jumpPressedLatch = true;
       if (this.downKeys.has(e.code)) this.downPressedLatch = true;
       this.onKey?.(e.code);

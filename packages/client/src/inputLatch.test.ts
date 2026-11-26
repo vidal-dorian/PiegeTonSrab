@@ -84,3 +84,95 @@ describe("gamepad Down in the co-op mode", () => {
     expect(src.takeCoopInput()).toMatchObject({ down: true, downPressed: true });
   });
 });
+
+/** A window that keeps its listeners, so a test can send it key events. */
+function keyWindow() {
+  const listeners = new Map<string, Array<(e: unknown) => void>>();
+  vi.stubGlobal("window", {
+    addEventListener: (type: string, fn: (e: unknown) => void) => listeners.set(type, [...(listeners.get(type) ?? []), fn]),
+    removeEventListener: () => {},
+  });
+  vi.stubGlobal("HTMLInputElement", class {});
+  vi.stubGlobal("HTMLTextAreaElement", class {});
+  type Mods = { repeat?: boolean; ctrlKey?: boolean; metaKey?: boolean; altKey?: boolean };
+  return (type: "keydown" | "keyup", code: string, mods: Mods = {}) => {
+    const e = {
+      code,
+      target: null,
+      repeat: false,
+      ctrlKey: false,
+      metaKey: false,
+      altKey: false,
+      ...mods,
+      defaultPrevented: false,
+      preventDefault() {
+        e.defaultPrevented = true;
+      },
+    };
+    for (const fn of listeners.get(type) ?? []) fn(e);
+    return e;
+  };
+}
+
+describe("a key held while the scene restarts", () => {
+  it("counts as held again from its auto-repeat, without a new press", () => {
+    const send = keyWindow();
+    const before = new InputSource({ keys: COOP_KEYS });
+    send("keydown", "KeyD");
+    send("keydown", "KeyW");
+    // The co-op scene restarts (new level, new team, resume) with the keys still down: the new
+    // InputSource only gets their auto-repeats.
+    before.destroy();
+    const src = new InputSource({ keys: COOP_KEYS });
+    const heard: string[] = [];
+    src.onKey = (code) => heard.push(code);
+    expect(src.takeCoopInput()).toMatchObject({ right: false, jumpHeld: false });
+    send("keydown", "KeyD", { repeat: true });
+    send("keydown", "KeyW", { repeat: true });
+    send("keydown", "KeyS", { repeat: true });
+    send("keydown", "KeyR", { repeat: true });
+    // Held again, but a repeat is no new press (no jump, no act).
+    expect(src.takeCoopInput()).toMatchObject({ right: true, jumpHeld: true, jumpPressed: false, down: true, downPressed: false, restart: true });
+    expect(heard).toEqual([]);
+    send("keyup", "KeyD");
+    expect(src.takeCoopInput()).toMatchObject({ right: false, jumpHeld: true });
+  });
+
+  it("in the race mode too, and a repeat is still no jump press", () => {
+    const send = keyWindow();
+    const src = new InputSource();
+    send("keydown", "ArrowLeft", { repeat: true });
+    send("keydown", "Space", { repeat: true });
+    expect(src.takeStepInput()).toEqual({ left: true, right: false, jumpHeld: true, jumpPressed: false, down: false });
+  });
+});
+
+describe("Ctrl, Cmd or Alt with a game key", () => {
+  it("Ctrl+R and Cmd+R still reload the page and do not hold the co-op restart", () => {
+    const send = keyWindow();
+    const src = new InputSource({ keys: COOP_KEYS });
+    for (const mod of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }]) {
+      expect(send("keydown", "KeyR", mod).defaultPrevented).toBe(false);
+      expect(src.takeCoopInput().restart).toBe(false);
+    }
+    // R alone is the restart key.
+    expect(send("keydown", "KeyR").defaultPrevented).toBe(true);
+    expect(src.takeCoopInput().restart).toBe(true);
+  });
+
+  it("a modified key is no move and no press; unmodified keys work as before", () => {
+    const send = keyWindow();
+    const src = new InputSource();
+    const heard: string[] = [];
+    src.onKey = (code) => heard.push(code);
+    send("keydown", "Space", { ctrlKey: true });
+    send("keydown", "ArrowRight", { altKey: true });
+    expect(src.takeStepInput()).toEqual({ left: false, right: false, jumpHeld: false, jumpPressed: false, down: false });
+    expect(heard).toEqual([]);
+    expect(send("keydown", "Space").defaultPrevented).toBe(true);
+    // R is no game key in the race mode (it turns a cannon through onKey): its default stays.
+    expect(send("keydown", "KeyR").defaultPrevented).toBe(false);
+    expect(src.takeStepInput()).toEqual({ left: false, right: false, jumpHeld: true, jumpPressed: true, down: false });
+    expect(heard).toEqual(["Space", "KeyR"]);
+  });
+});
