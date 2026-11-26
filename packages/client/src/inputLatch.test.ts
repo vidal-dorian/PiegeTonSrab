@@ -95,7 +95,7 @@ function keyWindow() {
   vi.stubGlobal("HTMLInputElement", class {});
   vi.stubGlobal("HTMLTextAreaElement", class {});
   type Mods = { repeat?: boolean; ctrlKey?: boolean; metaKey?: boolean; altKey?: boolean };
-  return (type: "keydown" | "keyup", code: string, mods: Mods = {}) => {
+  return (type: "keydown" | "keyup" | "blur", code: string, mods: Mods = {}) => {
     const e = {
       code,
       target: null,
@@ -144,6 +144,63 @@ describe("a key held while the scene restarts", () => {
     send("keydown", "ArrowLeft", { repeat: true });
     send("keydown", "Space", { repeat: true });
     expect(src.takeStepInput()).toEqual({ left: true, right: false, jumpHeld: true, jumpPressed: false, down: false });
+  });
+});
+
+describe("keys held through a co-op restart, with auto-repeat only for the last key pressed", () => {
+  const COOP = { keys: COOP_KEYS, keepHeldKeys: true } as const;
+
+  it("a direction held while tapping jump is still held by the new InputSource", () => {
+    const send = keyWindow();
+    const before = new InputSource(COOP);
+    send("keydown", "ArrowRight");
+    send("keydown", "ArrowRight", { repeat: true });
+    // The jump tap takes the OS auto-repeat: ArrowRight sends nothing more until it is lifted.
+    send("keydown", "Space");
+    send("keydown", "Space", { repeat: true });
+    send("keyup", "Space");
+    expect(before.takeCoopInput()).toMatchObject({ right: true, jumpPressed: true });
+    before.destroy();
+    const src = new InputSource(COOP);
+    const heard: string[] = [];
+    src.onKey = (code) => heard.push(code);
+    // Held, not pressed again.
+    expect(src.takeCoopInput()).toMatchObject({ right: true, jumpHeld: false, jumpPressed: false, downPressed: false });
+    expect(src.takeCoopInput()).toMatchObject({ right: true });
+    expect(heard).toEqual([]);
+    send("keyup", "ArrowRight");
+    expect(src.takeCoopInput()).toMatchObject({ right: false });
+  });
+
+  it("a direction and jump both held, only jump repeating: both are held", () => {
+    const send = keyWindow();
+    const before = new InputSource(COOP);
+    send("keydown", "KeyD");
+    send("keydown", "KeyW");
+    before.destroy();
+    const src = new InputSource(COOP);
+    send("keydown", "KeyW", { repeat: true });
+    expect(src.takeCoopInput()).toMatchObject({ right: true, jumpHeld: true, jumpPressed: false });
+  });
+
+  it("a key lifted during the restart, a browser shortcut or a lost focus is not held", () => {
+    const send = keyWindow();
+    const before = new InputSource(COOP);
+    send("keydown", "KeyA");
+    send("keydown", "KeyR", { ctrlKey: true });
+    before.destroy();
+    send("keyup", "KeyA");
+    expect(new InputSource(COOP).takeCoopInput()).toMatchObject({ left: false, restart: false });
+    send("keydown", "KeyD");
+    send("blur", "");
+    expect(new InputSource(COOP).takeCoopInput()).toMatchObject({ right: false });
+  });
+
+  it("the race mode's InputSource still starts with no key held", () => {
+    const send = keyWindow();
+    new InputSource(COOP);
+    send("keydown", "ArrowLeft");
+    expect(new InputSource().takeStepInput()).toEqual({ left: false, right: false, jumpHeld: false, jumpPressed: false, down: false });
   });
 });
 

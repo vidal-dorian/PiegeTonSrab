@@ -48,6 +48,38 @@ export interface InputOptions {
   keys?: KeyMap;
   /** Which gamepad: "first" (default) the first connected one, a number for that index, null for none. */
   pad?: number | "first" | null;
+  /**
+   * Start with the keys already held (default false). The co-op scene restarts (new level, new team,
+   * resume) with a new InputSource, which never hears the keydown of a key held through it, and the
+   * OS auto-repeats only the last key pressed: a direction held while tapping jump would be lost.
+   */
+  keepHeldKeys?: boolean;
+}
+
+/**
+ * Keys physically held right now, whatever InputSource exists (or none, e.g. in the lobby). Its
+ * listeners are added once per window: at load, or again when a test swaps the window.
+ */
+const heldKeys = new Set<string>();
+let heldKeysWindow: unknown = null;
+
+function trackHeldKeys(): void {
+  if (typeof window === "undefined" || heldKeysWindow === window) return;
+  heldKeysWindow = window;
+  heldKeys.clear();
+  window.addEventListener("keydown", (e: KeyboardEvent) => {
+    if (!notAGameKey(e)) heldKeys.add(e.code);
+  });
+  window.addEventListener("keyup", (e: KeyboardEvent) => {
+    heldKeys.delete(e.code);
+  });
+  window.addEventListener("blur", () => heldKeys.clear());
+}
+trackHeldKeys();
+
+/** Typing in the tuning panel, or a browser shortcut (Ctrl, Cmd or Alt with a key: Ctrl+R reloads). */
+function notAGameKey(e: KeyboardEvent): boolean {
+  return e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.ctrlKey || e.metaKey || e.altKey;
 }
 
 /** Standard gamepad mapping: Back/Select, held to restart a co-op level. */
@@ -95,11 +127,12 @@ export class InputSource {
     this.downKeys = new Set(keys.down);
     this.restartKeys = new Set(keys.restart);
     this.pad = options.pad === undefined ? "first" : options.pad;
+    trackHeldKeys();
+    // Held, not pressed: no jump or act press, no onKey.
+    if (options.keepHeldKeys) for (const code of heldKeys) this.keysDown.add(code);
     const down = (e: KeyboardEvent) => {
-      // Typing in the tuning panel must not move the character.
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      // Ctrl, Cmd or Alt with a key is a browser shortcut (Ctrl+R reloads), not a game key.
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      // Typing in the tuning panel must not move the character; a browser shortcut is no game key.
+      if (notAGameKey(e)) return;
       // Stop arrows and space from scrolling the page.
       if (this.isGameKey(e.code)) e.preventDefault();
       // An auto-repeat still says the key is held: a key held down while the scene restarted

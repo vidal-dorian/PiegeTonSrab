@@ -362,10 +362,10 @@ export class CoopScene extends Phaser.Scene {
       players.map((p) => ({ name: p.name, isRuben: p.isRuben })),
     );
     if (data.mode === "local") {
-      const inputs = data.localKeys.map((keys) => (keys ? new InputSource({ keys, pad: null }) : null));
+      const inputs = data.localKeys.map((keys) => (keys ? new InputSource({ keys, pad: null, keepHeldKeys: true }) : null));
       this.driver = new LocalDriver(world, inputs, this.names);
     } else {
-      const input = this.mySeat >= 0 ? new InputSource({ keys: COOP_KEYS, pad: "first" }) : null;
+      const input = this.mySeat >= 0 ? new InputSource({ keys: COOP_KEYS, pad: "first", keepHeldKeys: true }) : null;
       this.online = new OnlineDriver(world, data.link, data.level.startsAt, data.level.epoch, input, this.mySeat);
       this.driver = this.online;
     }
