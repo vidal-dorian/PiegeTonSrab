@@ -8,6 +8,7 @@
  * not in a later phase (a later failure would hide an attempt that worked).
  */
 import type { CoopSolution } from "../bots";
+import { shortcuts as coop01Shortcuts, solution as coop01Solution } from "./coop01.solution";
 import { shortcuts as coop03Shortcuts, solution as coop03Solution } from "./coop03.solution";
 
 export interface LevelSolutions {
@@ -16,5 +17,6 @@ export interface LevelSolutions {
 }
 
 export const COOP_SOLUTIONS: Record<string, LevelSolutions> = {
+  coop01: { solution: coop01Solution, shortcuts: coop01Shortcuts },
   coop03: { solution: coop03Solution, shortcuts: coop03Shortcuts },
 };
