@@ -83,7 +83,8 @@ async function main(): Promise<void> {
   let ids = args.filter((a, k) => !a.startsWith("--") && args[k - 1] !== "--players");
   if (args.includes("--all")) {
     ids = readdirSync(levelsDir)
-      .filter((f) => f.endsWith(".ts") && !f.endsWith(".solution.ts") && !f.startsWith("_") && f !== "sandbox.ts")
+      // Campaign levels only: not the solutions, their registry, the sandbox or "_" practice files.
+      .filter((f) => f.endsWith(".ts") && !f.endsWith(".solution.ts") && !f.startsWith("_") && f !== "sandbox.ts" && f !== "solutions.ts")
       .map((f) => f.slice(0, -3))
       .sort();
   }
