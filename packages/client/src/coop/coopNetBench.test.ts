@@ -15,6 +15,7 @@ import {
   BIT_RIGHT,
   COOP_HZ,
   COOP_LEVEL_LEAD_MS,
+  COOP_PROTOCOL_VERSION,
   CoopSession,
   decodeWorld,
   parseCoopLevel,
@@ -157,7 +158,7 @@ describe("co-op network bench (server world, snapshots)", () => {
     const s = new CoopSession(net, "ABCD", [sandboxLevel]);
     net.session = s;
     for (const id of ids) {
-      expect(s.addPlayer(id, id)).toBeNull();
+      expect(s.addPlayer(id, id, COOP_PROTOCOL_VERSION)).toBeNull();
       net.clients.push(id);
     }
     net.up("p0", { type: "coopPlay", index: 0 });
@@ -170,6 +171,7 @@ describe("co-op network bench (server world, snapshots)", () => {
     // stamped with the client's estimate of the server tick (here exact: same clock).
     const taps = new Map<string, number>(ids.map((id) => [id, 0]));
     const startsAt = (level as Extract<CoopServerMessage, { type: "coopLevel" }>).startsAt;
+    const epoch = (level as Extract<CoopServerMessage, { type: "coopLevel" }>).epoch;
     const tickAt = (t: number) => Math.floor(((t - startsAt) * COOP_HZ) / 1000) + 1;
     const lastBeat = new Map<string, number>();
     const pressedAt = new Map<string, number>();
@@ -181,15 +183,15 @@ describe("co-op network bench (server world, snapshots)", () => {
         const newPeriod = k !== (period.get(id) ?? k);
         period.set(id, k);
         if (newPeriod && t - startsAt > 300 && t - startsAt < 9_000) {
-          net.up(id, { type: "coopIn", k: [[tickAt(t), BIT_JUMP | BIT_JUMP_PRESS]] });
+          net.up(id, { type: "coopIn", e: epoch, k: [[tickAt(t), BIT_JUMP | BIT_JUMP_PRESS]] });
           taps.set(id, taps.get(id)! + 1);
           pressedAt.set(id, t);
           lastBeat.set(id, t);
         } else if (pressedAt.has(id) && t - pressedAt.get(id)! === 60) {
-          net.up(id, { type: "coopIn", k: [[tickAt(t), 0]] });
+          net.up(id, { type: "coopIn", e: epoch, k: [[tickAt(t), 0]] });
           lastBeat.set(id, t);
         } else if (t - (lastBeat.get(id) ?? -Infinity) >= 100) {
-          net.up(id, { type: "coopIn", k: [[tickAt(t), 0]] });
+          net.up(id, { type: "coopIn", e: epoch, k: [[tickAt(t), 0]] });
           lastBeat.set(id, t);
         }
       });
@@ -235,7 +237,7 @@ describe("co-op prediction bench (step B)", () => {
     const s = new CoopSession(net, "ABCD", [sandboxLevel]);
     net.session = s;
     for (const id of ids) {
-      expect(s.addPlayer(id, id)).toBeNull();
+      expect(s.addPlayer(id, id, COOP_PROTOCOL_VERSION)).toBeNull();
       net.clients.push(id);
     }
     net.up("p0", { type: "coopPlay", index: 0 });
@@ -245,6 +247,7 @@ describe("co-op prediction bench (step B)", () => {
     const me = seats.findIndex((x) => x.id === "p1");
     const predictor = new CoopPredictor(parseCoopLevel(sandboxLevel, seats.length), seats.map((x) => ({ name: x.name, isRuben: x.isRuben })), me);
     const startsAt = level.startsAt;
+    const epoch = level.epoch;
     const serverTick = (t: number) => Math.floor(((t - startsAt) * COOP_HZ) / 1000);
     // Inputs reach the server 40 to 60 ms later: stamp them half a round trip + 25 ms ahead.
     const lead = predictionLead(100);
@@ -277,9 +280,9 @@ describe("co-op prediction bench (step B)", () => {
             const next = id === "p1" ? predictor.tick + 1 : 0;
             const stamp = Math.max(tick + lead, next, lastStamp.get(id)! + 1);
             lastStamp.set(id, stamp);
-            net.up(id, { type: "coopIn", k: [[stamp, bits | press]] });
+            net.up(id, { type: "coopIn", e: epoch, k: [[stamp, bits | press]] });
             if (id === "p1") predictor.addInput(stamp, bits | press);
-          } else if (t % 96 === 0) net.up(id, { type: "coopIn", k: [] }); // still here: no key change
+          } else if (t % 96 === 0) net.up(id, { type: "coopIn", e: epoch, k: [] }); // still here: no key change
         }
       }
       predictor.advanceTo(tick + lead);

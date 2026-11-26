@@ -11,7 +11,12 @@
  * Inputs: clients send [tick, bits] pairs when their keys change, plus a heartbeat. An input is
  * applied at its tick, or as soon as possible if it arrives late (never dropped); at most one
  * queued change per player per step, so a quick tap is never lost. A player silent for
- * COOP_SILENT_MS (or whose tab is hidden) touches nothing.
+ * COOP_SILENT_MS (or whose tab is hidden) touches nothing until they are heard again.
+ *
+ * Every coopLevel carries the level's epoch, bumped whenever tick 0 is set again (a level start,
+ * a rebuild, a resume, the clock moved after a stall). Clients echo it in their inputs, and inputs
+ * stamped on another epoch's clock are dropped: their ticks mean nothing in this world. A stamp far
+ * ahead of the clock is brought back to it (COOP_STAMP_AHEAD).
  */
 import { MAX_NAME_LENGTH } from "../protocol";
 import { COOP, COOP_HZ } from "./coopTuning";
@@ -54,6 +59,11 @@ export const COOP_TICK_MS = 1000 / 60;
 const MAX_CATCH_UP = 240;
 /** Inputs kept per player waiting for their tick. */
 const MAX_QUEUE = 512;
+/**
+ * An input stamped further ahead of the server's clock than this, ticks, is applied this far ahead
+ * instead: a client's clock estimate and its prediction lead stay well under half a second.
+ */
+export const COOP_STAMP_AHEAD = COOP_HZ / 2;
 
 interface Player {
   id: string;
@@ -69,6 +79,8 @@ interface Player {
   /** Press edges not yet given to the world. */
   presses: number;
   lastInputAt: number;
+  /** When the connection dropped (the reconnection window started), server time. */
+  droppedAt: number;
 }
 
 export class CoopSession {
@@ -82,6 +94,8 @@ export class CoopSession {
   private world: CoopWorld | null = null;
   private seats: CoopSeat[] = [];
   private startsAt = 0;
+  /** Bumped whenever tick 0 is set again: inputs of another epoch are dropped. */
+  private epoch = 0;
   private lastSnapAt = -Infinity;
   private events: CoopRefereeEvent[] = [];
   private pausedFor: string | null = null;
@@ -90,6 +104,8 @@ export class CoopSession {
   private introEndsAt = 0;
   private cast: CoopIntroCast | null = null;
   private introStartedAt = 0;
+  /** The end-of-level card, kept for whoever reconnects in the "select" phase. */
+  private lastCleared: Extract<CoopServerMessage, { type: "coopCleared" }> | null = null;
   private timers: Array<() => void> = [];
   private ticker: (() => void) | null = null;
 
@@ -105,7 +121,7 @@ export class CoopSession {
   // --- Players ------------------------------------------------------------------------------
 
   /** Returns an error message (French, shown to the player) or null if the player joined. */
-  addPlayer(id: string, rawName: string, version: unknown = COOP_PROTOCOL_VERSION): string | null {
+  addPlayer(id: string, rawName: string, version: unknown): string | null {
     if (version !== COOP_PROTOCOL_VERSION) return "Nouvelle version du jeu : recharge la page.";
     if (this.players.size >= COOP.maxPlayers) return `Le salon est plein (${COOP.maxPlayers} joueurs).`;
     const used = new Set([...this.players.values()].map((p) => p.color));
@@ -122,6 +138,7 @@ export class CoopSession {
       held: 0,
       presses: 0,
       lastInputAt: -Infinity,
+      droppedAt: 0,
     });
     if (!this.hostId) this.hostId = id;
     this.broadcastLobby();
@@ -136,8 +153,9 @@ export class CoopSession {
     this.players.delete(id);
     if (this.rubenId === id) this.rubenId = null;
     if (this.hostId === id) {
-      const next = [...this.players.values()].find((q) => q.connected);
-      this.hostId = next?.id ?? "";
+      // A connected player if there is one, else whoever is reconnecting (never nobody).
+      const rest = [...this.players.values()];
+      this.hostId = (rest.find((q) => q.connected) ?? rest[0])?.id ?? "";
     }
     const inWorld = this.seats.some((s) => s.id === id);
     if (this.phase === "level" && inWorld) {
@@ -156,10 +174,13 @@ export class CoopSession {
     const p = this.players.get(id);
     if (!p) return;
     p.connected = connected;
+    if (!connected) p.droppedAt = this.io.now();
     if (!connected && this.hostId === id) {
       const next = [...this.players.values()].find((q) => q.connected);
       if (next) this.hostId = next.id;
     }
+    // Back while the host is away (or gone): the role comes to them.
+    if (connected && this.players.get(this.hostId)?.connected !== true) this.hostId = id;
     if (this.phase === "level" && this.seats.some((s) => s.id === id)) {
       if (!connected) this.pause(id);
       else if (this.pausedFor === id) this.resume();
@@ -205,7 +226,7 @@ export class CoopSession {
         }
         return;
       case "coopIn":
-        this.onInputs(p, msg.k);
+        this.onInputs(p, msg.e, msg.k);
         return;
       case "coopIdle":
         p.queue = [];
@@ -231,11 +252,13 @@ export class CoopSession {
     this.broadcastLobby();
   }
 
-  private onInputs(p: Player, raw: unknown): void {
-    if (!Array.isArray(raw)) return;
+  private onInputs(p: Player, epoch: unknown, raw: unknown): void {
+    // Only a running level takes inputs, and only stamped on its current clock.
+    if (this.phase !== "level" || !this.world || epoch !== this.epoch || !Array.isArray(raw)) return;
+    const horizon = Math.max(0, this.clockTarget(this.world)) + COOP_STAMP_AHEAD;
     for (const pair of raw.slice(0, 64)) {
       if (!Array.isArray(pair)) continue;
-      const tick = Math.floor(num(pair[0]));
+      const tick = Math.min(Math.floor(num(pair[0])), horizon);
       const bits = Math.floor(num(pair[1])) & ALL_BITS;
       p.queue.push([tick, bits]);
     }
@@ -257,11 +280,14 @@ export class CoopSession {
     this.cast = this.drawCast();
     this.introStartedAt = this.io.now();
     this.introEndsAt = this.introStartedAt + COOP_INTRO_MAX_MS;
+    this.lastCleared = null;
+    // The lobby first: a player still on the end-of-level card goes to the lobby screen on it,
+    // and that screen then gets the intro (the card's screen would drop it).
+    this.broadcastLobby();
     this.io.broadcast({ type: "coopIntro", cast: this.cast, startedAt: this.introStartedAt, endsAt: this.introEndsAt });
     this.later(() => {
       if (this.phase === "intro") this.startLevel(0);
     }, COOP_INTRO_MAX_MS);
-    this.broadcastLobby();
   }
 
   private introDoneIds(): string[] {
@@ -270,6 +296,7 @@ export class CoopSession {
 
   private checkIntroDone(): void {
     if (this.phase !== "intro") return;
+    // A player who dropped does not hold the others back: the level starts paused for them.
     const watching = [...this.players.values()].filter((p) => p.connected && !p.waiting);
     if (watching.length > 0 && watching.every((p) => p.introDone)) this.startLevel(0);
   }
@@ -293,20 +320,19 @@ export class CoopSession {
 
   // --- Levels ------------------------------------------------------------------------------------
 
-  /** Players in the next level: connected and not waiting, in seat order. */
+  /**
+   * Players in the next level, in seat order: everyone in the room, including whoever dropped and
+   * is still inside their reconnection window (the level then waits for them).
+   */
   private playing(): Player[] {
-    return [...this.players.values()].filter((p) => p.connected || this.seats.some((s) => s.id === p.id)).sort((a, b) => a.color - b.color);
+    return [...this.players.values()].sort((a, b) => a.color - b.color);
   }
 
   private startLevel(index: number): void {
     this.clearTimers();
-    for (const p of this.players.values()) {
-      p.waiting = false;
-      p.queue = [];
-      p.held = 0;
-      p.presses = 0;
-    }
-    const team = [...this.players.values()].filter((p) => p.connected).sort((a, b) => a.color - b.color);
+    for (const p of this.players.values()) p.waiting = false;
+    this.clearInputs();
+    const team = this.playing();
     if (team.length === 0) {
       this.stopLevel("lobby");
       return;
@@ -328,13 +354,48 @@ export class CoopSession {
     this.phase = "level";
     this.levelIndex = index;
     this.pausedFor = null;
+    this.lastCleared = null;
     this.events = [];
     this.lastSnapAt = -Infinity;
     this.startsAt = this.io.now() + COOP_LEVEL_LEAD_MS;
-    this.io.broadcast({ type: "coopLevel", index, levelId: def.id, seats: this.seats, startsAt: this.startsAt });
+    this.epoch++;
+    this.io.broadcast(this.levelMessage());
     this.sendSnapshot();
     this.ticker = this.io.setInterval(() => this.tick(), COOP_TICK_MS);
     this.broadcastLobby();
+    // Someone of the team dropped and may come back: wait for them from the start.
+    this.pauseForAway();
+  }
+
+  private levelMessage(): Extract<CoopServerMessage, { type: "coopLevel" }> {
+    const index = this.levelIndex;
+    return { type: "coopLevel", index, levelId: this.levels[index]!.id, seats: this.seats, startsAt: this.startsAt, epoch: this.epoch };
+  }
+
+  /** Forget every queued input, held key and press (tick 0 was set again). */
+  private clearInputs(): void {
+    for (const p of this.players.values()) {
+      p.queue = [];
+      p.held = 0;
+      p.presses = 0;
+    }
+  }
+
+  /** The tick the clock says now (the world's own tick while it waits for someone). */
+  private clockTarget(world: CoopWorld): number {
+    if (this.pausedFor) return world.tick;
+    return Math.floor(((this.io.now() - this.startsAt) * COOP_HZ) / 1000);
+  }
+
+  /**
+   * Tick 0 moved: a new epoch, every input stamped on the old clock forgotten, and the new clock
+   * sent to everyone (clients start the level screen over from it).
+   */
+  private clockMoved(): void {
+    this.epoch++;
+    this.clearInputs();
+    this.io.broadcast(this.levelMessage());
+    this.sendSnapshot();
   }
 
   /** The id of who plays Ruben in this team (name rule, then lot). */
@@ -350,6 +411,8 @@ export class CoopSession {
     this.seats = [];
     this.phase = to;
     this.pausedFor = null;
+    this.lastCleared = null;
+    this.clearInputs();
     this.broadcastLobby();
   }
 
@@ -357,8 +420,16 @@ export class CoopSession {
     if (this.pausedFor) return;
     this.pausedFor = id;
     this.pausedAt = this.io.now();
-    this.pauseUntil = this.pausedAt + COOP_RECONNECT_SECONDS * 1000;
+    // Their reconnection window started when they dropped.
+    const droppedAt = this.players.get(id)?.droppedAt ?? this.pausedAt;
+    this.pauseUntil = Math.max(this.pausedAt, droppedAt + COOP_RECONNECT_SECONDS * 1000);
     this.io.broadcast({ type: "coopPause", waitingFor: id, until: this.pauseUntil });
+  }
+
+  /** Wait for the first player of the team who is away, if any. */
+  private pauseForAway(): void {
+    const away = this.seats.find((s) => this.players.get(s.id)?.connected === false);
+    if (away) this.pause(away.id);
   }
 
   private resume(): void {
@@ -367,11 +438,9 @@ export class CoopSession {
     this.startsAt += this.io.now() - this.pausedAt;
     this.pausedFor = null;
     this.io.broadcast({ type: "coopPause", waitingFor: null, until: 0 });
-    this.io.broadcast({ type: "coopLevel", index: this.levelIndex, levelId: this.levels[this.levelIndex]!.id, seats: this.seats, startsAt: this.startsAt });
-    this.sendSnapshot();
+    this.clockMoved();
     // Someone else of the team is still away: wait for them now.
-    const away = this.seats.find((s) => this.players.get(s.id)?.connected === false);
-    if (away) this.pause(away.id);
+    this.pauseForAway();
   }
 
   /** Step the world up to the tick the clock says; send a snapshot when one is due. */
@@ -380,11 +449,13 @@ export class CoopSession {
     if (!world || this.phase !== "level") return;
     const now = this.io.now();
     if (this.pausedFor) return;
-    let target = Math.floor(((now - this.startsAt) * COOP_HZ) / 1000);
+    let target = this.clockTarget(world);
     if (target - world.tick > MAX_CATCH_UP) {
-      // Far behind (the server stalled): move the clock instead of fast-forwarding the game.
+      // Far behind (the server stalled): move the clock instead of fast-forwarding the game,
+      // and tell everyone, or every input would be stamped that far in the server's future.
       this.startsAt += ((target - world.tick - MAX_CATCH_UP) * 1000) / COOP_HZ;
       target = world.tick + MAX_CATCH_UP;
+      this.clockMoved();
     }
     while (world.tick < target && this.world === world) this.step(world, now);
     if (this.world === world && now - this.lastSnapAt >= COOP_SNAPSHOT_MS - 1) this.sendSnapshot();
@@ -401,11 +472,9 @@ export class CoopSession {
         p.held = next[1] & HELD_BITS;
         p.presses |= next[1] & PRESS_BITS;
       }
-      if (!p.connected || now - p.lastInputAt > COOP_SILENT_MS) {
-        p.held = 0;
-        p.presses = 0;
-      }
-      const b = p.held | p.presses;
+      // A silent player touches nothing for this step; their keys are kept for when they are
+      // heard again (a client only sends changes, so erasing them would stop a held key for good).
+      const b = this.silent(p, now) ? 0 : p.held | p.presses;
       p.presses = 0;
       return b;
     });
@@ -422,7 +491,7 @@ export class CoopSession {
   private cleared(world: CoopWorld): void {
     this.sendSnapshot();
     const def = this.levels[this.levelIndex]!;
-    this.io.broadcast({
+    const card: Extract<CoopServerMessage, { type: "coopCleared" }> = {
       type: "coopCleared",
       index: this.levelIndex,
       levelId: def.id,
@@ -430,9 +499,11 @@ export class CoopSession {
       attempts: world.attempt,
       seconds: Math.round(world.tick / COOP_HZ),
       titles: coopTitles(world.stats),
-    });
+    };
+    this.io.broadcast(card);
     const next = Math.min(this.levelIndex + 1, this.levels.length - 1);
     this.stopLevel("select");
+    this.lastCleared = card;
     this.levelIndex = next;
     this.broadcastLobby();
   }
@@ -445,9 +516,18 @@ export class CoopSession {
     this.events = [];
   }
 
-  /** Each seat's held bits at the world's current tick. */
+  /** Whether the world treats this player as touching nothing (dropped, or not heard lately). */
+  private silent(p: Player, now: number): boolean {
+    return !p.connected || now - p.lastInputAt > COOP_SILENT_MS;
+  }
+
+  /** Each seat's held bits at the world's current tick, as the world uses them. */
   private heldBits(): number[] {
-    return this.seats.map((s) => this.players.get(s.id)?.held ?? 0);
+    const now = this.io.now();
+    return this.seats.map((s) => {
+      const p = this.players.get(s.id);
+      return p && !this.silent(p, now) ? p.held : 0;
+    });
   }
 
   /** Each seat's input changes received but not applied yet (at most 16), in the order they will apply. */
@@ -480,9 +560,9 @@ export class CoopSession {
       this.io.send(id, { type: "coopIntro", cast: this.cast, startedAt: this.introStartedAt, endsAt: this.introEndsAt });
       this.io.send(id, { type: "coopIntroStatus", done: this.introDoneIds() });
     }
+    if (this.phase === "select" && this.lastCleared) this.io.send(id, this.lastCleared);
     if (this.phase === "level" && this.world) {
-      const def = this.levels[this.levelIndex]!;
-      this.io.send(id, { type: "coopLevel", index: this.levelIndex, levelId: def.id, seats: this.seats, startsAt: this.startsAt });
+      this.io.send(id, this.levelMessage());
       this.io.send(id, { type: "coopSnap", tick: this.world.tick, world: encodeWorld(this.world.save()), events: [], held: this.heldBits(), pending: this.pendingInputs() });
       if (this.pausedFor) this.io.send(id, { type: "coopPause", waitingFor: this.pausedFor, until: this.pauseUntil });
     }

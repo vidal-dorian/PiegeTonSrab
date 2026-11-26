@@ -410,6 +410,24 @@ Rope and inputs after the M1 review (2026-11-26, 15 confirmed findings fixed):
   already queued for them (`coopSnap.pending`), and replays from each snapshot. Bench: at 50 ms one way with
   three players changing keys every ~200 ms, 95 % of the own body's corrections stay under 0.06 cell.
 
+Room and clock after the M3 network review (protocol version 4):
+
+- Level epochs: every `coopLevel` carries an `epoch`, bumped whenever tick 0 is set again (a level start, a
+  rebuild, a resume, the clock moved after a server stall, which is now broadcast like a resume). Clients echo
+  it in every `coopIn`; the server drops inputs of another epoch, clamps stamps to at most half a second
+  ahead of its clock, ignores inputs outside a level, and forgets every queued input and held key whenever
+  tick 0 moves. While the world waits for a dropped player the client reads its keys but sends heartbeats
+  only (`packages/client/src/coop/net/inputSender.ts`); a new `coopLevel` starts the screen over, so the keys
+  still held are sent again.
+- A silent player (no message for 250 ms) touches nothing for those steps, but their held keys are kept.
+- A dropped player inside their 30 s window stays in a rebuilt team and in the level after the intro; the
+  level starts paused for them. The host role never goes to nobody: when the host leaves and everyone else
+  is reconnecting, it goes to a remaining player, and whoever comes back while the host is away takes it.
+- A reconnection in the "select" phase gets the end-of-level card again; the intro's `coopLobby` goes out
+  before `coopIntro`, so a player still on the card's screen gets the intro. A join without a version is
+  refused.
+- `BaseLink.setHandler` hands queued messages over one at a time and stops when the handler steps down.
+
 Merging `main` later: since this branch started, `main` changed `OnlineLink.connect` (comeback player key,
 `?salon=` remembered in the URL). The co-op join goes through `joinRoom` in `packages/client/src/net/link.ts`,
 which bypasses `connect`: when merging, give `joinRoom` the same join options (`key: playerKey()`) and URL

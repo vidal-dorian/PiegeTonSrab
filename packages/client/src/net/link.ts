@@ -40,10 +40,9 @@ export abstract class BaseLink<S = ServerMessage> {
 
   setHandler(handler: ((msg: S) => void) | null): void {
     this.handler = handler;
-    if (!handler) return;
-    const pending = this.queue;
-    this.queue = [];
-    for (const m of pending) handler(m);
+    // One message at a time: a message can make its handler step down (a scene switch), and what
+    // is left then waits for the next handler instead of going to the one that left.
+    while (handler && this.handler === handler && this.queue.length > 0) handler(this.queue.shift()!);
   }
 
   protected deliver(msg: S): void {

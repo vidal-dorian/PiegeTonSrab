@@ -21,9 +21,7 @@ import {
   deathQuip,
   decodeWorld,
   encodeInput,
-  HELD_BITS,
   parseCoopLevel,
-  PRESS_BITS,
   RESTART_HOLD_STEPS,
   terminalQuip,
   type CoopEvent,
@@ -44,6 +42,7 @@ import { Stains } from "../render/stains";
 import { overlay } from "../ui/overlay";
 import { GroupCamera } from "./groupCamera";
 import type { CoopLink } from "./net/coopLink";
+import { CoopInputSender } from "./net/inputSender";
 import { loadCleared, markCleared } from "./progress";
 import { CoopBodyView } from "./render/coopBodyView";
 import { stackLabels } from "./render/labelLayout";
@@ -62,8 +61,6 @@ export const COOP_SCENE_KEY = "coop";
 const MAX_FRAME = 0.25;
 /** Online: the world is drawn this many ticks behind the server (1.5 snapshot intervals). */
 const INTERP_TICKS = 6;
-/** Online: an input is sent at least this often, so the server knows the player is there, ms. */
-const HEARTBEAT_MS = 100;
 /** Two presses of Échap within this long leave the game, ms. */
 const QUIT_CONFIRM_MS = 2000;
 /** The level card stays this long when a level starts, ms. */
@@ -190,29 +187,26 @@ class OnlineDriver implements Driver {
   private events: ShownEvent[] = [];
   private seen = new Set<string>();
   private sampleAcc = 0;
-  private lastHeld = 0;
-  private pending: Array<[number, number]> = [];
-  private lastStamp = 0;
-  private lastSentAt = -Infinity;
+  private sender: CoopInputSender;
   /** Tick of the snapshot loaded into the world (-1: none). */
   private loaded = -1;
   private drawnHeld: number[] = [];
   private out: PropFrame;
   private onVisibility = () => {
-    if (document.hidden) {
-      this.link.send({ type: "coopIdle" });
-      this.lastHeld = 0;
-    }
+    if (document.hidden) this.sender.idle();
   };
 
   constructor(
     readonly world: CoopWorld,
     private link: CoopLink,
     private startsAt: number,
+    /** The coopLevel's epoch, echoed in every input. */
+    epoch: number,
     private input: InputSource | null,
     private mySeat: number,
   ) {
     this.out = captureFrame(world);
+    this.sender = new CoopInputSender((msg) => link.send(msg), epoch, () => this.serverTick());
     document.addEventListener("visibilitychange", this.onVisibility);
   }
 
@@ -246,40 +240,16 @@ class OnlineDriver implements Driver {
       this.sampleAcc = Math.min(this.sampleAcc + dt, 8 * COOP_DT);
       while (this.sampleAcc >= COOP_DT) {
         this.sampleAcc -= COOP_DT;
-        this.sample();
+        this.sender.sample(encodeInput(this.input.takeCoopInput()));
       }
-      this.flush();
+      this.sender.flush(performance.now());
     }
     this.place();
   }
 
-  /**
-   * Read this step's keys; queue a change (or a press) for the server. Stamps strictly increase:
-   * the server applies one change per step, so two changes on one tick would land a step apart.
-   */
-  private sample(): void {
-    const bits = encodeInput(this.input!.takeCoopInput());
-    const held = bits & HELD_BITS;
-    if ((bits & PRESS_BITS) !== 0 || held !== this.lastHeld) {
-      const stamp = Math.max(this.applyTick(), this.lastStamp + 1);
-      this.lastStamp = stamp;
-      this.pending.push([stamp, bits]);
-      this.lastHeld = held;
-    }
-  }
-
-  /** Step A: inputs are applied as soon as the server gets them. */
-  private applyTick(): number {
-    return Math.max(1, Math.ceil(this.serverTick()) + 1);
-  }
-
-  private flush(): void {
-    const now = performance.now();
-    if (this.pending.length === 0 && now - this.lastSentAt < HEARTBEAT_MS) return;
-    // With no change, an empty message only says "still here" (it must not take a change's step).
-    this.link.send({ type: "coopIn", k: this.pending });
-    this.pending = [];
-    this.lastSentAt = now;
+  /** The world waits for a dropped player (true) or goes on (false): keys are not sent meanwhile. */
+  setPaused(paused: boolean): void {
+    this.sender.setPaused(paused);
   }
 
   /** The snapshots around the drawing time: the later one in the world, the frame blended. */
@@ -317,7 +287,7 @@ class OnlineDriver implements Driver {
   restartHolders(): number[] {
     const out = this.drawnHeld.flatMap((bits, i) => ((bits & BIT_RESTART) !== 0 ? [i] : []));
     // This player's own R shows at once.
-    if (this.mySeat >= 0 && (this.lastHeld & BIT_RESTART) !== 0 && !out.includes(this.mySeat)) out.push(this.mySeat);
+    if (this.mySeat >= 0 && (this.sender.held & BIT_RESTART) !== 0 && !out.includes(this.mySeat)) out.push(this.mySeat);
     return out.sort((x, y) => x - y);
   }
 
@@ -402,7 +372,7 @@ export class CoopScene extends Phaser.Scene {
       this.driver = new LocalDriver(world, inputs, this.names);
     } else {
       const input = this.mySeat >= 0 ? new InputSource({ keys: COOP_KEYS, pad: "first" }) : null;
-      this.online = new OnlineDriver(world, data.link, data.level.startsAt, input, this.mySeat);
+      this.online = new OnlineDriver(world, data.link, data.level.startsAt, data.level.epoch, input, this.mySeat);
       this.driver = this.online;
     }
 
@@ -480,15 +450,19 @@ export class CoopScene extends Phaser.Scene {
         this.online?.onSnapshot(msg);
         return;
       case "coopLevel":
-        // A new level, a new team, or the clock moved (after a pause): start over from it.
+        // A new level, a new team, or the clock moved (after a pause or a server stall): start
+        // over from it (new epoch, and nothing counts as sent).
         data.link.setHandler(null);
         this.scene.restart({ ...data, level: msg });
         return;
       case "coopPause":
         this.pausedFor = msg.waitingFor;
+        // No key change is sent while the world waits: it would be stamped on the old clock.
+        this.online?.setPaused(msg.waitingFor !== null);
         if (msg.waitingFor) {
           const who = data.lobby?.players.find((p) => p.id === msg.waitingFor)?.name ?? "un joueur";
-          coopBanner.show(`En attente de ${who}…`, "Sa connexion a sauté : on l'attend 30 secondes.");
+          const seconds = Math.max(1, Math.round((msg.until - data.link.serverNow()) / 1000));
+          coopBanner.show(`En attente de ${who}…`, `Sa connexion a sauté : on l'attend ${seconds} seconde${seconds > 1 ? "s" : ""}.`);
         } else coopBanner.hide();
         return;
       case "coopCleared":

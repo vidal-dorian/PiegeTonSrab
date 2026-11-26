@@ -14,7 +14,7 @@ export const COOP_ROOM_NAME = "coop";
  * Bumped whenever the co-op rules or messages change: every machine must simulate the same world,
  * so a tab still running an older build is refused with a message asking to reload.
  */
-export const COOP_PROTOCOL_VERSION = 3;
+export const COOP_PROTOCOL_VERSION = 4;
 /**
  * The server stops waiting for the story intro after this long, milliseconds: its length (87 s,
  * INTRO_DURATION_S on the client) plus 10 s for whoever paused on a frame or joined late.
@@ -79,8 +79,12 @@ export type CoopServerMessage =
   /** The story intro: every player watches it on their own computer. */
   | { type: "coopIntro"; cast: CoopIntroCast; startedAt: number; endsAt: number }
   | { type: "coopIntroStatus"; done: string[] }
-  /** A level starts (or restarts with a new team): tick 0 happens at server time `startsAt`. */
-  | { type: "coopLevel"; index: number; levelId: string; seats: CoopSeat[]; startsAt: number }
+  /**
+   * A level starts (or restarts with a new team, or its clock moved after a pause or a stall):
+   * tick 0 happens at server time `startsAt`. `epoch` changes with every such message; inputs
+   * carry it back, and the server drops those stamped on another epoch's clock.
+   */
+  | { type: "coopLevel"; index: number; levelId: string; seats: CoopSeat[]; startsAt: number; epoch: number }
   /**
    * The world at `tick`: encodeWorld bytes, the referee's events since the last snapshot, each
    * seat's held input bits at that tick, and the input changes the server already received for
@@ -111,8 +115,11 @@ export type CoopClientMessage =
   | { type: "coopPlay"; index: number }
   /** The intro ended or was skipped on this computer. */
   | { type: "coopIntroDone" }
-  /** Inputs: [tick, bits] pairs, oldest first; bits are inputBits.ts values. */
-  | { type: "coopIn"; k: Array<[number, number]> }
+  /**
+   * Inputs: [tick, bits] pairs, oldest first; bits are inputBits.ts values. `e` is the epoch of
+   * the coopLevel whose clock stamped them (an empty list is a heartbeat). Ignored outside a level.
+   */
+  | { type: "coopIn"; e: number; k: Array<[number, number]> }
   /** The tab was hidden: touch nothing until the next input. */
   | { type: "coopIdle" }
   /** Host: back to the lobby. */
