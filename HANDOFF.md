@@ -392,6 +392,15 @@ Rope and inputs after the M1 review (2026-11-26, 15 confirmed findings fixed):
   for the link to a friend hanging below it: it only slides, at 0.15 cells/s per unit of mass hanging below
   it in the whole chain, unless it pushes away. A body climbs over a lip only while the rope actually lifts
   it. The rope lifts at most at the haul speed but never cuts a body's own jump.
+- Chains of three or more (second review round): a link whose straight line cuts through the terrain
+  bends over one terrain corner; a friend pressed against the wall under that lip is pulled up the wall
+  towards it (its length is still counted centre to centre). A body in the air pulled into a wall slides
+  along it when the link is at least 30° steep. A body holding a friend below it does not move for that
+  link when it is held itself (standing, or hanging from a friend higher up), so a haul passes down the
+  whole chain; a body rises no faster than what hangs below it or stands on it. The rope undoes this
+  step's moves of whoever is right behind a body it pulls back, or under it (a train, a carrier), never
+  pushing anyone further. The mantle needs someone up the rope walking away (directly or through
+  friends standing still). A pile lifted under a ceiling rises only as far as its top can follow.
 - Holding R is part of the world's inputs: the world counts the holders (one player, half the team from 3),
   restarts after 1.5 s and says who held it; the count is in the snapshots.
 - Inputs are stamped with strictly increasing ticks (the server applies one change per step) and the

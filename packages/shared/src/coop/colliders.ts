@@ -61,6 +61,11 @@ export interface CoopSpace {
   canStandOn(lander: number, body: number): boolean;
   /** Whether something (a body or a crate) stands on body i right now. */
   hasRiderNow(i: number): boolean;
+  /**
+   * How far up (at most `want`, >= 0) everything standing on node `base` can follow it: a pile
+   * lifted under a ceiling rises only as far as its top can go, so a base never moves into its rider.
+   */
+  riderRoom(base: number, want: number): number;
 }
 
 /** Strict overlap of two intervals (touching is not overlapping). */

@@ -63,6 +63,8 @@ export interface CoopBodyState {
 
 /** How far below the top of a wall a hauled body's feet can be and still climb over it, cells. */
 export const MANTLE_REACH = 0.6;
+/** A mantle lifts the feet this far above the top, so the next step's fall does not catch them on the lip. */
+const MANTLE_CLEAR = 0.02;
 
 export class CoopController extends CharacterController {
   /** Index of this body in the world (its place in the rope chain). */
@@ -222,6 +224,7 @@ export class CoopController extends CharacterController {
     const y0 = this.y;
     let limit = dy;
     let hit: BoxCollider | null = null;
+    let riderBlocked = false;
     for (const c of space.colliders) {
       if (c.off || c.body === this.index) continue;
       if (!spansOverlap(this.x, w, c.x, c.w)) continue;
@@ -235,7 +238,7 @@ export class CoopController extends CharacterController {
         }
       } else {
         if (c.mode !== "solid") continue;
-        // Moving up never bumps into what stands on us: the world carries it along instead.
+        // Moving up never bumps into what stands on us: the world carries it along instead (riderRoom).
         if (c.node >= 0 && space.ridesOn(c.node, this.index)) continue;
         const gap = c.y + c.h - y0;
         if (gap <= EPS && gap > limit) {
@@ -244,11 +247,25 @@ export class CoopController extends CharacterController {
         }
       }
     }
+    // Moving up carries whoever stands on us: never further than they can follow (a ceiling above them).
+    if (dy < 0 && limit < 0) {
+      const room = space.riderRoom(this.index, -limit);
+      if (room < -limit) {
+        limit = -room;
+        hit = null;
+        riderBlocked = true;
+      }
+    }
     const vyBefore = this.vy;
     // The grid moves the clamped distance only, so its side effects (spring bounce, corner
     // correction) never happen beyond a dynamic contact.
     if (super.moveY(limit)) {
       if (dy > 0) this.impactVy = vyBefore;
+      return true;
+    }
+    if (riderBlocked) {
+      this.rising = false;
+      this.vy = 0;
       return true;
     }
     if (!hit) return false;
@@ -312,7 +329,7 @@ export class CoopController extends CharacterController {
     const feet = this.y + h;
     for (let r = Math.ceil(feet - MANTLE_REACH); r < feet - EPS; r++) {
       if (!isSolidCell(this.level, col, r) || isSolidCell(this.level, col, r - 1)) continue;
-      const rise = Math.min(feet - r + 1e-4, maxRise);
+      const rise = Math.min(feet - r + MANTLE_CLEAR, maxRise);
       if (boxOverlapsSolid(this.level, this.x, this.y - rise, w, h)) return 0;
       return rise;
     }

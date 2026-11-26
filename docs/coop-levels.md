@@ -61,7 +61,7 @@ Units are cells and seconds. A body is 0.8 wide and 0.9 high.
 | Ruben | weighs 2 (plates, seesaws, balances), pushes like 2, has a rope mass of 2; nobody can stand on him (he slides off and squashes the friend), he can carry friends |
 | Carrying | whoever carries someone (or a crate) cannot jump; nobody jumps off a base that is in the air |
 | Walls | no wall jump, no wall slide |
-| Hauling | walking away from a friend who hangs below hauls them up at most 2.5 cells/s (Ruben 1.2): about 2 to 3 s for a 3-cell wall; a hauled body climbs over a lip once its feet are within 0.6 of the top |
+| Hauling | walking away from a friend who hangs below hauls them up at most 2.5 cells/s (Ruben 1.2): about 2 to 3 s for a 3-cell wall; a hauled body climbs over a lip once its feet are within 0.6 of the top. A pull passes through friends standing still in the middle of the chain; a friend who has Ruben hanging below rises at Ruben's speed. A walker held by the rope never outruns it, not even with a friend right behind it or on its head |
 | Anchoring | an idle anchor slides towards the void at 0.15 cells/s per hanging mass (a friend 1, Ruben 2); walking away holds (and hauls) |
 | Swinging | left/right pumps a hanging swing, at most 70° from vertical; an idle swing dies down |
 | Riders | whoever stands on a body moves with it: nobody walks out from under a friend |
