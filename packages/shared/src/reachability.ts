@@ -369,6 +369,30 @@ export function reachableFrom(graph: ReachGraph, from: number, blockedCells: Rea
   return false;
 }
 
+/** Every explored node from which the finish can be reached without crossing `blockedCells`. */
+function cellsReachingFinish(graph: ReachGraph, blockedCells: ReadonlySet<number>): Set<number> {
+  const into = new Map<number, number[]>();
+  for (const [from, edges] of graph.edges) {
+    for (const e of edges) {
+      if (crosses(e.cells, blockedCells)) continue;
+      const list = into.get(e.to);
+      if (list) list.push(from);
+      else into.set(e.to, [from]);
+    }
+  }
+  const seen = new Set<number>();
+  const queue = [FINISH];
+  while (queue.length > 0) {
+    const node = queue.pop()!;
+    for (const prev of into.get(node) ?? []) {
+      if (seen.has(prev)) continue;
+      seen.add(prev);
+      queue.push(prev);
+    }
+  }
+  return seen;
+}
+
 function crosses(cells: ReadonlySet<number>, blocked: ReadonlySet<number>): boolean {
   for (const b of blocked) if (cells.has(b)) return true;
   return false;
@@ -420,12 +444,42 @@ export class PathGuard {
     if (!this.graph.reachable) return true;
     const blocked = new Set(this.blocked);
     for (const c of this.footprint(candidate)) blocked.add(c);
+    // Two backward sweeps from the finish, however many cells are asked about.
+    const before = cellsReachingFinish(this.graph, this.blocked);
+    const after = cellsReachingFinish(this.graph, blocked);
     for (const from of fromCells) {
-      if (!this.graph.edges.has(from)) continue;
-      if (!reachableFrom(this.graph, from, this.blocked)) continue;
-      if (!reachableFrom(this.graph, from, blocked)) return false;
+      if (before.has(from) && !after.has(from)) return false;
     }
     return true;
+  }
+
+  /**
+   * Stand cells reachable from `fromCells` in at most `hops` moves of the graph (walking one
+   * cell, a jump, a fall...), keeping only those `keep` accepts and walking only through
+   * them. Includes the known cells of `fromCells` themselves.
+   */
+  cellsWithin(fromCells: readonly number[], hops: number, keep: (cell: number) => boolean): number[] {
+    const seen = new Set<number>();
+    let frontier: number[] = [];
+    for (const c of fromCells) {
+      if (this.graph.edges.has(c) && !seen.has(c)) {
+        seen.add(c);
+        frontier.push(c);
+      }
+    }
+    for (let h = 0; h < hops && frontier.length > 0; h++) {
+      const next: number[] = [];
+      for (const node of frontier) {
+        for (const e of this.graph.edges.get(node) ?? []) {
+          if (e.to === FINISH || seen.has(e.to) || !keep(e.to)) continue;
+          if (crosses(e.cells, this.blocked)) continue;
+          seen.add(e.to);
+          next.push(e.to);
+        }
+      }
+      frontier = next;
+    }
+    return [...seen];
   }
 
   /** Whether the path graph has explored this stand cell (y * width + x), i.e. it is reachable from the start. */

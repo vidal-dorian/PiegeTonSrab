@@ -7,7 +7,7 @@
  * The Colyseus room on the server wraps it, and the offline solo mode runs the very same
  * class inside the browser.
  */
-import { bodyInSpawnZone, isSolidCell, parseLevel, type Level, type LevelDefinition } from "./level";
+import { bodyInSpawnZone, isSolidCell, parseLevel, SPAWN_CONTACT_MARGIN, type Level, type LevelDefinition } from "./level";
 import { DEFAULT_MOVEMENT } from "./movement/tuning";
 import {
   defaultDir,
@@ -666,9 +666,11 @@ export class GameSession {
     // 1. Not within BLOCK_CLEARANCE cells of a living player's body: the block appears
     //    TIMING.blockDelay after this, and the pose is a little old, so the player may have
     //    moved closer meanwhile.
-    // 2. The finish stays reachable from where each living player is: the cell they stand
-    //    on, or, in mid-air, the cells they would land on falling straight down, and the last
-    //    cell they were seen standing on.
+    // 2. The finish stays reachable from where each living player is and from anywhere they
+    //    could get to before the block turns solid: the cell they stand on or would land on
+    //    falling straight down, the last cell they were seen standing on, and the stand
+    //    cells they can reach from there in the time the block takes to appear
+    //    (BLOCK_LOOKAHEAD), so a block can't close a dead end they are running into.
     // 3. A player the path graph can't place (on a vine, somewhere the graph never reached)
     //    gets a wider clearance instead, since the path check can't speak for them.
     const collision = withSolidObjects(this.level, this.raceGuard.objects);
@@ -678,8 +680,8 @@ export class GameSession {
       if (blockNearBody(q.pose, x, y, BLOCK_CLEARANCE)) return refuse("Trop près d'un joueur.");
       const cells = landingCellsOf(q.pose, collision).filter((c) => this.raceGuard!.knowsCell(c));
       if (cells.length === 0 && blockNearBody(q.pose, x, y, BLOCK_CLEARANCE_UNKNOWN)) return refuse("Trop près d'un joueur.");
-      from.push(...cells);
-      if (q.lastStandCell >= 0) from.push(q.lastStandCell);
+      if (q.lastStandCell >= 0) cells.push(q.lastStandCell);
+      from.push(...reachableSoon(q.pose, cells, this.level, this.raceGuard));
     }
     if (!this.raceGuard.keepsPathFrom(from, block)) return refuse("Enfermerait un joueur.");
     if (!this.raceGuard.tryAdd(block)) return refuse("Bloquerait le chemin vers l'arrivée.");
@@ -704,8 +706,11 @@ export class GameSession {
       // Players never touch each other in the start zone (decided 2026-11-26).
       if (this.level) {
         const m = DEFAULT_MOVEMENT;
-        if (bodyInSpawnZone(this.level, p.pose.x, p.pose.y, m.bodyWidth, m.bodyHeight)) return;
-        if (bodyInSpawnZone(this.level, victim.pose.x, victim.pose.y, m.bodyWidth, m.bodyHeight)) return;
+        // Shrunk by the lag allowance: only bodies clearly inside, so a stomp a client sent from
+        // just outside is not dropped because the pose here is a little old.
+        const k = -SPAWN_CONTACT_MARGIN;
+        if (bodyInSpawnZone(this.level, p.pose.x, p.pose.y, m.bodyWidth, m.bodyHeight, k)) return;
+        if (bodyInSpawnZone(this.level, victim.pose.x, victim.pose.y, m.bodyWidth, m.bodyHeight, k)) return;
       }
     }
     const now = this.io.now();
@@ -893,9 +898,36 @@ function cleanDir(v: unknown, kind: ObjectKind): Dir {
 }
 
 /** No dead player's block within this many cells of a living player's body. */
-const BLOCK_CLEARANCE = 2;
+export const BLOCK_CLEARANCE = 2;
 /** The same, for a living player the path graph can't place (see onBlock). */
 const BLOCK_CLEARANCE_UNKNOWN = 4;
+
+/**
+ * How far a running player may get before a dead player's block turns solid: TIMING.blockDelay
+ * plus the age of the pose and the network delay, about 0.45 s. That is up to 4 cells
+ * sideways at run speed, a jump up, a fall down; and a few moves of the path graph.
+ */
+const BLOCK_LOOKAHEAD = { side: 4, up: 3, down: 10, hops: 5 };
+
+/**
+ * Stand cells a living player at `pose`, starting from `cells`, may get to before a block
+ * turns solid: within BLOCK_LOOKAHEAD.hops moves of the path graph, inside the box
+ * BLOCK_LOOKAHEAD draws around the body.
+ */
+function reachableSoon(pose: PlayerPose, cells: readonly number[], level: Level, guard: PathGuard): number[] {
+  const m = DEFAULT_MOVEMENT;
+  const L = BLOCK_LOOKAHEAD;
+  const x0 = Math.floor(pose.x) - L.side;
+  const x1 = Math.floor(pose.x + m.bodyWidth) + L.side;
+  const y0 = Math.floor(pose.y) - L.up;
+  const y1 = Math.floor(pose.y + m.bodyHeight) + L.down;
+  const inBox = (cell: number) => {
+    const cx = cell % level.width;
+    const cy = Math.floor(cell / level.width);
+    return cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1;
+  };
+  return guard.cellsWithin(cells, L.hops, inBox);
+}
 
 /** Whether the cell (x, y) is within `margin` cells of the body at `pose` (box grown by margin on every side). */
 function blockNearBody(pose: PlayerPose, x: number, y: number, margin: number): boolean {

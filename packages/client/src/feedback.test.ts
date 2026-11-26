@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canPlaceAt, DEFAULT_MOVEMENT, OBJECT_KINDS, parseLevel, PathGuard, prepareObjects, type LevelDefinition } from "@game/shared";
+import { canPlaceObject, DEFAULT_MOVEMENT, OBJECT_KINDS, parseLevel, PathGuard, prepareObjects, type LevelDefinition } from "@game/shared";
 import { findRoom, findRoomNow } from "./sim/placementRoom";
 import { noRoomText, refusedText, unplacedText } from "./ui/feedback";
 
@@ -31,6 +31,21 @@ describe("placement feedback texts", () => {
       "Tes 2 Scies et ton Ressort ont été refusés : avec les objets des autres, ils auraient bloqué le chemin.",
     ]);
     expect(refusedText([])).toEqual([]);
+  });
+
+  it("says when spikes lost the block they leaned on", () => {
+    expect(refusedText([{ kind: "spikes", reason: "support" }])).toEqual([
+      "Tes Pics ont été refusés : le bloc contre lequel ils étaient posés n'était plus là.",
+    ]);
+    expect(refusedText([{ kind: "spikes", reason: "support" }, { kind: "spikes", reason: "support" }])).toEqual([
+      "Tes 2 Pics ont été refusés : le bloc contre lequel ils étaient posés n'était plus là.",
+    ]);
+    // With other reasons: one sentence each, "support" after "path" and "taken".
+    expect(refusedText([{ kind: "spikes", reason: "support" }, { kind: "saw", reason: "path" }, { kind: "eraser", reason: "gone" }])).toEqual([
+      "Ta Scie a été refusée : avec les objets des autres, elle aurait bloqué le chemin.",
+      "Tes Pics ont été refusés : le bloc contre lequel ils étaient posés n'était plus là.",
+      "Ta Gomme a été perdue : un autre joueur avait déjà gommé cet objet.",
+    ]);
   });
 
   it("says how many objects were not placed in time, and which when known", () => {
@@ -81,7 +96,8 @@ describe("findRoom (is there a cell left for this object?)", () => {
       // Stops at the first accepted cell (the quick check), well before scanning the map.
       expect(steps).toBeLessThan(5);
       const guard = new PathGuard(level, objects, DEFAULT_MOVEMENT);
-      expect(canPlaceAt(level, guard.objects, found!.x, found!.y) && guard.tryAdd({ ...found!, id: 1 })).toBe(true);
+      // The session's own rule, support of spikes included (findRoom tries every direction).
+      expect(canPlaceObject(level, guard.objects, found!) && guard.tryAdd({ ...found!, id: 1 })).toBe(true);
     }
   });
 

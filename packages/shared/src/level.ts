@@ -150,7 +150,7 @@ export function spawnPadCells(level: Level): number[] {
 
 /**
  * Ground a pad cell may stand on: terrain or a map platform. Not a spring (it would bounce
- * players off the pad) nor spikes or a saw (not solid, and deadly).
+ * players off the pad) nor spikes (a deadly top) or a saw (not solid, and deadly).
  */
 function isPadGround(level: Level, x: number, y: number): boolean {
   return isSolidCell(level, x, y) || level.initialObjects.some((o) => o.kind === "platform" && o.x === x && o.y === y);
@@ -261,10 +261,25 @@ export function protectedZones(level: Level): Array<{ kind: "start" | "finish"; 
   return zones.filter((z) => z.w > 0 && z.h > 0);
 }
 
-/** Whether a body box (cells, top-left corner) overlaps the start zone: players don't touch each other there. */
-export function bodyInSpawnZone(level: Level, x: number, y: number, w: number, h: number): boolean {
-  const [x0, x1] = cellSpan(x, w);
-  const [y0, y1] = cellSpan(y, h);
+/**
+ * Lag allowance, cells, for the no-contact rule of the start zone. A client sees the others
+ * about 100 ms late and the server sees poses up to 50 ms old, so near the edge they could
+ * disagree on who is inside. Clients test with the body grown by this much (they stay out of
+ * contacts a little longer), the server with the body shrunk by it (it refuses a stomp only
+ * when the body is clearly inside): a stomp a client sends is never one the server drops.
+ */
+export const SPAWN_CONTACT_MARGIN = 0.5;
+
+/**
+ * Whether a body box (cells, top-left corner) overlaps the start zone: players don't touch
+ * each other there. `margin` grows the box on every side (negative shrinks it, down to its
+ * centre).
+ */
+export function bodyInSpawnZone(level: Level, x: number, y: number, w: number, h: number, margin = 0): boolean {
+  const bw = Math.max(0.01, w + 2 * margin);
+  const bh = Math.max(0.01, h + 2 * margin);
+  const [x0, x1] = cellSpan(x + (w - bw) / 2, bw);
+  const [y0, y1] = cellSpan(y + (h - bh) / 2, bh);
   for (let cy = y0; cy <= y1; cy++) {
     for (let cx = x0; cx <= x1; cx++) if (isSpawnZoneCell(level, cx, cy)) return true;
   }

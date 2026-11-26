@@ -10,6 +10,7 @@ import {
   CharacterController,
   DEFAULT_MOVEMENT,
   isSpawnPadCell,
+  isSpawnZoneCell,
   MAX_PLAYERS,
   parseLevel,
   prepareObjects,
@@ -49,13 +50,17 @@ describe("spawn pad", () => {
     expect(isSpawnPadCell(flat, 4, 0)).toBe(false);
   });
 
-  it("refuses placement anywhere on the pad, not around it", () => {
+  it("refuses placement anywhere on the pad: it lies inside the protected start zone", () => {
     for (const k of spawnPadCells(flat)) {
-      expect(canPlaceAt(flat, [], k % flat.width, Math.floor(k / flat.width))).toBe(false);
+      const x = k % flat.width;
+      const y = Math.floor(k / flat.width);
+      expect(canPlaceAt(flat, [], x, y)).toBe(false);
+      expect(isSpawnZoneCell(flat, x, y)).toBe(true);
     }
-    expect(canPlaceAt(flat, [], 1, 3)).toBe(true);
-    expect(canPlaceAt(flat, [], 7, 3)).toBe(true);
-    expect(canPlaceAt(flat, [], 4, 0)).toBe(true);
+    // The zone is wider and taller than the pad (exact extent: zones.test.ts).
+    expect(canPlaceAt(flat, [], 1, 3)).toBe(false);
+    expect(canPlaceAt(flat, [], 4, 0)).toBe(false);
+    expect(canPlaceAt(flat, [], 0, 3)).toBe(true);
     expect(canPlaceAt(flat, [], 9, 3)).toBe(false); // finish rule unchanged
   });
 

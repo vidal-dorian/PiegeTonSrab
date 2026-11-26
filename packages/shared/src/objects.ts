@@ -232,13 +232,13 @@ export function staticHazards(obj: PlacedObject): Hazard[] {
   const cy = obj.y + 0.5;
   switch (dirOf(obj)) {
     case 0:
-      return [{ shape: "rect", x: obj.x + 1, y: cy - r, w: range, h: 2 * r, }];
+      return [{ shape: "rect", x: obj.x + 1, y: cy - r, w: range, h: 2 * r }];
     case 2:
-      return [{ shape: "rect", x: obj.x - range, y: cy - r, w: range, h: 2 * r, }];
+      return [{ shape: "rect", x: obj.x - range, y: cy - r, w: range, h: 2 * r }];
     case 1:
-      return [{ shape: "rect", x: cx - r, y: obj.y + 1, w: 2 * r, h: range, }];
+      return [{ shape: "rect", x: cx - r, y: obj.y + 1, w: 2 * r, h: range }];
     case 3:
-      return [{ shape: "rect", x: cx - r, y: obj.y - range, w: 2 * r, h: range, }];
+      return [{ shape: "rect", x: cx - r, y: obj.y - range, w: 2 * r, h: range }];
   }
 }
 
@@ -254,6 +254,12 @@ export function footprintCells(obj: PlacedObject, width: number): number[] {
     const fx = obj.x + dx;
     const fy = obj.y + dy;
     if (fx >= 0 && fx < width && fy >= 0) cells.push(fy * width + fx);
+    // The strip spans the whole side of the front cell, so the body grown for the path check
+    // (reachability.ts, PATH_SAFETY_MARGIN) touches it from the cell above too. With side
+    // spikes pointing into a block, that cell is a stand cell, and a walk between stand cells
+    // records only those cells: without it, the quick check kept a path the rebuild then
+    // found cut (stress-level, La Tour, round 15).
+    if (dx !== 0 && fx >= 0 && fx < width && fy - 1 >= 0) cells.push((fy - 1) * width + fx);
   }
   if (obj.kind === "cannon") {
     for (const hz of staticHazards(obj)) {
@@ -393,7 +399,9 @@ export function prepareObjects(level: Level, objects: readonly PlacedObject[]): 
       // off by a line of fire either (decided 2026-11-26).
       return { ...o, dir: dirOf(o), range: freeRun(collision, o.x, o.y, dx, dy, CANNON_MAX_RANGE, true) };
     }
-    if (o.kind === "vine") return { ...o, range: freeRun(collision, o.x, o.y, 0, 1, VINE_MAX_CELLS) };
+    // A vine's rope stops at the zones' edge too: no help hangs into them, and a rope on the
+    // seats would be grabbed by the first jump at spawn.
+    if (o.kind === "vine") return { ...o, range: freeRun(collision, o.x, o.y, 0, 1, VINE_MAX_CELLS, true) };
     return o;
   });
 }
