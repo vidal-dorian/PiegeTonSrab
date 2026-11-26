@@ -136,3 +136,4 @@ closed and accepted, deadly moments, Ruben's moment, communication moment.
 | 2 | Le Labo Réseau | [coop02.md](coop-levels/coop02.md) |
 | 3 | L'Amphi | [coop03.md](coop-levels/coop03.md) |
 | 4 | La Salle de TP | [coop04.md](coop-levels/coop04.md) |
+| 5 | La Salle | [coop05.md](coop-levels/coop05.md) |

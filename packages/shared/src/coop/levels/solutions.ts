@@ -12,6 +12,7 @@ import { shortcuts as coop01Shortcuts, solution as coop01Solution } from "./coop
 import { shortcuts as coop02Shortcuts, solution as coop02Solution } from "./coop02.solution";
 import { shortcuts as coop03Shortcuts, solution as coop03Solution } from "./coop03.solution";
 import { shortcuts as coop04Shortcuts, solution as coop04Solution } from "./coop04.solution";
+import { shortcuts as coop05Shortcuts, solution as coop05Solution } from "./coop05.solution";
 
 export interface LevelSolutions {
   solution: CoopSolution;
@@ -23,4 +24,5 @@ export const COOP_SOLUTIONS: Record<string, LevelSolutions> = {
   coop02: { solution: coop02Solution, shortcuts: coop02Shortcuts },
   coop03: { solution: coop03Solution, shortcuts: coop03Shortcuts },
   coop04: { solution: coop04Solution, shortcuts: coop04Shortcuts },
+  coop05: { solution: coop05Solution, shortcuts: coop05Shortcuts },
 };
