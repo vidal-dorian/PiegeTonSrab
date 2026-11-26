@@ -282,7 +282,7 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
         this.bodies[j]!.moveBy(got.dx, got.dy);
         this.syncCollider(j);
       } else {
-        this.props.moveCrate(this.level.crateGrid, this.colliders, this.props.crates[j - n]!, got.dx, got.dy);
+        this.props.moveCrate(this, this.props.crates[j - n]!, got.dx, got.dy);
       }
     }
     return got;
@@ -290,6 +290,29 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
 
   riderRoom(base: number, want: number): number {
     return this.pileRoomAbove(base, want, 0);
+  }
+
+  liftRoom(id: number, want: number): number {
+    const lift = this.colliderById(id);
+    if (!lift || lift.off) return want;
+    let room = want;
+    // Bodies (out of the door) and crates: the colliders that belong to a node.
+    for (const c of this.colliders) {
+      if (room <= 0) break;
+      if (c.node < 0 || c.off) continue;
+      const s = this.supportOf(c.node);
+      if (s && s.kind === "collider" && s.id === id) {
+        // It stands on the lift: the lift rises only as far as it (and its pile) can follow.
+        room = Math.min(room, this.nodeRoom(c.node, room, 1));
+        continue;
+      }
+      // Anything else just above it (landing on it, or just thrown off it): the lift stops under it.
+      if (!spansOverlap(c.x, c.w, lift.x, lift.w) || boxesOverlap(c.x, c.y, c.w, c.h, lift)) continue;
+      const gap = lift.y - (c.y + c.h);
+      if (gap < -EPS || gap >= room) continue;
+      room = Math.max(0, gap);
+    }
+    return Math.max(0, room);
   }
 
   /** How far everything standing directly or not on `base` can rise, at most `want`. */
@@ -569,6 +592,7 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
     const c = this.colliders[i]!;
     this.startY[i] = b.y;
     this.startX[i] = b.x;
+    b.headCollider = -1;
     if (this.inside[i]) {
       c.dx = 0;
       c.dy = 0;
@@ -582,9 +606,12 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
       carrier = this.colliderById(s.id);
       if (carrier && (carrier.dx !== 0 || carrier.dy !== 0)) b.moveBy(carrier.dx, carrier.dy);
     }
+    // Carried head first into a solid thing (a lift under a switch block): that counts as a hit too.
+    const carriedHead = b.headCollider;
     this.startY[i] = b.y;
     this.startX[i] = b.x;
     b.step(COOP_DT, this.inputs[i]!);
+    if (b.headCollider < 0) b.headCollider = carriedHead;
     // Leaving a moving support keeps its horizontal speed (not its vertical one).
     if (carrier && carrier.dx !== 0) {
       const still = b.support && b.support.kind === "collider" && b.support.id === carrier.id;
@@ -613,7 +640,7 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
       if (j < n) {
         this.bodies[j]!.moveBy(c.dx, c.dy);
         this.syncCollider(j);
-      } else this.props.moveCrate(this.level.crateGrid, this.colliders, this.props.crates[j - n]!, c.dx, c.dy);
+      } else this.props.moveCrate(this, this.props.crates[j - n]!, c.dx, c.dy);
     }
   }
 
@@ -628,6 +655,7 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
     b.vy = 0;
     b.support = null;
     b.hanging = false;
+    b.headCollider = -1;
     this.syncCollider(i);
     this.colliders[i]!.off = true;
     if (this.stats.firstIn < 0) this.stats.firstIn = i;
@@ -882,10 +910,12 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
         if (c && c.node >= 0 && c.node < n && c.node !== i) {
           if (Math.abs(c.dx) > 1e-4 || c.dy > 1e-4) this.groundLost[i] = { by: c.node, why: "ground", tick: this.tick };
         } else if (c && c.off) {
-          // A shelf swapped away (the switch), a gate opened (a plate let go), a floor broke.
+          // A shelf swapped away (the switch), a gate opened (a plate let go, or one pressed for a
+          // trapdoor that opens with its link), a floor broke.
           const shelf = this.props.shelves.some((x) => x.collider === c);
           const gate = this.props.gates.find((g) => g.collider === c);
-          const by = shelf ? this.lastSwitchBy : gate ? (this.props.releasedBy.get(gate.link) ?? -1) : this.lastCrackBy;
+          const switchedBy = gate ? (gate.inverted ? this.props.releasedBy : this.props.pressedBy).get(gate.link) : undefined;
+          const by = shelf ? this.lastSwitchBy : gate ? (switchedBy ?? -1) : this.lastCrackBy;
           const why: BlameWhy = shelf ? "switch" : gate ? "plate" : "ground";
           if (by >= 0 && by !== i) this.groundLost[i] = { by, why, tick: this.tick };
         }

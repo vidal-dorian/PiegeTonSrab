@@ -427,6 +427,8 @@ export class CoopController extends CharacterController {
     this.rooted = s.rooted;
     this.speedFactor = s.speedFactor;
     this.squashTimer = s.squashTimer;
+    // Not saved: it only lives from a step's move to that step's reactions.
+    this.headCollider = -1;
     // Never used in co-op, but part of the base state: keep them neutral.
     this.wallSide = 0;
     this.wallSliding = false;

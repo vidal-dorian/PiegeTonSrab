@@ -247,6 +247,15 @@ export interface PropsHost {
   launchNode(node: number, height: number, by: number): void;
   /** Weight of a node with everything it carries. */
   weightOf(node: number): number;
+  /** True if node `rider` stands, directly or through others, on node `base`. */
+  ridesOn(rider: number, base: number): boolean;
+  /** How far up (at most `want`, >= 0) everything standing on node `base` can follow it. */
+  riderRoom(base: number, want: number): number;
+  /**
+   * How far a solid thing that is not a node (a seesaw side, a balance pan) can rise, at most
+   * `want`: what stands on it must follow, and it stops under a body or crate it would run into.
+   */
+  liftRoom(id: number, want: number): number;
   emit(e: PropEvent): void;
 }
 
@@ -287,8 +296,10 @@ export class CoopProps {
   doorOpener = -1;
   /** Links currently on (plates or terminals). */
   readonly signals = new Map<string, boolean>();
-  /** Last body to leave a plate of each link before it went off (blame). */
+  /** Last body to leave a plate of each link before it went off, or to set it off at a terminal (blame). */
   readonly releasedBy = new Map<string, number>();
+  /** The body whose step onto a plate (or use of a terminal) last turned each link on (blame). */
+  readonly pressedBy = new Map<string, number>();
 
   constructor(
     readonly level: CoopLevel,
@@ -460,6 +471,7 @@ export class CoopProps {
     this.doorOpen = !this.level.key;
     this.doorOpener = -1;
     this.releasedBy.clear();
+    this.pressedBy.clear();
     this.placeKinematic(0);
     for (const c of this.colliders) {
       c.dx = 0;
@@ -469,17 +481,37 @@ export class CoopProps {
 
   // --- 1. Kinematic props --------------------------------------------------------------------
 
-  /** Move platforms, seesaws and balances for this step; their colliders record how far they moved. */
+  /**
+   * Move platforms, seesaws and balances for this step; their colliders record how far they moved.
+   * The side of a seesaw or balance that goes up never goes through a body or a crate: it rises
+   * only as far as what stands on it can follow (a ceiling above them) and stops under whatever it
+   * would hit (someone landing on it), and the whole seesaw or balance stops with it.
+   */
   moveKinematic(host: PropsHost): void {
     for (const s of this.seesaws) {
-      const target = s.snap !== 0 ? s.snap : s.loadL > s.loadR ? 1 : s.loadR > s.loadL ? -1 : s.t;
+      // The heavier side goes down; equal weights bring the plank back level.
+      const target = s.snap !== 0 ? s.snap : s.loadL > s.loadR ? 1 : s.loadR > s.loadL ? -1 : 0;
       const speed = s.snap !== 0 ? PROPS.seesawSnapSpeed : PROPS.seesawSpeed;
-      s.t = approach(s.t, target, speed * COOP_DT);
+      let t = approach(s.t, target, speed * COOP_DT);
+      // t up: the right side rises; t down: the left side does.
+      const rise = s.travel * Math.abs(t - s.t);
+      if (rise > 0) {
+        const room = host.liftRoom(t > s.t ? s.right.id : s.left.id, rise);
+        if (room < rise) t = s.t + ((t > s.t ? 1 : -1) * room) / s.travel;
+      }
+      s.t = t;
       if (s.snap !== 0 && s.t === s.snap) s.snap = 0;
     }
     for (const b of this.balances) {
       const target = clamp(b.step * (b.loadL - b.loadR), -b.travel, b.travel);
-      b.offset = approach(b.offset, target, PROPS.panSpeed * COOP_DT);
+      let offset = approach(b.offset, target, PROPS.panSpeed * COOP_DT);
+      // Offset up: the right pan rises; down: the left one does.
+      const rise = Math.abs(offset - b.offset);
+      if (rise > 0) {
+        const room = host.liftRoom(offset > b.offset ? b.right.collider.id : b.left.collider.id, rise);
+        if (room < rise) offset = b.offset + (offset > b.offset ? room : -room);
+      }
+      b.offset = offset;
     }
     for (const m of this.movers) {
       const d = m.def;
@@ -540,7 +572,7 @@ export class CoopProps {
     const grid = this.level.crateGrid;
     const cols = host.colliders;
     if (carrier && (carrier.dx !== 0 || carrier.dy !== 0)) {
-      this.moveCrate(grid, cols, crate, carrier.dx, carrier.dy);
+      this.moveCrate(host, crate, carrier.dx, carrier.dy);
     }
     if (crate.support) {
       for (const dir of [1, -1] as const) {
@@ -559,7 +591,7 @@ export class CoopProps {
     const wasSupported = crate.support !== null;
     crate.vy = Math.min(crate.vy + FALL_GRAVITY * COOP_DT, COOP_MOVEMENT.maxFallSpeed);
     const want = crate.vy * COOP_DT;
-    const got = sweepY(grid, cols, crate.collider.id, crate.x, crate.y, crate.w, crate.h, want, crate.node);
+    const got = this.crateSweepY(host, crate, want);
     crate.y += got;
     if (want > 0 && got < want - EPS) {
       if (!wasSupported) crate.impactVy = crate.vy;
@@ -577,16 +609,33 @@ export class CoopProps {
     if (crate.y > this.level.killY || this.touchesVoid(crate.x, crate.y, crate.w, crate.h)) crate.home();
   }
 
-  /** Move a crate by (dx, dy) through collisions (carried by its support, or by the rope through a body). */
-  moveCrate(grid: Level, cols: readonly BoxCollider[], crate: CoopCrate, dx: number, dy: number): void {
+  /**
+   * Move a crate by (dx, dy) through collisions (carried by its support, or by the rope through a
+   * body). Whatever stands on it is carried by the world afterwards (moveStack, or the crate's
+   * collider dx/dy for the riders that step after it).
+   */
+  moveCrate(host: PropsHost, crate: CoopCrate, dx: number, dy: number): void {
+    const grid = this.level.crateGrid;
+    const cols = host.colliders;
     if (dy < 0) {
-      crate.y += sweepY(grid, cols, crate.collider.id, crate.x, crate.y, crate.w, crate.h, dy, crate.node);
+      crate.y += this.crateSweepY(host, crate, dy);
       crate.x += sweepX(grid, cols, crate.collider.id, crate.x, crate.y, crate.w, crate.h, dx, -1);
     } else {
       crate.x += sweepX(grid, cols, crate.collider.id, crate.x, crate.y, crate.w, crate.h, dx, -1);
-      crate.y += sweepY(grid, cols, crate.collider.id, crate.x, crate.y, crate.w, crate.h, dy, crate.node);
+      crate.y += this.crateSweepY(host, crate, dy);
     }
     crate.sync();
+  }
+
+  /**
+   * How far a crate can move along y: going up it never bumps into what stands on it, and rises
+   * only as far as that pile can follow (a ceiling above it), like a body (CoopController.moveY).
+   */
+  private crateSweepY(host: PropsHost, crate: CoopCrate, dy: number): number {
+    const got = sweepY(this.level.crateGrid, host.colliders, crate.collider.id, crate.x, crate.y, crate.w, crate.h, dy, crate.node, host);
+    if (got >= 0) return got;
+    const room = host.riderRoom(crate.node, -got);
+    return room < -got ? -room : got;
   }
 
   /** What a crate rests on, or null. */
@@ -663,12 +712,15 @@ export class CoopProps {
       const on = host.standersOn(p.collider.id).filter((node) => node < this.bodyCount);
       // Someone stepped off: remembered for the blame if the link goes off.
       for (const b of p.on) if (!on.includes(b)) this.releasedBy.set(p.link, b);
+      const newcomer = on.find((b) => !p.on.includes(b)) ?? on[0] ?? -1;
       p.on = on;
       const pressed = p.exact ? p.load === p.need : p.load >= p.need;
       const was = p.active;
       if (pressed) p.hold = PROPS.plateHold;
       else p.hold = Math.max(0, p.hold - COOP_DT);
       p.active = pressed || p.hold > 0;
+      // This plate turns its link on: whoever just stepped on is remembered for the blame.
+      if (!was && p.active && this.signals.get(p.link) !== true) this.pressedBy.set(p.link, newcomer);
       if (was !== p.active) host.emit({ kind: "plate", thing: p.thing.index, active: p.active, body: p.active ? (on[0] ?? -1) : (this.releasedBy.get(p.link) ?? -1) });
     }
     for (const s of this.seesaws) {
@@ -703,6 +755,8 @@ export class CoopProps {
     this.switchCooldown = Math.max(0, this.switchCooldown - COOP_DT);
     if (this.switchCooldown === 0) {
       for (let i = 0; i < host.bodies.length; i++) {
+        // A body inside the door hits nothing (its last head contact is stale).
+        if (host.isInside(i)) continue;
         const hit = host.bodies[i]!.headCollider;
         if (hit < 0 || !this.switches.some((s) => s.collider.id === hit)) continue;
         this.active = this.active === "A" ? "B" : "A";
@@ -792,7 +846,7 @@ export class CoopProps {
     term.usedBy = body;
     const group = term.def.together;
     if (group === undefined) {
-      this.applyTerminal(term, inverted);
+      this.applyTerminal(term, inverted, body);
       host.emit({ kind: "terminal", thing: term.thing.index, body, inverted, waiting: false });
       return;
     }
@@ -801,17 +855,19 @@ export class CoopProps {
     const ready = all.every((t) => t.usedAt >= 0 && tick - t.usedAt <= window);
     if (ready) {
       for (const t of all) {
-        this.applyTerminal(t, host.bodies[t.usedBy]!.isRuben);
+        this.applyTerminal(t, host.bodies[t.usedBy]!.isRuben, t.usedBy);
         t.usedAt = -1;
       }
     }
     host.emit({ kind: "terminal", thing: term.thing.index, body, inverted, waiting: !ready });
   }
 
-  private applyTerminal(term: TerminalState, inverted: boolean): void {
+  private applyTerminal(term: TerminalState, inverted: boolean, body: number): void {
     const k = this.latchLinks.indexOf(term.def.link);
-    const on = term.def.set === "on";
-    this.latches[k] = inverted ? !on : on;
+    const on = inverted ? term.def.set !== "on" : term.def.set === "on";
+    // Who switched the latch, for the blame of a gate it opens.
+    if (on !== this.latches[k]) (on ? this.pressedBy : this.releasedBy).set(term.def.link, body);
+    this.latches[k] = on;
   }
 
   /** Links on: any active plate, or a terminal that set it. */
@@ -1034,10 +1090,21 @@ export function sweepX(grid: Level, cols: readonly BoxCollider[], self: number, 
 
 /**
  * How far a box can move along y (|dy| < 1): down it lands on the grid, on solid colliders and on
- * one-way tops; up it bumps into the grid and solid colliders. `node` is the box's own node (it
- * never collides with what it carries).
+ * one-way tops; up it bumps into the grid and solid colliders. `node` is the box's own node: given
+ * `space`, it never bumps into what stands on it, directly or not (the world carries that along).
  */
-export function sweepY(grid: Level, cols: readonly BoxCollider[], self: number, x: number, y: number, w: number, h: number, dy: number, _node: number): number {
+export function sweepY(
+  grid: Level,
+  cols: readonly BoxCollider[],
+  self: number,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  dy: number,
+  node: number,
+  space: { ridesOn(rider: number, base: number): boolean } | null = null,
+): number {
   if (dy === 0) return 0;
   let limit = dy;
   const [c0, c1] = cellSpan(x, w);
@@ -1070,6 +1137,7 @@ export function sweepY(grid: Level, cols: readonly BoxCollider[], self: number, 
       if (gap >= -EPS && gap < limit) limit = Math.max(0, gap);
     } else {
       if (c.mode !== "solid") continue;
+      if (space && node >= 0 && c.node >= 0 && space.ridesOn(c.node, node)) continue;
       const gap = c.y + c.h - y;
       if (gap <= EPS && gap > limit) limit = Math.min(0, gap);
     }
