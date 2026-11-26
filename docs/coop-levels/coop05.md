@@ -240,3 +240,16 @@ The physics make two of the plan's sentences impossible at 2 players; both come 
 | 6. The déclic is not literal (the flyer does not haul Ruben) | Not fixed. Hauling from the mezzanine drags the hauled one into the tunnel mouth (the pull is level with it), and every arrangement tried in this geometry either reopened the tower route or broke a rope distance at 4-5 players. What the level teaches: the friend Ruben anchors is the one who flies, and his landing (holding the plate) is what opens the way up for Ruben and the others. |
 | 7. Ruben's role from 3 players | Not fixed: at 3+ the anchor must be F0's only neighbour (F1). Making Ruben the anchor at every size (Ruben's neighbour as the flyer, a weight-2 plate at the mouth instead of the switch) was built and tested: it needs the flyer's second neighbour within 4.5 of pad A, which fails as soon as the seesaw tilts 1.0 (the fix for issue 1 at 4-5 players). Ruben remains the counterweight at every size and the anchor at 2 players. |
 | 8. A communication moment that matters | The shot's order now matters and is signed (see above): the barbell is single-use. |
+
+## Critic round 2 (re-check of the fixes)
+
+- Both round-1 shortcut scripts and all 5 committed shortcuts fail in their attempt phase at 2-5 players.
+- The block at x 22 makes the waiting spot tight from 3 players: a climber who waits on the floor just left
+  of it (x 20.8-21.9) stops the next one; on top of it (x 22.2-22.75) every size wins. Recoverable (move and
+  retry); the sign « Attends sur le banc ↓ » says where to wait.
+- Placed bodies only, not reached in play: at 5 players, with the spent barbell and Ruben on pad B (4) and a
+  4-tower of friends on pad A (4), a tie keeps the seesaw's tilt and the top, leaning 0.5 per body, reaches
+  the mezzanine. The bots could not build it from the tunnel (the exit order puts F0 out first). At 4 players
+  the 3-tower is 0.2 short there, under the 0.3 rule. An engine rule "a tie levels the seesaw" would close it.
+- Issues 2 and 3: the barbell lands 0.57 s after the hit; any flyer jump in that window loses the shot. No
+  level-only fix found (pads are not plates and the switch only toggles shelves); the signs carry it.
