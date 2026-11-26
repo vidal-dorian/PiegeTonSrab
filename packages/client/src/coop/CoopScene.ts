@@ -329,7 +329,8 @@ export class CoopScene extends Phaser.Scene {
     }
     this.names = players.map((p) => p.name);
     this.colors = players.map((p) => p.color);
-    this.level = parseCoopLevel(def);
+    // Same team size as the server's world: "W" weights and team-size variants depend on it.
+    this.level = parseCoopLevel(def, players.length);
     const world = new CoopWorld(
       this.level,
       players.map((p) => ({ name: p.name, isRuben: p.isRuben })),

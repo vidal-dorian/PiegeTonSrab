@@ -294,3 +294,30 @@ describe("intro timing", () => {
     expect(COOP_INTRO_MAX_MS).toBe((INTRO_DURATION_S + 10) * 1000);
   });
 });
+
+describe("team-size variants on the server", () => {
+  it("the server's world is parsed for the team that plays (\"W\" weights and variants)", () => {
+    const def = {
+      id: "w",
+      name: "w",
+      rows: ["##########", "#........#", "#S.......#", "####aa####", "##########"],
+      legend: { a: { kind: "plate" as const, need: "W" as const, link: "L" } },
+    };
+    const msgs: CoopServerMessage[] = [];
+    const io: CoopSessionIO = {
+      now: () => 0,
+      send: () => undefined,
+      broadcast: (m) => msgs.push(m),
+      setTimeout: () => () => undefined,
+      setInterval: () => () => undefined,
+      random: () => 0,
+    };
+    const s = new CoopSession(io, "ABCD", [def]);
+    s.addPlayer("a", "a");
+    s.addPlayer("b", "b");
+    s.addPlayer("c", "c");
+    s.handle("a", { type: "coopPlay", index: 0 });
+    const world = (s as unknown as { world: { props: { plates: Array<{ need: number }> } } }).world;
+    expect(world.props.plates[0]!.need).toBe(4); // 3 players: two friends and Ruben
+  });
+});

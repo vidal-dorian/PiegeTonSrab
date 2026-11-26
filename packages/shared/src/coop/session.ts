@@ -320,8 +320,9 @@ export class CoopSession {
     const ruben = team.find((p) => p.id === this.rubenId)!;
     this.seats = [...friends, ruben].map((p) => ({ id: p.id, name: p.name, color: p.color, isRuben: p.id === this.rubenId }));
     const def = this.levels[index]!;
+    // Team weights ("W") and team-size variants follow the team that plays (clients parse the same way).
     this.world = new CoopWorld(
-      parseCoopLevel(def),
+      parseCoopLevel(def, this.seats.length),
       this.seats.map((s) => ({ name: s.name, isRuben: s.isRuben })),
     );
     this.phase = "level";
