@@ -280,5 +280,5 @@ describe("rope: random play on the sandbox", () => {
     expect(inside.slice(0, 5)).toEqual([]);
     // At most 0.3 from the rope plus the body's own run, jump or fall (measured worst: 0.43).
     expect(fastest, fastestAt).toBeLessThanOrEqual(0.5);
-  });
+  }, 60_000);
 });

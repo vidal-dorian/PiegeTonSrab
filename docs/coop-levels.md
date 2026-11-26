@@ -127,5 +127,9 @@ closes them.
 
 ## Part 2. Level notes
 
-(One section per level: idea, beats, solution, variants by team size, shortcuts closed and
-accepted, deadly moments, Ruben's moment, communication moment.)
+One file per level in `docs/coop-levels/`: idea, beats, solution, variants by team size, shortcuts
+closed and accepted, deadly moments, Ruben's moment, communication moment.
+
+| # | Level | Notes |
+|---|---|---|
+| 3 | L'Amphi | [coop03.md](coop-levels/coop03.md) |

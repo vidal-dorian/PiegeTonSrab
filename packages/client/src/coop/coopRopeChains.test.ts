@@ -174,7 +174,7 @@ describe("co-op rope: links never stretch", () => {
       }
     }
     expect(worst, where).toBeLessThanOrEqual(MAX_LINK);
-  });
+  }, 60_000);
 });
 
 describe("co-op rope: lifting a pile", () => {

@@ -29,8 +29,12 @@ describe("co-op campaign levels", () => {
       });
     }
     for (const [name, shortcut] of Object.entries(entry.shortcuts ?? {})) {
-      it(`${def.id}: the shortcut "${name}" fails`, () => {
-        for (const n of [2, 3, 4, 5]) expect(runSolution(def, n, shortcut).ok, `${name} at ${n} players`).toBe(false);
+      it(`${def.id}: the shortcut "${name}" fails at its attempt`, () => {
+        for (const n of [2, 3, 4, 5]) {
+          const r = runSolution(def, n, shortcut);
+          expect(r.ok, `${name} at ${n} players`).toBe(false);
+          expect(r.failure ?? "", `${name} at ${n} players fails in its ATTEMPT phase`).toMatch(/^ATTEMPT/);
+        }
       });
     }
   }
