@@ -179,6 +179,12 @@ Design guidance that came with them: more width and parallel lanes than a 4-play
 
 Result on 2026-11-25 (final run, all ten maps at once on 4 cores, 5 seeds): every map meets every target. Rounds 8-10 refusals 14 to 38 %, rounds 14-16 42 to 56 %, critical cells at round 10 8 to 22 %, at most 1 seed-round of 80 with a lost object in 16 rounds, standing cells at round 10 59 to 81 % of round 0, route ×1.25 to ×1.60 at round 10, at least 14 free cells around F, graph build median 103 to 230 ms and max under 480 ms, worst end of placement under 1.3 s. The tightest margins are L'Usine's critical cells at round 10 (21.5 %), La Jungle's refusals (37.5 %) and room around F (14 on one seed), and L'Usine's route at round 10 (×1.60). Single seeds can still pass a limit (for example a route of ×1.74 on one La Grotte seed): the targets are on the median.
 
+Result on 2026-11-26, after the protected zones and turned spikes and springs (5 seeds, 10 and 16 rounds; the stress script now applies hands in `supportFirst` order, gives spikes only directions with a block behind them, and keeps placements out of both zones). Every map stays reachable in every round. A first run found La Tour unreachable at rounds 15-16 on one seed: the quick path check's footprint missed the cell above the front cell of side spikes pointing into a block (`footprintCells` in `objects.ts`, fixed). Three targets are now missed:
+- T4: La Tour's route is ×1.79 at round 10 (seeds 1.55 to 1.91), against ≤ 1.7. Before these rules every map was ≤ 1.60. Likely causes: solid spikes on walls and ceilings lengthen detours, and the finish zone pushes placements further down the route. To look at: retune La Tour (a second lane), or accept a higher limit.
+- T3: Les Toits loses an object in 3 of 80 seed-rounds in 16 rounds (limit 2); Le Grand Huit is at 2.
+- T6: single samples over the limit in the 16-round run (one 530 ms build on La Tour, a 609 ms round-0 build and one 1.54 s end of placement on L'Usine) on a shared, loaded machine; the 10-round run with `--jobs 2` met T6 everywhere. A later 10-round run with 4 workers next to a browser had maxima up to 2.5 s (load); its deterministic numbers were identical.
+Everything else holds: T1 (closest: Le Grand Huit, 59 % pooled over rounds 14-16), T2 (≤ 22 % at round 10), T4 standing cells (≥ 57 %), T5 (≥ 19 free cells around F; the finish zone guarantees room there). La Jungle's spike patches are now solid one-cell blocks you hop over; running into their side no longer kills.
+
 ## Scoring
 
 Decided:
