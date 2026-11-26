@@ -1,33 +1,22 @@
 /**
  * Bot solution of "Le Labo Réseau" (coop02.ts), at 2 to 5 players, and the shortcuts it closes.
  *
- * Beat 1 (shaft A, left): F0 goes to the edge, its neighbour in the chain (Ruben with 2 players,
- * F1 with more) stops about 3 cells back, F0 steps off and the rope swings him under the lip onto
- * the slot's floor. Then the others step off one by one, in chain order, and whoever is already
- * in the server room walks on, hauling them in (Ruben last).
- * Beat 2 (shaft B, right): with 2 players Ruben stops about 2 cells from the edge and F0 steps
- * off: he hangs against the wall at the key, between the stripped cables. With 3 or more, F1
- * lowers F0 first, then steps off too while the third body of the chain holds them both; F0
- * hangs deeper, swings a little towards the key, and the anchor hauls the pair back up.
- * Then F0, who carries the key, opens the door and everyone goes in.
+ * The team goes down in the order it stands: Ruben (who spawns on the right, nearest shaft A)
+ * first, F0 last. Both beats put Ruben on the rope at every team size.
+ *
+ * Beat 1 (shaft A, right): Ruben goes to the lip, his neighbour in the chain stops about 3 cells
+ * back, Ruben steps off and the rope swings him under the lip onto the slot's floor. Then the
+ * others step off one by one, each lowered by the one behind it and caught by the one already in
+ * the server room, who walks on to haul him in; F0, last, is caught from the mouth of the slot.
+ * Beat 2 (shaft B, left): Ruben entered first, so he is nearest shaft B. With 2 players F0 stops
+ * about 3 cells from the edge and Ruben steps off: he hangs against the wall at the key, one row
+ * above the stripped cables. With 3 or more, Ruben's neighbour lowers him first, then steps off
+ * too while the next one holds them both; Ruben hangs a rope deeper, swings a little towards the
+ * key, and the anchor hauls the pair back up. Ruben, who carries his key, opens the door.
  *
  * The lowering and swinging goals are below (on the exported bot API), so other levels can copy them.
  */
-import {
-  cond,
-  enter,
-  friends,
-  hold,
-  idle,
-  roleIndex,
-  seq,
-  walk,
-  when,
-  type CoopSolution,
-  type Goal,
-  type Phase,
-  type Role,
-} from "../bots";
+import { cond, enter, friends, hold, idle, roleIndex, seq, walk, when, type CoopSolution, type Goal, type Phase, type Role } from "../bots";
 import { BIT_LEFT, BIT_RIGHT } from "../inputBits";
 import type { CoopWorld } from "../world";
 
@@ -37,44 +26,43 @@ import type { CoopWorld } from "../world";
 const PLATEAU = 6;
 /** Feet of a body standing in the server room. */
 const ROOM = 10;
-/** Shaft A: the lip of the raised floor (its left edge); the slot's floor starts at x = 6. */
-const EDGE_A = 5;
-const SLOT_FLOOR_X = 6;
-/** Shaft B: its near rim (the server room's floor ends at x = 26). */
-const EDGE_B = 26;
-/** Where beat 1's anchor stops: about 3 cells back from the lip (the slot takes him between 7.7 and 8.7). */
-const ANCHOR_A = 8.1;
-/** Beat 2, 2 players: F0's feet against the wall at the key (touch from 13.23, cables from 14.1). */
-const KEY_FEET_2 = 13.7;
-/** Where that anchor starts (feet 13.74 when F0 hangs from it). */
-const ANCHOR_B2 = 23.9;
-/** Beat 2, 3+ players: F0's feet one rope below F1 (the key one cell out from the wall: touch from 16.23 to 17.67; cables from 18.1). */
+/** Shaft A: the lip of the raised floor (its right edge); the slot's floor ends at x = 24. */
+const EDGE_A = 25;
+const SLOT_FLOOR_X = 24;
+/** Shaft B: its near rim (the server room's floor starts at x = 4). */
+const EDGE_B = 4;
+/** Where beat 1's anchor stops: about 3 cells back from the lip (the slot takes his friend from 21.3 to 22.3). */
+const ANCHOR_A = 21.9;
+/** Beat 2, 2 players: Ruben's feet against the wall at the key (touch from 12.23, cables from 13.1). */
+const KEY_FEET_2 = 12.65;
+/** Where that anchor stands (the window is about 6.9-7.6). */
+const ANCHOR_B2 = 7.2;
+/**
+ * Beat 2, 3+ players: Ruben's feet one rope below his neighbour (the key one cell out from the
+ * wall: touch from 16.23 to 17.67; cables from 18.1).
+ */
 const KEY_FEET_3 = 17.15;
-const ANCHOR_B3 = 22.75;
-/** F0 swings right until he touches the key (one cell out from the wall), never past this x (far cables at 28.25). */
-const SWING_MAX_X = 27.2;
+const ANCHOR_B3 = 7.25;
+/** Ruben swings left until he touches the key (one cell out from the wall), never past this x (far cables at 1.75). */
+const SWING_MAX_X = 2.8;
 
 // --- Helpers on the world --------------------------------------------------------------------
-
-function body(w: CoopWorld, role: Role) {
-  return w.bodies[roleIndex(role, w.bodies.length)]!;
-}
 
 function feetOf(w: CoopWorld, i: number): number {
   const b = w.bodies[i]!;
   return b.y + b.height;
 }
 
-/** Body i stands in the server room (between the slot and shaft B). */
+/** Body i stands in the server room (between shaft B and the slot). */
 function inRoom(w: CoopWorld, i: number): boolean {
   const b = w.bodies[i]!;
-  return !w.inside[i] && b.grounded && Math.abs(feetOf(w, i) - ROOM) < 0.05 && b.cx > SLOT_FLOOR_X && b.cx < EDGE_B;
+  return !w.inside[i] && b.grounded && Math.abs(feetOf(w, i) - ROOM) < 0.05 && b.cx > EDGE_B && b.cx < SLOT_FLOOR_X;
 }
 
 /** Body i is in the server room, standing or lifted a little by the rope (a friend at the edge above). */
 function nearRoom(w: CoopWorld, i: number): boolean {
   const b = w.bodies[i]!;
-  return !w.inside[i] && Math.abs(feetOf(w, i) - ROOM) < 0.35 && b.cx > SLOT_FLOOR_X && b.cx < EDGE_B;
+  return !w.inside[i] && Math.abs(feetOf(w, i) - ROOM) < 0.35 && b.cx > EDGE_B && b.cx < SLOT_FLOOR_X;
 }
 
 /** Body i stands on the raised floor (beat 1's plateau). */
@@ -175,9 +163,9 @@ export function stepOff(edgeX: number, dir: -1 | 1, speed = 1.5): Goal {
 
 // --- The solution ----------------------------------------------------------------------------
 
-/** Chain order: F0, F1, ..., Ruben. */
-function chain(n: number): Role[] {
-  return [...friends(n), "R"];
+/** The order the team goes down in: as it stands, Ruben (nearest shaft A) first, F0 last. */
+function order(n: number): Role[] {
+  return ["R", ...friends(n).reverse()];
 }
 
 /**
@@ -185,19 +173,20 @@ function chain(n: number): Role[] {
  * the next one still reach the lip (4 cells higher), then it walks on as soon as he steps off.
  * The last one is caught from the mouth of the slot.
  */
-const MAKE_ROOM = 6.9;
-const AT_THE_MOUTH = 6.5;
+const MAKE_ROOM = 23.1;
+const AT_THE_MOUTH = 23.5;
 
 /**
- * Beat 1, the train into the server room, the same move again for each body k of the chain
- * (F0 is already in): the next body on the raised floor stops at the anchor's place, body k steps
- * off, and the rope swings it into the slot; the body before it in the room keeps out of its way.
- * The last one (Ruben) has nobody behind him: he steps off and the body before him, waiting at the
- * mouth of the slot, catches him and walks on to haul him in.
+ * Beat 1, the train into the server room, the same move again for the body at place k of the
+ * order (Ruben is already in): the next body on the raised floor stops at the anchor's place,
+ * body k steps off, and the rope swings it into the slot; the body before it in the room keeps out
+ * of its way. The last one (F0) has nobody behind him: he steps off and the body before him,
+ * waiting at the mouth of the slot, catches him and walks on to haul him in.
  */
 function trainIn(k: number, n: number): Goal {
-  const off = stepOff(EDGE_A, -1);
-  const toEdge = walk(EDGE_A + 0.5, { jump: "never", tol: 0.1 });
+  const idx = order(n).map((r) => roleIndex(r, n));
+  const off = stepOff(EDGE_A, 1);
+  const toEdge = walk(EDGE_A - 0.5, { jump: "never", tol: 0.1 });
   const toAnchor = walk(ANCHOR_A, { jump: "never", tol: 0.1 });
   const toMouth = walk(AT_THE_MOUTH, { jump: "never", tol: 0.15 });
   const makeRoom = walk(MAKE_ROOM, { jump: "never", tol: 0.2 });
@@ -206,142 +195,139 @@ function trainIn(k: number, n: number): Goal {
     step(c) {
       const w = c.w;
       const i = c.i;
-      const last = i === n - 1;
+      const last = k === n - 1;
+      const at = (p: number) => idx[p]!;
       if (nearRoom(w, i)) {
         // Someone behind hangs below the slot: walk on (the one right before him hauls him in,
         // the ones ahead make way).
-        for (let j = i + 1; j < n; j++) if (!nearRoom(w, j) && !onPlateau(w, j)) return BIT_RIGHT;
-        const next = i + 1;
-        if (next < n && onPlateau(w, next)) return next === n - 1 ? toMouth.step(c) : makeRoom.step(c);
+        for (let p = k + 1; p < n; p++) if (!nearRoom(w, at(p)) && !onPlateau(w, at(p))) return BIT_LEFT;
+        if (k + 1 < n && onPlateau(w, at(k + 1))) return k + 1 === n - 1 ? toMouth.step(c) : makeRoom.step(c);
         return 0;
       }
       if (onPlateau(w, i)) {
-        const prev = i - 1;
-        if (prev >= 0 && nearRoom(w, prev)) {
+        if (k > 0 && nearRoom(w, at(k - 1))) {
           // My turn: step off once the one behind me stands at the anchor's place (or, last, once
           // the one before me waits at the mouth).
-          const ready = last
-            ? w.bodies[prev]!.cx < AT_THE_MOUTH + 0.4
-            : Math.abs(w.bodies[i + 1]!.cx - ANCHOR_A) < 0.3 && w.bodies[prev]!.cx > MAKE_ROOM - 0.5;
+          const prev = w.bodies[at(k - 1)]!;
+          const ready = last ? prev.cx > AT_THE_MOUTH - 0.4 : Math.abs(w.bodies[at(k + 1)]!.cx - ANCHOR_A) < 0.3 && prev.cx < MAKE_ROOM + 0.5;
           return ready ? off.step(c) : toEdge.step(c);
         }
         // The one before me is next: I am his anchor.
-        if (prev >= 0 && onPlateau(w, prev) && (prev === 0 || nearRoom(w, prev - 1))) return toAnchor.step(c);
+        if (k > 0 && onPlateau(w, at(k - 1)) && (k === 1 || nearRoom(w, at(k - 2)))) return toAnchor.step(c);
         return 0;
       }
       // In the air or hanging: lean towards the slot (under the lip).
-      return BIT_RIGHT;
+      return BIT_LEFT;
     },
     done: (c) => inRoom(c.w, c.i),
   };
 }
 
-export const solution: CoopSolution = (n) => {
-  const roles = chain(n);
-  const anchorA: Role = roles[1]!; // F0's neighbour: Ruben with 2 players, F1 with more
-  const phases: Phase[] = [
+/** Beat 1: Ruben lowered into the slot, then the train. */
+function beat1(n: number): Phase[] {
+  const o = order(n);
+  return [
     {
-      // F0 walks off the lip; his neighbour stops about 3 cells back: the rope swings F0 under the
-      // lip onto the slot's floor.
-      name: "beat 1: lower F0 into the slot",
-      do: {
-        F0: stepOff(EDGE_A, -1),
-        [anchorA]: walk(ANCHOR_A, { jump: "never", tol: 0.1 }),
-        "*": idle(),
-      },
-      until: (w) => inRoom(w, 0),
+      // Ruben walks off the lip; his neighbour stops about 3 cells back (and slides fast: Ruben
+      // weighs two): the rope swings Ruben under the lip onto the slot's floor.
+      name: "beat 1: lower Ruben into the slot",
+      do: { R: stepOff(EDGE_A, 1), [o[1]!]: walk(ANCHOR_A, { jump: "never", tol: 0.1 }), "*": idle() },
+      until: (w) => inRoom(w, n - 1),
       timeout: 15,
     },
     {
       name: "beat 1: the others step off one by one and are hauled in",
-      do: Object.fromEntries(roles.map((r, k) => [r, trainIn(k, n)])),
+      do: Object.fromEntries(o.map((r, k) => [r, trainIn(k, n)])),
       until: (w) => w.bodies.every((_, i) => inRoom(w, i)),
       timeout: 20 + 6 * n,
     },
   ];
+}
 
+/** The door phase: Ruben, who carries the key, opens it. */
+function throughTheDoor(): Phase {
+  return { name: "Ruben opens the door, everyone goes in", do: { "*": () => enter() }, until: cond.won, timeout: 30 };
+}
+
+export const solution: CoopSolution = (n) => {
+  const o = order(n);
+  const ruben = n - 1;
+  const phases: Phase[] = beat1(n);
   if (n === 2) {
     phases.push(
       {
-        name: "beat 2: F0 goes to the edge, Ruben stops 2 cells back",
-        do: { F0: walk(EDGE_B - 0.6, { jump: "never", tol: 0.15 }), R: walk(ANCHOR_B2, { jump: "never", tol: 0.12 }) },
-        until: cond.all(cond.near("F0", EDGE_B - 0.6, 0.2), cond.near("R", ANCHOR_B2, 0.15)),
+        name: "beat 2: Ruben goes to the edge, F0 stops 3 cells back",
+        do: { R: walk(EDGE_B + 0.6, { jump: "never", tol: 0.15 }), F0: walk(ANCHOR_B2, { jump: "never", tol: 0.12 }) },
+        until: cond.all(cond.near("R", EDGE_B + 0.6, 0.2), cond.near("F0", ANCHOR_B2, 0.15)),
         timeout: 15,
       },
       {
-        // Ruben stops about 2 cells from the edge and F0 steps off: he hangs at the key, between the cables.
-        name: "beat 2: Ruben lowers F0 to the key",
-        do: {
-          F0: stepOff(EDGE_B, 1),
-          R: lowerTo("F0", KEY_FEET_2, { at: ANCHOR_B2, edgeX: EDGE_B, edgeDir: 1 }),
-        },
-        until: (w) => w.props.keyCarrier === 0,
+        // F0 holds the depth (« Stop ! Remonte un peu ! »): Ruben hangs at the key, just above the cables.
+        name: "beat 2: F0 lowers Ruben to the key",
+        do: { R: stepOff(EDGE_B, -1), F0: lowerTo("R", KEY_FEET_2, { at: ANCHOR_B2, edgeX: EDGE_B, edgeDir: -1 }) },
+        until: (w) => w.props.keyCarrier === ruben,
         timeout: 15,
       },
       {
-        name: "beat 2: Ruben hauls F0 back up",
-        do: { R: walk(15, { jump: "never" }), F0: idle() },
-        until: (w) => inRoom(w, 0),
+        name: "beat 2: F0 hauls Ruben back up",
+        do: { F0: walk(16, { jump: "never" }), R: idle() },
+        until: (w) => inRoom(w, ruben),
         timeout: 15,
       },
     );
   } else {
-    const anchorB: Role = roles[2]!; // Ruben with 3 players, F2 with more
-    const behind = roles.slice(3);
+    const middle = o[1]!; // Ruben's neighbour
+    const anchor = o[2]!;
+    const behind = o.slice(3);
+    const lineUp = {
+      R: walk(EDGE_B + 0.5, { jump: "never", tol: 0.15 }),
+      [middle]: walk(EDGE_B + 1.4, { jump: "never", tol: 0.15 }),
+      [anchor]: walk(ANCHOR_B3, { jump: "never", tol: 0.12 }),
+      ...Object.fromEntries(behind.map((r, k) => [r, walk(ANCHOR_B3 + 1.1 * (k + 1), { jump: "never", tol: 0.3 })])),
+    };
     phases.push(
       {
         name: "beat 2: line up at shaft B",
-        do: {
-          F0: walk(EDGE_B - 0.5, { jump: "never", tol: 0.15 }),
-          F1: walk(EDGE_B - 1.4, { jump: "never", tol: 0.15 }),
-          [anchorB]: walk(ANCHOR_B3, { jump: "never", tol: 0.12 }),
-          ...Object.fromEntries(behind.map((r, k) => [r, walk(ANCHOR_B3 - 1.1 * (k + 1), { jump: "never", tol: 0.3 })])),
-        },
-        until: cond.all(cond.near("F0", EDGE_B - 0.5, 0.2), cond.near("F1", EDGE_B - 1.4, 0.2), cond.near(anchorB, ANCHOR_B3, 0.15)),
+        do: lineUp,
+        until: cond.all(cond.near("R", EDGE_B + 0.5, 0.2), cond.near(middle, EDGE_B + 1.4, 0.2), cond.near(anchor, ANCHOR_B3, 0.15)),
         timeout: 15,
       },
       {
-        // F1 near the edge lowers F0 a first rope length; the anchor waits behind.
-        name: "beat 2: F1 lowers F0",
-        do: {
-          F0: stepOff(EDGE_B, 1),
-          F1: walk(EDGE_B - 1.4, { jump: "never", tol: 0.15 }),
-          [anchorB]: walk(ANCHOR_B3, { jump: "never", tol: 0.15 }),
-          ...Object.fromEntries(behind.map((r, k) => [r, walk(ANCHOR_B3 - 1.1 * (k + 1), { jump: "never", tol: 0.3 })])),
-        },
-        until: (w) => hangs(w, 0, ROOM) && cond.near(anchorB, ANCHOR_B3, 0.25)(w),
+        // Ruben's neighbour, near the edge, lowers him a first rope length; the anchor waits behind.
+        name: "beat 2: Ruben's neighbour lowers him",
+        do: { ...lineUp, R: stepOff(EDGE_B, -1) },
+        until: (w) => hangs(w, ruben, ROOM) && cond.near(anchor, ANCHOR_B3, 0.25)(w),
         timeout: 15,
       },
       {
-        // F1 steps off too: the anchor holds them both, F0 a rope below F1, at the key's depth; F0
-        // swings gently right until he touches it.
-        name: "beat 2: F1 steps off, F0 swings to the key",
+        // The neighbour steps off too: the anchor holds them both (three units: he slides fast),
+        // Ruben a rope below, at the key's depth; Ruben swings gently left until he touches it.
+        name: "beat 2: the neighbour steps off, Ruben swings to the key",
         do: {
-          F1: stepOff(EDGE_B, 1),
-          [anchorB]: lowerTo("F0", KEY_FEET_3, { at: ANCHOR_B3, edgeX: EDGE_B, edgeDir: 1 }),
-          F0: when(
-            (w) => !body(w, "F1").grounded && Math.abs(feetOf(w, 0) - KEY_FEET_3) < 0.35,
-            swingTo(28, { until: (w) => w.props.keyCarrier === 0, max: SWING_MAX_X }),
+          [middle]: stepOff(EDGE_B, -1),
+          [anchor]: lowerTo("R", KEY_FEET_3, { at: ANCHOR_B3, edgeX: EDGE_B, edgeDir: -1 }),
+          R: when(
+            (w) => !w.bodies[roleIndex(middle, n)]!.grounded && Math.abs(feetOf(w, ruben) - KEY_FEET_3) < 0.35,
+            swingTo(2, { until: (w) => w.props.keyCarrier === ruben, max: SWING_MAX_X }),
           ),
         },
-        until: (w) => w.props.keyCarrier === 0,
+        until: (w) => w.props.keyCarrier === ruben,
         timeout: 20,
       },
       {
-        name: "beat 2: the anchor hauls F1 and F0 back up",
+        name: "beat 2: the anchor hauls them back up",
         do: {
-          [anchorB]: walk(13, { jump: "never" }),
-          ...Object.fromEntries(behind.map((r, k) => [r, walk(12 - 1.1 * k, { jump: "never" })])),
-          F1: idle(),
-          F0: idle(),
+          [anchor]: walk(17, { jump: "never" }),
+          ...Object.fromEntries(behind.map((r, k) => [r, walk(18 + 1.1 * k, { jump: "never" })])),
+          [middle]: idle(),
+          R: idle(),
         },
-        until: (w) => inRoom(w, 0) && inRoom(w, 1),
+        until: (w) => inRoom(w, ruben) && inRoom(w, roleIndex(middle, n)),
         timeout: 25,
       },
     );
   }
-
-  phases.push({ name: "F0 opens the door, everyone goes in", do: { "*": () => enter() }, until: cond.won, timeout: 30 });
+  phases.push(throughTheDoor());
   return phases;
 };
 
@@ -349,11 +335,6 @@ export const solution: CoopSolution = (n) => {
 //
 // Each one tries the forbidden move in its phase named "ATTEMPT"; if that phase ever succeeded,
 // the rest of the intended solution would follow and finish the level.
-
-/** The door phase, alone. */
-function throughTheDoor(): Phase {
-  return { name: "F0 opens the door, everyone goes in", do: { "*": () => enter() }, until: cond.won, timeout: 30 };
-}
 
 /**
  * Beat 1 with nobody holding: the whole team walks off the lip of shaft A together, leaning
@@ -363,7 +344,7 @@ function throughTheDoor(): Phase {
 const allDropIntoShaftA: CoopSolution = (n) => [
   {
     name: "ATTEMPT: everyone drops into shaft A at once, leaning into the slot",
-    do: { "*": () => seq(walk(3, { jump: "never", drop: true }), hold(1)) },
+    do: { "*": () => seq(walk(27, { jump: "never", drop: true }), hold(-1)) },
     until: (w) => w.bodies.every((_, i) => inRoom(w, i)),
     timeout: 12,
   },
@@ -371,56 +352,53 @@ const allDropIntoShaftA: CoopSolution = (n) => [
 ];
 
 /**
- * Beat 1 without stopping at the right depth: F0 steps off shaft A with his neighbour standing
- * right behind him at the lip, and leans into the slot. The rope catches him half a cell below
- * the slot's floor, against its wall: he never gets in.
+ * Beat 1 without stopping at the right depth: Ruben steps off shaft A with his neighbour
+ * standing right behind him at the lip, and leans into the slot. The rope catches him half a
+ * cell below the slot's floor, against its wall: he never gets in.
  */
-const dropIntoTheSlot: CoopSolution = (n) => [
-  {
-    name: "F0 at the lip, his neighbour right behind him",
-    do: {
-      F0: walk(EDGE_A + 0.4, { jump: "never", tol: 0.1 }),
-      [chain(n)[1]!]: walk(EDGE_A + 1.3, { jump: "never", tol: 0.1 }),
+const dropIntoTheSlot: CoopSolution = (n) => {
+  const neighbour = order(n)[1]!;
+  return [
+    {
+      name: "Ruben at the lip, his neighbour right behind him",
+      do: { R: walk(EDGE_A - 0.4, { jump: "never", tol: 0.1 }), [neighbour]: walk(EDGE_A - 1.3, { jump: "never", tol: 0.1 }) },
+      timeout: 8,
     },
-    timeout: 8,
-  },
-  {
-    name: "ATTEMPT: F0 steps off and leans into the slot",
-    do: { F0: seq(stepOff(EDGE_A, -1), hold(1)), [chain(n)[1]!]: walk(EDGE_A + 1.3, { jump: "never", tol: 0.1 }) },
-    until: (w) => inRoom(w, 0),
-    timeout: 10,
-  },
-  ...solution(n).slice(1),
-];
+    {
+      name: "ATTEMPT: Ruben steps off and leans into the slot",
+      do: { R: seq(stepOff(EDGE_A, 1), hold(-1)), [neighbour]: walk(EDGE_A - 1.3, { jump: "never", tol: 0.1 }) },
+      until: (w) => inRoom(w, n - 1),
+      timeout: 10,
+    },
+    ...solution(n).slice(1),
+  ];
+};
 
 /**
  * Beat 2 without stopping at the right depth: the team gets into the server room the intended
- * way, then F0 steps off shaft B with his neighbour standing right behind him at the edge. With 2
- * players he hangs on the stripped cables under the key; with 3 or more one rope does not reach
- * the deeper key.
+ * way, then Ruben steps off shaft B with his neighbour standing right behind him at the edge.
+ * With 2 players he takes the key and hangs on the stripped cables right under it; with 3 or more
+ * one rope does not reach the deeper key.
  */
 const dropAtTheKey: CoopSolution = (n) => {
-  const neighbour = chain(n)[1]!;
+  const neighbour = order(n)[1]!;
   return [
-    ...solution(n).slice(0, 2),
+    ...beat1(n),
     {
-      name: "F0 at the edge of shaft B, his neighbour right behind him",
-      do: { F0: walk(EDGE_B - 0.25, { jump: "never", tol: 0.1 }), [neighbour]: walk(EDGE_B - 1.1, { jump: "never", tol: 0.12 }) },
-      until: cond.all(cond.near("F0", EDGE_B - 0.25, 0.15), cond.near(neighbour, EDGE_B - 1.1, 0.15)),
+      name: "Ruben at the edge of shaft B, his neighbour right behind him",
+      do: { R: walk(EDGE_B + 0.25, { jump: "never", tol: 0.1 }), [neighbour]: walk(EDGE_B + 1.1, { jump: "never", tol: 0.12 }) },
+      until: cond.all(cond.near("R", EDGE_B + 0.25, 0.15), cond.near(neighbour, EDGE_B + 1.1, 0.15)),
       timeout: 15,
     },
     {
-      // His neighbour holds still until F0 has the key, then walks away to haul him back up.
-      name: "ATTEMPT: F0 steps off at the key and is hauled back up",
+      // His neighbour holds still until Ruben has the key, then walks away to haul him back up.
+      name: "ATTEMPT: Ruben steps off at the key and is hauled back up",
       do: {
-        F0: stepOff(EDGE_B, 1),
-        [neighbour]: seq(
-          when(cond.keyTaken, idle()),
-          walk(14, { jump: "never" }),
-        ),
-        "*": (i) => when(cond.keyTaken, walk(13 - i * 1.1, { jump: "never" })),
+        R: stepOff(EDGE_B, -1),
+        [neighbour]: seq(when(cond.keyTaken, idle()), walk(16, { jump: "never" })),
+        "*": (i) => when(cond.keyTaken, walk(17 + i * 1.1, { jump: "never" })),
       },
-      until: (w) => w.props.keyCarrier >= 0 && inRoom(w, 0),
+      until: (w) => w.props.keyCarrier >= 0 && inRoom(w, n - 1),
       timeout: 15,
     },
     throughTheDoor(),
@@ -429,10 +407,10 @@ const dropAtTheKey: CoopSolution = (n) => {
 
 /** The key from below: the team gets into the server room, then everyone drops into shaft B. */
 const allDropIntoShaftB: CoopSolution = (n) => [
-  ...solution(n).slice(0, 2),
+  ...beat1(n),
   {
     name: "ATTEMPT: everyone drops into shaft B to grab the key",
-    do: { "*": () => walk(28.5, { jump: "never", drop: true }) },
+    do: { "*": () => walk(1.5, { jump: "never", drop: true }) },
     until: (w) => w.props.keyCarrier >= 0 && w.bodies.every((_, i) => inRoom(w, i)),
     timeout: 12,
   },
