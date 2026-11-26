@@ -74,6 +74,8 @@ export const coop04: CoopLevelDef = {
     { x: 21, y: 5.2, text: "Poussez ensemble !" },
     { x: 31, y: 6.3, text: "Câbles dénudés" },
     { x: 44.2, y: 6.55, text: "Toute la classe sur la plaque" },
+    // Ruben's neighbour waiting on the floor holds him back from the key (critic re-check).
+    { x: 44.6, y: 7.5, text: "Le suivant monte sur la tour" },
     { x: 49.5, y: 1.6, text: "Sortie" },
   ],
 };

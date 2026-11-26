@@ -345,3 +345,10 @@ in 1-3 above.
   touching it. In a crawl the rope bends over the terrain's corners and can hold a friend back:
   the others have to walk along with him.
 - Plate weight counts riders: whoever stands on the PC tower in T weighs on plate w.
+
+## Critic round 3 (re-check of the redesign)
+
+No new shortcut, soft-lock or forced restart. One readability point: if Ruben's chain neighbour waits on
+the lab floor in front of T instead of on the tower, the rope holds Ruben at the door cell and lifts the
+neighbour off plate w, so the cage cannot open (recoverable: the neighbour climbs onto the tower). The sign
+« Le suivant monte sur la tour » now says it.
