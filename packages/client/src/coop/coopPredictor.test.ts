@@ -23,6 +23,30 @@ const pit: CoopLevelDef = {
 };
 const players = [{ name: "a", isRuben: false }];
 
+/** A floor (top at y 8) and, 2 cells above it, a platform that never moves (it needs more weight than one player). */
+const shelf: CoopLevelDef = {
+  id: "test-shelf",
+  name: "Etagere",
+  quote: "",
+  rows: [
+    "##############################",
+    ...Array.from({ length: 5 }, () => "#............................#"),
+    "#.......mmm..................#",
+    "#.S..........................#",
+    "##############################",
+    "##############################",
+  ],
+  legend: { m: { kind: "mover", dy: -2, need: 5 } },
+};
+
+/** The server's world after `steps` steps with no key, body 0 placed at (x, y) first. */
+function placed(level: ReturnType<typeof parseCoopLevel>, x: number, y: number, steps: number): CoopWorld {
+  const w = new CoopWorld(level, players);
+  w.placeBody(0, x, y);
+  for (let t = 0; t < steps; t++) w.step([0]);
+  return w;
+}
+
 describe("co-op prediction parts", () => {
   it("reads ?predict=0 and ?predict=1, else the default", () => {
     expect(predictionWanted("")).toBe(PREDICT_BY_DEFAULT);
@@ -102,6 +126,42 @@ describe("co-op prediction parts", () => {
     // The screen does not keep the corrections (only the bench turns `record` on).
     expect(predictor.record).toBe(false);
     expect(predictor.corrections).toEqual([]);
+  });
+
+  it("glides a large correction at most 8 cells/s instead of halving it every 60 ms", () => {
+    const level = parseCoopLevel(pit, 1);
+    const at = (x: number, steps: number) => placed(level, x, 7.1, steps);
+    const predictor = new CoopPredictor(new CoopWorld(level, players), 0);
+    predictor.onSnapshot(10, at(4, 10).save(), [0], [], [0]);
+    predictor.advanceTo(20);
+    // The server has the body 2 cells further right: drawn where it was, the offset fades.
+    const server = at(6, 20);
+    predictor.onSnapshot(20, server.save(), [0], [], [0]);
+    predictor.advanceTo(20);
+    expect(predictor.offset(0).x).toBeCloseTo(-2, 6);
+    predictor.fade(1 / 60);
+    // Halving every 60 ms alone would leave 1.65 cells after one frame.
+    expect(predictor.offset(0).x).toBeCloseTo(-(2 - 8 / 60), 6);
+  });
+
+  it("never draws a body standing on a platform lower than the platform", () => {
+    const level = parseCoopLevel(shelf, 1);
+    const predictor = new CoopPredictor(new CoopWorld(level, players), 0);
+    // The copy has the body on the floor under the platform...
+    predictor.onSnapshot(30, placed(level, 8.5, 7.1, 30).save(), [0], [], [0]);
+    predictor.advanceTo(40);
+    // ...the server on top of it (a correction 2 cells up).
+    const server = placed(level, 8.5, 5.1 - 0.05, 40);
+    const s = server.supportOf(0);
+    expect(s?.kind).toBe("collider");
+    expect(server.colliderById(s!.kind === "collider" ? s!.id : -1)?.node ?? -1).toBeLessThan(0);
+    predictor.onSnapshot(40, server.save(), [0], [], [0]);
+    predictor.advanceTo(40);
+    expect(predictor.offset(0).y).toBeGreaterThan(1.5);
+    predictor.fade(1 / 60);
+    // On it at once (the sideways part, none here, would glide).
+    expect(predictor.offset(0).y).toBe(0);
+    expect(predictor.frame().bodies[0]!.y).toBeCloseTo(predictor.world.bodies[0]!.y, 9);
   });
 
   it("nothing advances while paused", () => {

@@ -26,7 +26,7 @@ import {
   sandboxLevel,
   type CoopLevelDef,
 } from "@game/shared/coop";
-import { countServerPresses, Net, PredictingClient, quantile, rng, type Link } from "./benchNet";
+import { countServerPresses, Net, PredictingClient, predictionVerdict, quantile, rng, type Link } from "./benchNet";
 import { PREDICT_BY_DEFAULT } from "./net/predictedPlay";
 import { CoopPredictor } from "./net/predictor";
 
@@ -123,8 +123,18 @@ interface KeyModel {
 const STRESS: KeyModel = { change: 0.04, jump: 0.01 };
 /** Calmer: a new direction every ~400 ms, a jump every ~1.6 s. */
 const CALM: KeyModel = { change: 0.02, jump: 0.005 };
-/** Runs pooled per latency (each run's keys and jitter differ). */
+/** Runs pooled per latency (each run's keys and jitter differ)... */
 const SEEDS = [1, 2, 3, 4];
+/**
+ * ...and for the run that decides PREDICT_BY_DEFAULT (50 ms, keys every ~200 ms), twice as many:
+ * with 4 the verdict flipped in 2 of 6 equally valid seed sets.
+ */
+const VERDICT_SEEDS = [1, 2, 3, 4, 5, 6, 7, 8];
+/**
+ * Every test here simulates seconds of a room: a latency run takes 1-3 s on a quiet machine, and
+ * several times that when the machine is shared (vitest's default 5 s is not enough then).
+ */
+const LONG = 60_000;
 
 /**
  * Random keys for these players, every 8 ms: walk left or right or stop, and tap jump (held 70 ms).
@@ -190,57 +200,97 @@ function p95(values: readonly number[]): number {
 
 const fmt = (v: number) => v.toFixed(3);
 
-describe("co-op prediction bench (step B, the screen's PredictedPlay end to end)", () => {
+describe("co-op prediction bench (step B, the screen's PredictedPlay end to end)", { timeout: LONG }, () => {
   const results: string[] = [];
 
+  interface LatencyRun {
+    /** Every player's corrections, pooled. */
+    corr: number[];
+    /** The same by run and player: runs[seed][client]. */
+    runs: number[][][];
+    presses: number;
+    lead: number;
+  }
+
   /**
-   * Every player's own-body corrections over SEEDS runs of 10 s of random keys at this latency:
+   * Every player's own-body corrections over `seeds` runs of 10 s of random keys at this latency:
    * only the snapshots of those 10 s (before the keys start and once they stop, every correction
    * is 0 and would only dilute the share).
    */
-  function latencyRun(latency: number, jitter: number, model: KeyModel): { corr: number[]; presses: number; lead: number } {
+  function latencyRun(latency: number, jitter: number, model: KeyModel, seeds: readonly number[] = SEEDS): LatencyRun {
     const corr: number[] = [];
+    const runs: number[][][] = [];
     let presses = 0;
     let lead = 0;
-    for (const seed of SEEDS) {
+    for (const seed of seeds) {
       const r = room({ latency, jitter, seed: latency * 10 + seed });
       const from = r.clients.map((c) => c.allCorrections().length);
       r.run(10_000, randomKeys(r.clients, seed * 7 + latency, model));
-      r.clients.forEach((c, i) => corr.push(...c.allCorrections().slice(from[i])));
+      const run = r.clients.map((c, i) => c.allCorrections().slice(from[i]));
+      runs.push(run);
+      for (const list of run) corr.push(...list);
       stopKeys(r.clients);
       r.run(1500);
       presses += expectNoPressLost(r);
       expectSettled(r);
       lead = r.clients[0]!.play!.lead;
     }
-    return { corr, presses, lead };
+    return { corr, runs, presses, lead };
   }
 
-  function describeRun(label: string, run: { corr: number[]; presses: number; lead: number }): string {
+  function describeRun(label: string, run: LatencyRun): string {
     const { corr } = run;
     const over = corr.filter((x) => x > 0.1).length / corr.length;
-    return `${label}: ${run.presses} presses, none lost; own corrections p95 ${fmt(p95(corr))}, p99 ${fmt(quantile(corr, 0.99))}, ${(100 * over).toFixed(1)} % over 0.1 cell (${corr.length} snapshots); lead ${run.lead} ticks`;
+    const each = predictionVerdict(run.runs).perPlayer.map(fmt).join(" / ");
+    return `${label}: ${run.presses} presses, none lost; own corrections p95 ${fmt(p95(corr))} pooled, ${each} per player, p99 ${fmt(quantile(corr, 0.99))}, ${(100 * over).toFixed(1)} % over 0.1 cell (${corr.length} snapshots, ${run.runs.length} runs); lead ${run.lead} ticks`;
   }
 
   // The plan's bench: three players changing keys every ~200 ms. The prediction is on by default
-  // only if 95 % of the own body's corrections stay under 0.1 cell at 50 ms here.
+  // only if 95 % of each player's own-body corrections stay under 0.1 cell at 50 ms here, and
+  // both halves of the runs say the same (else the seeds are too few to decide).
   it.each([
     [20, 5, 0.1],
     [50, 10, 0.2],
     [100, 20, 0.8],
-  ])("at %i ms one way (+%i jitter), keys every ~200 ms: no input lost, own corrections p95 under %f cell", (latency, jitter, bound) => {
-    const run = latencyRun(latency, jitter, STRESS);
+  ])("at %i ms one way (+%i jitter), keys every ~200 ms: no input lost, own corrections p95 under %f cell (pooled)", (latency, jitter, bound) => {
+    const run = latencyRun(latency, jitter, STRESS, latency === 50 ? VERDICT_SEEDS : SEEDS);
     expect(run.presses).toBeGreaterThan(100);
     const q = p95(run.corr);
     expect(q).toBeLessThan(bound);
-    if (latency === 50) expect(q < 0.1, `p95 ${q} at 50 ms decides PREDICT_BY_DEFAULT`).toBe(PREDICT_BY_DEFAULT);
+    if (latency === 50) {
+      const v = predictionVerdict(run.runs);
+      expect(v.stable, `per-player p95 ${v.perPlayer.map(fmt).join(" / ")}, halves ${v.halves.join(" / ")}: too close to call, add seeds`).toBe(true);
+      expect(v.on, `worst player's p95 ${fmt(v.worst)} at 50 ms decides PREDICT_BY_DEFAULT`).toBe(PREDICT_BY_DEFAULT);
+    }
     results.push(describeRun(`${latency} ms (+${jitter}), keys every ~200 ms`, run));
   });
 
-  it("at 50 ms one way (+10 jitter), keys every ~400 ms: own corrections p95 under 0.1 cell", () => {
+  it("at 50 ms one way (+10 jitter), keys every ~400 ms: each player's own corrections p95 under 0.1 cell", () => {
     const run = latencyRun(50, 10, CALM);
-    expect(p95(run.corr)).toBeLessThan(0.1);
+    expect(predictionVerdict(run.runs).worst).toBeLessThan(0.1);
     results.push(describeRun("50 ms (+10), keys every ~400 ms", run));
+  });
+
+  it("judges each player's corrections, not the pool, and says when the runs are too few to decide", () => {
+    const calm = Array.from({ length: 100 }, () => 0);
+    // 7 % of one player's corrections over 0.1 cell: 3.5 % of the pool, whose p95 passes.
+    const rough = Array.from({ length: 100 }, (_, i) => (i < 7 ? 0.3 : 0));
+    const runs = [
+      [calm, rough],
+      [calm, rough],
+    ];
+    expect(p95(runs.flat(2))).toBeLessThan(0.1);
+    const v = predictionVerdict(runs);
+    expect(v.perPlayer).toEqual([0, 0.3]);
+    expect(v.on).toBe(false);
+    expect(v.stable).toBe(true);
+    // One half passes, the other not: too close to call.
+    const mixed = predictionVerdict([
+      [calm, calm],
+      [calm, rough],
+    ]);
+    expect(mixed.halves).toEqual([true, false]);
+    expect(mixed.stable).toBe(false);
   });
 
   it("goes through a 300 ms TCP stall of one player", () => {
@@ -463,6 +513,9 @@ describe("co-op prediction bench (step B, the screen's PredictedPlay end to end)
       r.run(4000);
       // Back with no key held: after a correction or two, the copy is the server's again.
       const corr = c.allCorrections().slice(before);
+      // Small on the way back too: the copy forgets the keys when the coopIdle reaches the server
+      // (without that replay, a 1.2-cell correction after a short hide).
+      expect(Math.max(0, ...corr), `hidden ${hiddenMs} ms: largest correction`).toBeLessThan(0.5);
       expect(corr.slice(-60).every((x) => x < 0.01), `hidden ${hiddenMs} ms: ${corr.slice(-60).map(fmt).join(" ")}`).toBe(true);
       const drawn = c.play!.frame().bodies[c.seat]!;
       expect(Math.abs(drawn.x - server.bodies[c.seat]!.x)).toBeLessThan(0.01);
@@ -481,13 +534,20 @@ describe("co-op prediction bench (step B, the screen's PredictedPlay end to end)
     c.press |= BIT_JUMP_PRESS;
     c.keys = BIT_JUMP;
     const heights: number[] = [];
+    /** The copy's own height (no offset): the fading offsets can smooth a fall back and a second jump into one descent. */
+    const copy: number[] = [];
     let serverPeak = 0;
     r.run(900, (t) => {
       if (t === t0 + 170) c.keys = 0;
       if (t % 16 !== 0) return;
       heights.push(floor - c.play!.frame().bodies[c.seat]!.y);
+      copy.push(floor - c.play!.world.bodies[c.seat]!.y);
       serverPeak = Math.max(serverPeak, floor - server.bodies[c.seat]!.y);
     });
+    // The copy leaves the floor once: it never lands while the press is still on its way to the
+    // server, then takes off again when the server applies it.
+    const takeoffs = copy.filter((h, i) => i > 0 && copy[i - 1]! < 0.01 && h > 0.1).length + (copy[0]! > 0.1 ? 1 : 0);
+    expect(takeoffs, `copy: ${copy.map(fmt).join(" ")}`).toBe(1);
     // One arc: up to its peak, then down to the floor and no lower (no fall back mid-air waiting for
     // the server, no second jump once it applies the press).
     const top = heights.indexOf(Math.max(...heights));
@@ -503,6 +563,8 @@ describe("co-op prediction bench (step B, the screen's PredictedPlay end to end)
   it("never draws a body into what it stands on or into a wall, nor a rope link longer than the world's", () => {
     let frames = 0;
     let sink = 0;
+    let riders = 0;
+    let riderSink = 0;
     let wall = 0;
     const links: number[] = [];
     for (const def of [sandboxLevel, COOP_LEVELS.find((l) => l.id === "coop04")!]) {
@@ -515,12 +577,21 @@ describe("co-op prediction bench (step B, the screen's PredictedPlay end to end)
           const play = c.play!;
           if (!play.predictor.synced) continue;
           frames++;
-          const f = play.frame().bodies;
+          const frame = play.frame();
+          const f = frame.bodies;
           const w = play.world;
+          const n = w.bodies.length;
           w.bodies.forEach((b, i) => {
             const s = w.supportOf(i);
+            const carrier = s && s.kind !== "terrain" ? (w.colliderById(s.id)?.node ?? -1) : -1;
             // Standing on the floor or on an object that is no body or crate: drawn no lower than the copy has it.
-            if (s && (s.kind === "terrain" || (w.colliderById(s.id)?.node ?? -1) < 0)) sink = Math.max(sink, f[i]!.y - b.y);
+            if (s && carrier < 0) sink = Math.max(sink, f[i]!.y - b.y);
+            // Riding a body or a crate: drawn no lower on it than the copy has it.
+            if (carrier >= 0) {
+              riders++;
+              const [drawnY, worldY] = carrier < n ? [f[carrier]!.y, w.bodies[carrier]!.y] : [frame.crates[2 * (carrier - n) + 1]!, w.crates[carrier - n]!.y];
+              riderSink = Math.max(riderSink, f[i]!.y - drawnY - (b.y - worldY));
+            }
             wall = Math.max(wall, depthInTerrain(w, f[i]!));
           });
           const chain = w.chain;
@@ -536,11 +607,13 @@ describe("co-op prediction bench (step B, the screen's PredictedPlay end to end)
     }
     expect(frames).toBeGreaterThan(2500);
     expect(sink).toBeLessThan(0.02);
+    expect(riders).toBeGreaterThan(500);
+    expect(riderSink).toBeLessThan(0.02);
     // The frame blends the last two steps: a hair into a cell at most.
     expect(wall).toBeLessThan(0.1);
     // Riders follow their carrier, which may pull a link a little: rarely, and by little.
     expect(quantile(links, 0.999)).toBeLessThan(0.1);
-    results.push(`stress keys, sandbox and coop04: bases sunk at most ${fmt(sink)}, boxes into walls at most ${fmt(wall)}, links over the world's p99.9 ${fmt(quantile(links, 0.999))} max ${fmt(Math.max(...links))}`);
+    results.push(`stress keys, sandbox and coop04: bases sunk at most ${fmt(sink)}, riders into their carrier at most ${fmt(riderSink)} (${riders} rider frames), boxes into walls at most ${fmt(wall)}, links over the world's p99.9 ${fmt(quantile(links, 0.999))} max ${fmt(Math.max(...links))}`);
   });
 
   it("keeps this player's corrections small while a remote player hauls it on the rope", () => {

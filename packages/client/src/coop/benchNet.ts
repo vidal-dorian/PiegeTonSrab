@@ -297,3 +297,22 @@ export function quantile(values: readonly number[], q: number): number {
   const sorted = values.slice().sort((a, b) => a - b);
   return sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))] ?? 0;
 }
+
+/**
+ * The plan's rule for turning prediction on: 95 % of each player's own-body corrections under
+ * `limit` cells. `runs[run][player]` holds the corrections; each player's are pooled over the
+ * runs. `stable` says both halves of the runs (first and second) give the same verdict: when they
+ * do not, the sample is too small to decide.
+ */
+export function predictionVerdict(runs: ReadonlyArray<ReadonlyArray<readonly number[]>>, limit = 0.1): { perPlayer: number[]; worst: number; on: boolean; halves: boolean[]; stable: boolean } {
+  const judge = (part: ReadonlyArray<ReadonlyArray<readonly number[]>>) => {
+    const players = Math.max(0, ...part.map((r) => r.length));
+    const perPlayer = Array.from({ length: players }, (_, i) => quantile(part.flatMap((r) => r[i] ?? []), 0.95));
+    const worst = Math.max(0, ...perPlayer);
+    return { perPlayer, worst, on: worst < limit };
+  };
+  const all = judge(runs);
+  const mid = Math.ceil(runs.length / 2);
+  const halves = runs.length >= 2 ? [judge(runs.slice(0, mid)).on, judge(runs.slice(mid)).on] : [all.on];
+  return { ...all, halves, stable: halves.every((h) => h === all.on) };
+}
