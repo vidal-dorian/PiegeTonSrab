@@ -2,7 +2,7 @@
  * The co-op room's logic (CoopSession), with a fake clock and network: lobby, the role of
  * Ruben, the intro, levels run by the server's world, inputs, snapshots, pauses and restarts.
  */
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   BIT_JUMP,
   BIT_JUMP_PRESS,
@@ -17,11 +17,13 @@ import {
   COOP_SILENT_MS,
   CoopSession,
   decodeWorld,
+  encodeInput,
   sandboxLevel,
   type CoopClientMessage,
   type CoopServerMessage,
   type CoopSessionIO,
 } from "@game/shared/coop";
+import { COOP_KEYS, InputSource } from "../input";
 import { INTRO_DURATION_S } from "./intro/introContract";
 import { CoopInputSender } from "./net/inputSender";
 
@@ -641,5 +643,85 @@ describe("the client's inputs while the world waits (CoopInputSender)", () => {
     sender.sample(BIT_RIGHT);
     sender.flush(400);
     expect(sent.pop()).toEqual({ type: "coopIn", e: 7, k: [[301, BIT_RIGHT]] });
+  });
+});
+
+describe("a key held while the level screen starts over (keepHeldKeys)", () => {
+  // No Phaser here: a "screen" is what CoopScene.create builds for this player on every
+  // coopLevel, an input source taken from the carry and a sender on that level's clock.
+  let win: EventTarget;
+  beforeEach(() => {
+    win = new EventTarget();
+    vi.stubGlobal("window", win);
+    vi.stubGlobal("navigator", { getGamepads: () => [] });
+    vi.stubGlobal("HTMLInputElement", class {});
+    vi.stubGlobal("HTMLTextAreaElement", class {});
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+  const key = (type: "keydown" | "keyup", code: string) =>
+    win.dispatchEvent(Object.assign(new Event(type), { code, repeat: false }));
+
+  it("a key held through a resume and a server stall is still sent, and its release too", () => {
+    // Alice plays Ruben: last in the chain, nothing blocks her on the right.
+    const r = room(["Léo", "Alice", "Bob"]);
+    r.s.handle("p1", { type: "coopRuben", playerId: "p1" });
+    r.s.handle("p0", { type: "coopPlay", index: 0 });
+    r.io.advance(COOP_LEVEL_LEAD_MS);
+    const { io, s } = r;
+    let source: InputSource | null = null;
+    let sender!: CoopInputSender;
+    let screens = 0;
+    const startScreen = () => {
+      // CoopScene.create: the old screen's source is destroyed, a new one starts from the keys held.
+      source?.destroy();
+      source = new InputSource({ keys: COOP_KEYS, pad: "first", keepHeldKeys: true });
+      const lvl = io.last("coopLevel")!;
+      sender = new CoopInputSender((m) => s.handle("p1", m), lvl.epoch, () => ((io.t - lvl.startsAt) * COOP_HZ) / 1000);
+      screens++;
+    };
+    startScreen();
+    let read = io.sent.length;
+    /** Run `ms` frames of 10 ms for Alice's screen, the others in `others` sending heartbeats. */
+    const run = (ms: number, others: string[]) => {
+      for (let t = 0; t < ms; t += 10) {
+        for (; read < io.sent.length; read++) {
+          const { to, msg } = io.sent[read]!;
+          if (to !== "*" && to !== "p1") continue;
+          if (msg.type === "coopLevel") startScreen();
+          else if (msg.type === "coopPause") sender.setPaused(msg.waitingFor !== null);
+        }
+        // No auto-repeat: the OS repeats only the last key pressed, and she tapped jump since.
+        source!.poll();
+        sender.sample(encodeInput(source!.takeCoopInput()));
+        sender.flush(io.t);
+        if (t % 100 === 0) for (const id of others) s.handle(id, { type: "coopIn", e: epochOf(io), k: [] });
+        io.advance(10);
+      }
+    };
+    run(300, ["p0", "p2"]);
+    key("keydown", "ArrowRight");
+    run(500, ["p0", "p2"]);
+    expect(heldOf(io, "p1")).toBe(BIT_RIGHT);
+
+    // Bob drops: the world waits, Alice keeps Right down; Bob comes back.
+    s.setConnected("p2", false);
+    run(2000, ["p0"]);
+    s.setConnected("p2", true);
+    run(1000, ["p0", "p2"]);
+    expect(screens).toBe(2);
+    expect(heldOf(io, "p1")).toBe(BIT_RIGHT);
+
+    // The server stalls: the clock moves and every screen starts over again.
+    io.stall(5000);
+    run(500, ["p0", "p2"]);
+    expect(screens).toBe(3);
+    expect(heldOf(io, "p1")).toBe(BIT_RIGHT);
+
+    // She lets go: the body stops being pushed.
+    key("keyup", "ArrowRight");
+    run(300, ["p0", "p2"]);
+    expect(heldOf(io, "p1")).toBe(0);
   });
 });

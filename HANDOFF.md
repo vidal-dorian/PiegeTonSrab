@@ -417,8 +417,12 @@ Room and clock after the M3 network review (protocol version 4):
   it in every `coopIn`; the server drops inputs of another epoch, clamps stamps to at most half a second
   ahead of its clock, ignores inputs outside a level, and forgets every queued input and held key whenever
   tick 0 moves. While the world waits for a dropped player the client reads its keys but sends heartbeats
-  only (`packages/client/src/coop/net/inputSender.ts`); a new `coopLevel` starts the screen over, so the keys
-  still held are sent again.
+  only (`packages/client/src/coop/net/inputSender.ts`); a new `coopLevel` starts the screen over, and its
+  InputSource starts from the keys physically held (`keepHeldKeys`, a module-level tracker in `input.ts`:
+  the OS auto-repeats only the last key pressed), so the keys still held are sent again. Ctrl, Cmd or Alt
+  with a key is a browser shortcut, never a game key (Ctrl+R reloads).
+- Online drawing follows a playout clock measured on the snapshots' arrivals (`net/playout.ts`), so frames
+  keep blending at 20-80 ms of latency.
 - A silent player (no message for 250 ms) touches nothing for those steps, but their held keys are kept.
 - A dropped player inside their 30 s window stays in a rebuilt team and in the level after the intro; the
   level starts paused for them. The host role never goes to nobody: when the host leaves and everyone else
