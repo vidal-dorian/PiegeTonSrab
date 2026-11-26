@@ -220,6 +220,18 @@ export class CoopPredictor {
   }
 
   /**
+   * Draw the latest snapshot as it is: the copy back at it, no offset (the server's world waits for
+   * a dropped player, so there is nothing to predict). A later advanceTo replays from there.
+   */
+  showBase(): void {
+    if (!this.base) return;
+    this.dirty = false;
+    this.reset();
+    this.target = this.base.tick;
+    zero(this.off);
+  }
+
+  /**
    * Fade the drawing offsets by `dt` seconds. A rider keeps its offset relative to the bottom of
    * its pile, and that difference fades the same way, so a pile comes together on screen without
    * a jump. Then what the offsets may not do: stretch a rope link past what it is in the world,

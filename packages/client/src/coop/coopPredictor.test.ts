@@ -111,14 +111,16 @@ describe("co-op prediction parts", () => {
     const play = new PredictedPlay(new CoopWorld(level, players), new CoopWorld(level, players), 0, 1, { send: (m) => sent.push(m), serverTick: () => tick, rtt: () => 100 });
     play.onSnapshot(0, new CoopWorld(level, players).save(), [0], []);
     play.advance(1 / 60, () => BIT_RIGHT, 0);
-    const at = play.predictor.tick;
-    expect(at).toBeGreaterThan(0);
+    expect(play.predictor.tick).toBeGreaterThan(0);
+    expect(play.frame().bodies[0]!.x).toBeGreaterThan(play.authority.bodies[0]!.x);
+    // Paused: the copy is the latest snapshot (tick 0), its guess past it dropped, and stays there.
     play.setPaused(true);
     for (let f = 1; f <= 60; f++) {
       tick += COOP_HZ / 60;
       play.advance(1 / 60, () => 0, f * 16);
     }
-    expect(play.predictor.tick).toBe(at);
+    expect(play.predictor.tick).toBe(0);
+    expect(play.frame().bodies[0]!.x).toBe(play.authority.bodies[0]!.x);
     // Only heartbeats went out meanwhile.
     expect(sent.slice(1).every((m) => m.type === "coopIn" && m.k.length === 0)).toBe(true);
   });

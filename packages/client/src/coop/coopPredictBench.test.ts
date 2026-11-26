@@ -304,6 +304,83 @@ describe("co-op prediction bench (step B, the screen's PredictedPlay end to end)
     expectSettled(r);
   });
 
+  it("draws the server's frozen world while it waits for a dropped player, even mid-jump", () => {
+    const r = room({ latency: 50, jitter: 10, levels: [flatLevel] });
+    const server = (r.session as unknown as { world: CoopWorld }).world;
+    const jumper = r.client("p0");
+    const watchers = r.clients.filter((c) => c.id !== "p2");
+    for (const c of r.clients) c.keys = BIT_RIGHT;
+    r.run(1000);
+    // A jump pressed just before another player's link drops: the server never applies it (the
+    // resume forgets queued inputs), so no screen may show it.
+    jumper.press |= BIT_JUMP_PRESS;
+    jumper.keys |= BIT_JUMP;
+    r.run(40);
+    r.session.setConnected("p2", false);
+    r.run(200);
+    const frozenAt = server.tick;
+    const floorY = server.bodies[jumper.seat]!.y;
+    let worstVsSnapshot = 0;
+    let worstVsServer = 0;
+    for (let k = 0; k < 20; k++) {
+      r.run(100);
+      expect(server.tick).toBe(frozenAt);
+      for (const c of watchers) {
+        const play = c.play!;
+        expect(c.paused).toBe(true);
+        const drawn = play.frame().bodies;
+        play.authority.bodies.forEach((b, i) => {
+          worstVsSnapshot = Math.max(worstVsSnapshot, Math.abs(drawn[i]!.x - b.x), Math.abs(drawn[i]!.y - b.y));
+        });
+        server.bodies.forEach((b, i) => {
+          worstVsServer = Math.max(worstVsServer, Math.abs(drawn[i]!.x - b.x), Math.abs(drawn[i]!.y - b.y));
+        });
+      }
+    }
+    // Exactly the latest snapshot (as step A draws it), a few steps of walking from the server's.
+    expect(worstVsSnapshot).toBeLessThan(1e-9);
+    expect(worstVsServer).toBeLessThan(0.2);
+    stopKeys(r.clients);
+    r.session.setConnected("p2", true);
+    r.run(2000);
+    expect(Math.min(server.bodies[jumper.seat]!.y, floorY)).toBe(floorY);
+    expectSettled(r);
+    results.push(`paused mid-jump: screens drawn ${fmt(worstVsSnapshot)} from the latest snapshot, ${fmt(worstVsServer)} from the server's frozen world`);
+  });
+
+  it("stops a little past the newest snapshot when its own link goes silent", () => {
+    const t0 = 1_000_000 + 2700 + 1000;
+    const stall: Array<[number, number]> = [[t0, t0 + 5000]];
+    const r = room({ latency: 50, jitter: 10, levels: [flatLevel], stalls: { p1: stall } });
+    const server = (r.session as unknown as { world: CoopWorld }).world;
+    const me = r.client("p1");
+    const walker = r.clients.find((c) => c.seat === 2)!;
+    walker.keys = BIT_RIGHT;
+    r.run(t0 - r.net.t + 150);
+    // The server sees the drop and pauses; this screen hears nothing until the link comes back.
+    r.session.setConnected("p1", false);
+    const frozen = server.bodies.map((b) => b.x);
+    let ahead = 0;
+    let drawnOff = 0;
+    for (let k = 0; k < 45; k++) {
+      r.run(100);
+      const play = me.play!;
+      ahead = Math.max(ahead, play.predictor.tick - play.authority.tick);
+      const drawn = play.frame().bodies;
+      frozen.forEach((x, i) => (drawnOff = Math.max(drawnOff, Math.abs(drawn[i]!.x - x))));
+    }
+    // At most the lead, a one-way trip (under 10 ticks here) and 250 ms past the newest snapshot
+    // (it used to run on for the whole silence: 580 ticks, 15 cells after 4 s).
+    expect(ahead).toBeLessThanOrEqual(me.play!.lead + 10 + 30);
+    expect(drawnOff).toBeLessThan(3);
+    walker.keys = 0;
+    r.session.setConnected("p1", true);
+    r.run(2500);
+    expect(me.builds).toBeGreaterThan(1);
+    expectSettled(r);
+    results.push(`own link silent 5 s: copy at most ${ahead} ticks past the newest snapshot, drawn at most ${fmt(drawnOff)} from the frozen world`);
+  });
+
   it("rebuilds the predictor on a level change", () => {
     const r = room({ latency: 50, jitter: 10, levels: [sandboxLevel, flatLevel] });
     const keys = randomKeys(r.clients, 9);

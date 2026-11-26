@@ -36,6 +36,12 @@ const SLEW = 0.2;
 const SLOW_PER_TICK = 0.05;
 /** Steps simulated (and keys read) per frame at most, after a frozen tab or a clock jump. */
 const MAX_STEPS_PER_FRAME = 60;
+/**
+ * How long the copy may go on without a snapshot, ticks (250 ms) past where it normally is (the
+ * lead plus a one-way trip past the newest snapshot). A link that went silent (lost, or a long
+ * stall) stops it there instead of playing the whole team on for the reconnection window.
+ */
+const STALE_TICKS = Math.round(COOP_HZ * 0.25);
 
 export interface PredictedPlayIO {
   send(msg: CoopClientMessage): void;
@@ -104,6 +110,7 @@ export class PredictedPlay {
     this.authority.load(state);
     this.held = held.slice();
     this.predictor.onSnapshot(tick, state, held, pending, ack);
+    if (this.paused) this.predictor.showBase();
   }
 
   /**
@@ -135,20 +142,28 @@ export class PredictedPlay {
       }
       this.sender.flush(now);
     }
-    this.predictor.advanceTo(Math.max(this.predictor.tick, Math.min(n, this.predictor.tick + MAX_STEPS_PER_FRAME)));
+    const limit = this.newest + this.lead + Math.ceil((this.rttMs() / 2) * (COOP_HZ / 1000)) + STALE_TICKS;
+    this.predictor.advanceTo(Math.max(this.predictor.tick, Math.min(n, this.predictor.tick + MAX_STEPS_PER_FRAME, limit)));
     this.predictor.fade(dt);
   }
 
   /** What to draw this frame. */
   frame(): PropFrame {
     const c = this.clock;
-    return this.predictor.frame(Number.isNaN(c) ? 1 : c - Math.floor(c));
+    // Held back behind the clock (no snapshot for a while): the copy's last state as it is.
+    const behind = this.predictor.tick < Math.floor(c);
+    return this.predictor.frame(Number.isNaN(c) || behind ? 1 : c - Math.floor(c));
   }
 
-  /** The world waits for a dropped player (true) or goes on (false): nothing advances meanwhile. */
+  /**
+   * The world waits for a dropped player (true) or goes on (false): nothing advances meanwhile,
+   * and the screen draws the server's world as its latest snapshot has it (the copy's guess past
+   * it, keys the server will forget on the resume included, is dropped).
+   */
   setPaused(paused: boolean): void {
     this.paused = paused;
     this.sender.setPaused(paused);
+    if (paused) this.predictor.showBase();
   }
 
   /**
