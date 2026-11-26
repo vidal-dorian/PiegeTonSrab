@@ -113,15 +113,18 @@ export interface PlacementChoice {
   kind: CardKind;
   x: number;
   y: number;
-  /** Rotatable objects only (cannon). */
+  /** Rotatable objects only (cannon, spikes, spring). */
   dir?: Dir;
 }
 
 /** One of a player's cards that the session refused at the end of placement. */
 export interface RefusedObject {
   kind: CardKind;
-  /** "gone": an eraser whose target another player erased first. */
-  reason: "path" | "taken" | "invalid" | "gone";
+  /**
+   * "gone": an eraser whose target another player erased first. "support": spikes with no
+   * block behind them any more (the block was refused or erased by someone else).
+   */
+  reason: "path" | "taken" | "invalid" | "gone" | "support";
 }
 
 // --- Server to client ---------------------------------------------------------

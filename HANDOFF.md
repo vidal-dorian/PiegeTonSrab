@@ -38,7 +38,7 @@ Default:
 Decided (2026-11-25, with Dorian): the start is a protected 5-seat spawn pad, so five players do not start stacked on one cell (where one trap next to S would kill everyone at once).
 
 - The pad is the S cell plus 2 cells on each side on the same row (5 floor cells), and the 2 rows above them. Each seat (the player's colour index) spawns on its own pad cell: offsets 0, -1, +1, -2, +2 from S, so seat 0 (solo, practice, tutorial) is S itself and a small room stays bunched around S.
-- Nothing can ever be placed on the pad: no round object, no dead player's block, no practice-editor object (`canPlaceAt` in `objects.ts` refuses every pad cell).
+- Nothing can ever be placed on the pad: no round object, no dead player's block, no practice-editor object (`canPlaceAt` in `objects.ts` refuses every pad cell). Since 2026-11-26 the pad sits inside a wider protected start zone (see "Protected zones and spikes on walls" below).
 - A map's pad must be empty floor on solid ground (terrain or a map `=` platform, not a spring) with 2 empty rows above. `check-level` reports a broken pad and `packages/client/src/spawn.test.ts` checks every map. On a map whose pad is broken, a seat falls back to S. Code: the "Spawn pad" part of `packages/shared/src/level.ts`.
 - Reachability stays rooted at S alone: the pad is flat, free floor that nothing can occupy, so every seat can walk to S.
 - The level starts with no player-placed objects.
@@ -61,7 +61,7 @@ Decided (2026-11-24), details of the rule above:
 
 - Dead players place platforms only, never traps. A platform scores nothing, so dying early never becomes a way to earn kill points.
 - One block per dead player per round, placed by clicking a cell (the same targeting as the placement screen).
-- A block cannot be placed on the start, on the finish, on another object, or on or right next to a living player (so nobody gets stuck inside a block that appears on them). The reachability check applies as for normal placement.
+- A block cannot be placed on the start, on the finish, on another object, or on or right next to a living player (so nobody gets stuck inside a block that appears on them). The reachability check applies as for normal placement. Tightened on 2026-11-26, see "Protected zones and spikes on walls".
 - These blocks disappear at the end of the round, so the level does not fill up faster than the placement step intends.
 - Network: the dead player's client sends the placement to the server, which validates it and broadcasts it with the round time at which it appears. Every client then adds it to the collision grid. This is one more exception to "objects are not synchronised" (see Network model).
 
@@ -80,7 +80,7 @@ Defaults added while building step 3 (2026-11-24), not yet discussed with Dorian
 - Placement: a card is picked from the tray, then a cell is clicked; clicking one of this round's objects takes it back. "Valider la pose" is enabled once each of the round's objects is placed or discarded (see "Placement feedback" below). When the timer runs out, objects not placed are lost.
 - A 1.5-second "Prêt ?" countdown separates placement from the race; it does not count in the race time.
 - With a single player, the "everyone finished, nobody scores" rule is skipped, otherwise a solo game could never score. This is only for local testing.
-- Objects can be placed anywhere that is free, including in mid-air (floating spikes, floating saws).
+- Objects can be placed anywhere that is free, including in mid-air (floating saws). Spikes no longer: since 2026-11-26 they must lean on a block.
 - Interface (menu, timer, tray, scores) is HTML over the Phaser canvas rather than drawn in Phaser.
 
 Placement feedback, added on 2026-11-25 (defaults, not yet discussed with Dorian): an action that fails always tells the player why, in French. Texts are in `packages/client/src/ui/feedback.ts`.
@@ -118,11 +118,33 @@ Defaults added while building step 5 (2026-11-24), not yet discussed with Dorian
 - ~~Stomps and bumps never score.~~ Replaced on 2026-11-25 by the push-kill rule (see Scoring). A stomp or bump on its own still scores nothing; only the trap death that follows it does.
 - The score leader (alone in first place, with points) wears an orange crown.
 - Cannon: placed with a direction (R or right click turns it during placement, default left). It is a solid block and fires a ball every 2 s (first shot between 0.6 s and 2.6 s into the race, depending on its id, so cannons are not in step). A ball flies at 7 cells per second until the first solid cell. The line of fire is measured when the race starts; blocks placed by dead players during the race do not stop balls. For the reachability check, the whole line of fire counts as deadly.
-- Spring: a solid block; landing on top throws the character 7 cells up, whatever the jump button does. Nobody can stand on it.
+- Spring: a solid block; landing on top throws the character 7 cells up, whatever the jump button does. Nobody can stand on it. Since 2026-11-26 it can also face a side or down (see below).
 - Vine: the anchor block is solid, the rope hangs up to 4 cells below it (shorter if something is in the way). A player touching the rope in mid-air grabs it, keeps their momentum, swings (left and right pump the swing) and lets go with jump, with an upward push, or with down (S, down arrow, d-pad or stick down), which keeps the swing's momentum with no push (Decided 2026-11-25, by Dorian). Down wins over jump in the same step. The vine let go of with down is not grabbed again until the body is out of its reach or lands, and holding down passes vines by. Only one player holds a vine: the client grabs at once and tells the server; if someone else got it first, the server says so and the client lets go. The reachability check never uses vines, so a vine can only add routes.
 - Maps can contain objects, written as characters in the level rows (`*` saw, `^` spikes, `=` platform, `T` spring, `V` vine, `<` `>` `A` `U` cannons). They are there from the first round, belong to nobody and never score kills.
 - Draw weights: saw 1, spikes 1, cannon 0.8, spring 0.8, platform 0.8, vine 0.6.
 - Movement values for these (spring height, stomp bounce, slam speed, stun time, bump speed, swing pump) live in `DEFAULT_MOVEMENT` and in the tuning panel ("Interactions").
+
+## Protected zones and spikes on walls
+
+Decided (2026-11-26, by Dorian, after a playtest; the screenshots showed traps stacked right next to the flag and saws around the start):
+
+- Spikes and springs can be turned like the cannon (R or right click during placement) and placed on walls and ceilings.
+- Spikes only kill when you land on them or hit their pointed face. Running into upward spikes sideways does not kill.
+- Spikes cannot float: they must be placed against a block (terrain or a solid object).
+- Nothing at all (trap or help, round object, dead player's block, practice object) can be placed in a zone 7 cells wide and 4 tall around the start.
+- Players do not touch each other (no stomp, no bump) in that start zone.
+- The flag must not be walled off, and a dead player's block must never trap a living player.
+
+Defaults chosen to implement them (2026-11-26, not yet discussed with Dorian):
+
+- Directions: 0 right, 1 down, 2 left, 3 up (`Dir` in `objects.ts`). Spikes and springs default to up (`defaultDir`), the cannon to left as before. Map characters `^` and `T` are up.
+- Spikes are now a **solid** block. Only the strip just outside the pointed face (`SPIKES_REACH`, 0.13 cell) kills, and only a body that is not moving away from that face. So running into the side of floor spikes is like running into a wall, landing on them kills, touching the face of wall spikes kills, jumping into ceiling spikes kills. The alternative (spikes you can walk through sideways) was rejected: floor spikes would have become harmless to anyone walking.
+- The block behind spikes (opposite their direction) must be terrain or a solid object (platform, cannon, spring, vine anchor, other spikes); a saw does not count, nor the sky above the level or the pit below (`objectPlacementProblem`, reason `support`). A hand is applied with spikes last (`supportFirst`), on the server and in the placement preview, so spikes can lean on a platform of the same hand. Spikes whose block was refused or erased that round are refused with the reason `support` ("le bloc contre lequel ils étaient posés n'était plus là"). An eraser cannot remove an object that spikes lean on ("Des pics sont posés dessus").
+- Springs facing a side throw the character the other way when it runs or jumps into their face (16 cells/s, a 1.5-cell hop, input locked 0.25 s); a spring on a ceiling throws a character that bumps its head on it down (16 cells/s). Values in `DEFAULT_MOVEMENT` and the tuning panel. The reachability check plays them for real like the upward spring.
+- Start zone: `SPAWN_ZONE_HALF_WIDTH` 3 and `SPAWN_ZONE_HEIGHT` 4 in `level.ts`: the S column plus 3 on each side, the S row plus the 3 rows above. It contains the 5-seat pad. A contact (stomp or bump) is ignored when either body overlaps the zone, on the clients and in the server's stomp check.
+- Finish zone: nothing can be placed within 2 cells of the flag (a 5 by 5 box centred on F, `FINISH_ZONE_RADIUS`). With the path guard still in force, the last cells before the flag always stay free. Cannon balls break on the edge of both zones, as they did on the pad.
+- Both zones are drawn during placement and while a dead player chooses a cell, and a refused click says "Pas dans la zone de départ ni près de l'arrivée".
+- Dead players' blocks (server `onBlock` in `session.ts`): no block within 2 cells of a living player's body (`BLOCK_CLEARANCE`; the block appears 300 ms later and the pose is a little old). The finish must stay reachable from where each living player would land if they fell straight down (so a player in mid-air counts too, which the old check missed) and from the last cell they were seen standing on. A player the path graph cannot place (on a vine, somewhere the graph never reached) gets a 4-cell clearance instead.
 
 ## Map stress test for 5 players
 

@@ -7,16 +7,21 @@
  * The Colyseus room on the server wraps it, and the offline solo mode runs the very same
  * class inside the browser.
  */
-import { parseLevel, type Level, type LevelDefinition } from "./level";
+import { bodyInSpawnZone, isSolidCell, parseLevel, type Level, type LevelDefinition } from "./level";
 import { DEFAULT_MOVEMENT } from "./movement/tuning";
 import {
-  canPlaceAt,
+  defaultDir,
   erasableAt,
   hasErasable,
   OBJECT_DEFS,
+  objectPlacementProblem,
+  placementProblem,
   prepareObjects,
+  supportFirst,
+  withSolidObjects,
   type CardKind,
   type Dir,
+  type ObjectKind,
   type PlacedObject,
 } from "./objects";
 import { erasureKeepsPath, PathGuard } from "./reachability";
@@ -86,6 +91,12 @@ interface Player {
   pushedBy: string | null;
   placedBlock: boolean;
   lastBlockRequest: number;
+  /**
+   * Last cell this player was seen standing on that the race's path graph knows (y * width
+   * + x), or -1. A dead player's block must keep the finish reachable from there too, so a
+   * block dropped while someone is in mid-air can't shut them in.
+   */
+  lastStandCell: number;
 }
 
 export class GameSession {
@@ -174,6 +185,7 @@ export class GameSession {
       pushedBy: null,
       placedBlock: false,
       lastBlockRequest: -Infinity,
+      lastStandCell: -1,
     });
     if (!this.hostId) this.hostId = id;
     this.broadcastLobby();
@@ -333,6 +345,10 @@ export class GameSession {
       case "pose":
         if (this.phase === "race" && p.status === "running") {
           p.pose = { x: num(msg.x), y: num(msg.y), facing: msg.facing === -1 ? -1 : 1, slide: !!msg.slide };
+          if (this.level && this.raceGuard) {
+            const cell = standCellOf(p.pose, this.level);
+            if (this.raceGuard.knowsCell(cell)) p.lastStandCell = cell;
+          }
         }
         return;
       case "died":
@@ -456,7 +472,7 @@ export class GameSession {
       if (i < 0 || !Number.isInteger(o.x) || !Number.isInteger(o.y)) return null;
       available.splice(i, 1);
       const choice: PlacementChoice = { kind: o.kind, x: o.x, y: o.y };
-      if (o.kind !== "eraser" && OBJECT_DEFS[o.kind].rotatable) choice.dir = cleanDir(o.dir);
+      if (o.kind !== "eraser" && OBJECT_DEFS[o.kind].rotatable) choice.dir = cleanDir(o.dir, o.kind);
       out.push(choice);
     }
     return out;
@@ -497,13 +513,16 @@ export class GameSession {
     const guard = new PathGuard(this.level, prepareObjects(this.level, remaining), DEFAULT_MOVEMENT);
     for (const p of order) {
       const refused = this.refused.get(p.id)!;
-      for (const c of p.choice) {
+      // Objects that lean on a block go after the player's other objects, so spikes can lean
+      // on a platform placed in the same hand (the client checks the hand in the same order).
+      for (const c of supportFirst(p.choice)) {
         if (c.kind === "eraser") continue;
         const obj: PlacedObject = { id: this.nextObjectId, kind: c.kind, x: c.x, y: c.y, ownerId: p.id };
         if (c.dir !== undefined) obj.dir = c.dir;
-        if (!canPlaceAt(this.level, guard.objects, c.x, c.y)) {
-          const taken = guard.objects.some((o) => o.x === c.x && o.y === c.y);
-          refused.push({ kind: c.kind, reason: taken ? "taken" : "invalid" });
+        const problem = objectPlacementProblem(this.level, guard.objects, obj);
+        if (problem) {
+          const reason = problem === "taken" ? "taken" : problem === "support" ? "support" : "invalid";
+          refused.push({ kind: c.kind, reason });
         } else if (guard.tryAdd(obj)) this.nextObjectId++;
         else refused.push({ kind: c.kind, reason: "path" });
       }
@@ -531,6 +550,7 @@ export class GameSession {
       p.pushedBy = null;
       p.placedBlock = false;
       p.lastBlockRequest = -Infinity;
+      p.lastStandCell = -1;
       this.sendCountdown(p);
     }
     this.vineHolders.clear();
@@ -637,19 +657,31 @@ export class GameSession {
     const x = msg.x;
     const y = msg.y;
     if (!Number.isInteger(x) || !Number.isInteger(y)) return refuse("Case invalide.");
-    if (!canPlaceAt(this.level, this.raceGuard.objects, x, y)) return refuse("Case occupée.");
-    // Not on or right next to a living player, so nobody ends up inside a block.
+    const problem = placementProblem(this.level, this.raceGuard.objects, x, y);
+    if (problem === "protected") return refuse("Pas dans la zone de départ ni près de l'arrivée.");
+    if (problem) return refuse("Case occupée.");
+    const block: PlacedObject = { id: this.nextObjectId, kind: "platform", x, y, ownerId: p.id };
+    // Never shut a living player in (decided 2026-11-26: a dead player's block must not be a
+    // way to trap someone). Three checks, from the cheapest:
+    // 1. Not within BLOCK_CLEARANCE cells of a living player's body: the block appears
+    //    TIMING.blockDelay after this, and the pose is a little old, so the player may have
+    //    moved closer meanwhile.
+    // 2. The finish stays reachable from where each living player is: the cell they stand
+    //    on, or, in mid-air, the cells they would land on falling straight down, and the last
+    //    cell they were seen standing on.
+    // 3. A player the path graph can't place (on a vine, somewhere the graph never reached)
+    //    gets a wider clearance instead, since the path check can't speak for them.
+    const collision = withSolidObjects(this.level, this.raceGuard.objects);
+    const from: number[] = [];
     for (const q of this.inGamePlayers()) {
       if (q.status !== "running" || !q.pose) continue;
-      const near = q.pose.x - 1 < x + 1 && q.pose.x + 2 > x && q.pose.y - 1 < y + 1 && q.pose.y + 2 > y;
-      if (near) return refuse("Trop près d'un joueur.");
+      if (blockNearBody(q.pose, x, y, BLOCK_CLEARANCE)) return refuse("Trop près d'un joueur.");
+      const cells = landingCellsOf(q.pose, collision).filter((c) => this.raceGuard!.knowsCell(c));
+      if (cells.length === 0 && blockNearBody(q.pose, x, y, BLOCK_CLEARANCE_UNKNOWN)) return refuse("Trop près d'un joueur.");
+      from.push(...cells);
+      if (q.lastStandCell >= 0) from.push(q.lastStandCell);
     }
-    const block: PlacedObject = { id: this.nextObjectId, kind: "platform", x, y, ownerId: p.id };
-    // Nor shut a living player in: the finish must stay reachable from where each one stands.
-    const standing = this.inGamePlayers()
-      .filter((q) => q.status === "running" && q.pose)
-      .map((q) => standCellOf(q.pose!, this.level!));
-    if (!this.raceGuard.keepsPathFrom(standing, block)) return refuse("Enfermerait un joueur.");
+    if (!this.raceGuard.keepsPathFrom(from, block)) return refuse("Enfermerait un joueur.");
     if (!this.raceGuard.tryAdd(block)) return refuse("Bloquerait le chemin vers l'arrivée.");
     this.nextObjectId++;
     p.placedBlock = true;
@@ -669,6 +701,12 @@ export class GameSession {
     if (p.pose && victim.pose) {
       const far = Math.abs(p.pose.x - victim.pose.x) > STOMP_MAX_DISTANCE || Math.abs(p.pose.y - victim.pose.y) > STOMP_MAX_DISTANCE;
       if (far) return;
+      // Players never touch each other in the start zone (decided 2026-11-26).
+      if (this.level) {
+        const m = DEFAULT_MOVEMENT;
+        if (bodyInSpawnZone(this.level, p.pose.x, p.pose.y, m.bodyWidth, m.bodyHeight)) return;
+        if (bodyInSpawnZone(this.level, victim.pose.x, victim.pose.y, m.bodyWidth, m.bodyHeight)) return;
+      }
     }
     const now = this.io.now();
     if (now - this.raceStartsAt < TIMING.contactGrace) return;
@@ -850,8 +888,43 @@ function standCellOf(pose: PlayerPose, level: Level): number {
   return cy * level.width + cx;
 }
 
-function cleanDir(v: unknown): Dir {
-  return v === 0 || v === 1 || v === 2 || v === 3 ? v : 2;
+function cleanDir(v: unknown, kind: ObjectKind): Dir {
+  return v === 0 || v === 1 || v === 2 || v === 3 ? v : defaultDir(kind);
+}
+
+/** No dead player's block within this many cells of a living player's body. */
+const BLOCK_CLEARANCE = 2;
+/** The same, for a living player the path graph can't place (see onBlock). */
+const BLOCK_CLEARANCE_UNKNOWN = 4;
+
+/** Whether the cell (x, y) is within `margin` cells of the body at `pose` (box grown by margin on every side). */
+function blockNearBody(pose: PlayerPose, x: number, y: number, margin: number): boolean {
+  const m = DEFAULT_MOVEMENT;
+  return (
+    pose.x - margin < x + 1 && pose.x + m.bodyWidth + margin > x && pose.y - margin < y + 1 && pose.y + m.bodyHeight + margin > y
+  );
+}
+
+/**
+ * Cells a body at `pose` stands on, or would land on falling straight down from where it is
+ * (one per column under the body, deduplicated): where the path check starts for a player.
+ */
+function landingCellsOf(pose: PlayerPose, collision: Level): number[] {
+  const m = DEFAULT_MOVEMENT;
+  const cells = new Set<number>();
+  const top = Math.max(0, Math.floor(pose.y + m.bodyHeight - 0.01));
+  const cols = [Math.floor(pose.x + m.bodyWidth / 2), Math.floor(pose.x + 0.01), Math.floor(pose.x + m.bodyWidth - 0.01)];
+  for (const cx of cols) {
+    if (cx < 0 || cx >= collision.width) continue;
+    for (let cy = top; cy < collision.height; cy++) {
+      if (isSolidCell(collision, cx, cy)) break;
+      if (isSolidCell(collision, cx, cy + 1)) {
+        cells.add(cy * collision.width + cx);
+        break;
+      }
+    }
+  }
+  return [...cells];
 }
 
 function num(v: unknown): number {

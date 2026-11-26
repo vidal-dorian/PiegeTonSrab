@@ -55,8 +55,11 @@ export interface Level {
   height: number;
   /** Row-major solidity grid: solid[y * width + x]. */
   solid: boolean[];
-  /** Cells that bounce a character landing on them (springs). Absent means none. */
-  bounce?: boolean[];
+  /**
+   * Springs: for each cell, the direction its bouncy face points (Dir: 0 right, 1 down,
+   * 2 left, 3 up), or -1 when the cell is not a spring. Absent means none.
+   */
+  bounce?: number[];
   /** Top-left cell of the start marker. */
   start: { x: number; y: number };
   finish: { x: number; y: number } | null;
@@ -105,9 +108,10 @@ export function parseLevel(def: LevelDefinition): Level {
 // Up to five players start each race together. Stacked on the single "S" cell they would all
 // overlap (and a trap placed next to S would kill everyone at once), so the start is a pad:
 // the S cell, SPAWN_PAD_HALF_WIDTH cells on each side on the same row, and SPAWN_PAD_HEADROOM
-// rows above those cells. Each seat (the player's colour index) gets its own cell on the pad,
-// nobody may place anything on the pad (objects.ts, canPlaceAt), and cannon balls break at
-// its edge (objects.ts, prepareObjects), so no cannon can fire into it.
+// rows above those cells. Each seat (the player's colour index) gets its own cell on the pad.
+// The pad sits inside the wider protected start zone (see "Protected zones" below): nothing
+// may be placed there (objects.ts, canPlaceAt) and cannon balls break at its edge
+// (objects.ts, prepareObjects), so no cannon can fire into it.
 //
 // Reachability (reachability.ts) stays rooted at S alone: the pad row is flat, empty floor
 // with headroom that no object can ever occupy, so every seat can walk to S and S's reach
@@ -205,10 +209,78 @@ export function spawnPadProblems(level: Level): string[] {
   return problems;
 }
 
-/** Whether landing on the cell at (cx, cy) bounces (a spring). */
+// --- Protected zones -------------------------------------------------------------------------
+//
+// Decided 2026-11-26, by Dorian: nobody may place anything (round objects, dead players'
+// blocks, practice objects) in a box 7 cells wide and 4 tall around the start, nor near the
+// finish. Players also do not touch each other (no stomp, no bump) inside the start zone.
+// Cannon balls break at the edge of both zones (objects.ts, prepareObjects), so a cannon
+// outside cannot fire into them either.
+
+/** Start zone: cells on each side of S (7 wide in all), and rows from the S row up (4 tall). */
+export const SPAWN_ZONE_HALF_WIDTH = 3;
+export const SPAWN_ZONE_HEIGHT = 4;
+/** Finish zone: cells around F on every side (a 5 by 5 box centred on the flag). */
+export const FINISH_ZONE_RADIUS = 2;
+
+/** Whether (x, y) is in the protected start zone. Cells outside the level never are. */
+export function isSpawnZoneCell(level: Level, x: number, y: number): boolean {
+  if (x < 0 || x >= level.width || y < 0 || y >= level.height) return false;
+  const { x: sx, y: sy } = level.start;
+  return Math.abs(x - sx) <= SPAWN_ZONE_HALF_WIDTH && y <= sy && y > sy - SPAWN_ZONE_HEIGHT;
+}
+
+/** Whether (x, y) is in the protected finish zone. Cells outside the level never are. */
+export function isFinishZoneCell(level: Level, x: number, y: number): boolean {
+  if (x < 0 || x >= level.width || y < 0 || y >= level.height || !level.finish) return false;
+  const { x: fx, y: fy } = level.finish;
+  return Math.abs(x - fx) <= FINISH_ZONE_RADIUS && Math.abs(y - fy) <= FINISH_ZONE_RADIUS;
+}
+
+/** Whether nothing may ever be placed on (x, y): the start zone (which holds the pad) or the finish zone. */
+export function isProtectedCell(level: Level, x: number, y: number): boolean {
+  return isSpawnZoneCell(level, x, y) || isFinishZoneCell(level, x, y);
+}
+
+/** The start and finish zones as cell rectangles clipped to the level, for drawing them. */
+export function protectedZones(level: Level): Array<{ kind: "start" | "finish"; x: number; y: number; w: number; h: number }> {
+  const clip = (kind: "start" | "finish", x0: number, y0: number, x1: number, y1: number) => {
+    const ax = Math.max(0, x0);
+    const ay = Math.max(0, y0);
+    const bx = Math.min(level.width - 1, x1);
+    const by = Math.min(level.height - 1, y1);
+    return { kind, x: ax, y: ay, w: bx - ax + 1, h: by - ay + 1 };
+  };
+  const { x: sx, y: sy } = level.start;
+  const zones = [clip("start", sx - SPAWN_ZONE_HALF_WIDTH, sy - SPAWN_ZONE_HEIGHT + 1, sx + SPAWN_ZONE_HALF_WIDTH, sy)];
+  if (level.finish) {
+    const { x: fx, y: fy } = level.finish;
+    const r = FINISH_ZONE_RADIUS;
+    zones.push(clip("finish", fx - r, fy - r, fx + r, fy + r));
+  }
+  return zones.filter((z) => z.w > 0 && z.h > 0);
+}
+
+/** Whether a body box (cells, top-left corner) overlaps the start zone: players don't touch each other there. */
+export function bodyInSpawnZone(level: Level, x: number, y: number, w: number, h: number): boolean {
+  const [x0, x1] = cellSpan(x, w);
+  const [y0, y1] = cellSpan(y, h);
+  for (let cy = y0; cy <= y1; cy++) {
+    for (let cx = x0; cx <= x1; cx++) if (isSpawnZoneCell(level, cx, cy)) return true;
+  }
+  return false;
+}
+
+/** Direction the spring at (cx, cy) bounces towards, or null when the cell is not a spring. */
+export function bounceDirAt(level: Level, cx: number, cy: number): 0 | 1 | 2 | 3 | null {
+  if (!level.bounce || cx < 0 || cx >= level.width || cy < 0 || cy >= level.height) return null;
+  const d = level.bounce[cy * level.width + cx];
+  return d === 0 || d === 1 || d === 2 || d === 3 ? d : null;
+}
+
+/** Whether landing on the cell at (cx, cy) bounces (a spring facing up). */
 export function isBouncyCell(level: Level, cx: number, cy: number): boolean {
-  if (!level.bounce || cx < 0 || cx >= level.width || cy < 0 || cy >= level.height) return false;
-  return level.bounce[cy * level.width + cx] === true;
+  return bounceDirAt(level, cx, cy) === 3;
 }
 
 /**

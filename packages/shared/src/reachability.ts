@@ -22,8 +22,10 @@
  *
  * Objects (build step 5):
  * - A cannon's whole line of fire counts as deadly, so the answer never depends on timing.
- * - Springs are played for real by the controller: landing on one throws the character up
- *   and the move goes on until it lands somewhere else. A spring is never a place to stand.
+ * - Springs are played for real by the controller: landing on one (or running into a
+ *   sideways one, or bumping a ceiling one) throws the character and the move goes on until
+ *   it lands somewhere else. The top of an upward spring is never a place to stand.
+ * - Spikes are solid blocks that kill through their pointed face only (objects.ts).
  * - Vines: only their anchor block counts (it is solid). The check never uses a vine to get
  *   somewhere, so a vine can only add ways through, never be required.
  *
@@ -131,7 +133,7 @@ class HazardIndex {
     }
   }
 
-  hits(x: number, y: number, w: number, h: number, vy: number): boolean {
+  hits(x: number, y: number, w: number, h: number, vy: number, vx: number): boolean {
     if (this.byCell.size === 0) return false;
     const [x0, x1] = cellSpan(x, w);
     const [y0, y1] = cellSpan(y, h);
@@ -139,7 +141,7 @@ class HazardIndex {
     for (let cy = y0; cy <= y1; cy++) {
       for (let cx = x0; cx <= x1; cx++) {
         const list = this.byCell.get(cy * this.width + cx);
-        if (list && list.some((hz) => boxHitsHazard(box, hz, vy))) return true;
+        if (list && list.some((hz) => boxHitsHazard(box, hz, vy, vx))) return true;
       }
     }
     return false;
@@ -178,13 +180,13 @@ class Explorer {
     if (isBouncyCell(this.collision, cx, cy + 1)) return false;
     const x = cx + (1 - this.w) / 2;
     const y = cy + 1 - this.h;
-    return !boxOverlapsSolid(this.collision, x, y, this.w, this.h) && !this.hitsHazard(x, y, 0);
+    return !boxOverlapsSolid(this.collision, x, y, this.w, this.h) && !this.hitsHazard(x, y, 0, 0);
   }
 
-  private hitsHazard(x: number, y: number, vy: number): boolean {
+  private hitsHazard(x: number, y: number, vy: number, vx: number): boolean {
     // Traps count as PATH_SAFETY_MARGIN bigger than they are, so the remaining path is comfortable.
     const inset = HAZARD_INSET - PATH_SAFETY_MARGIN;
-    return this.hazards.hits(x + inset, y + inset, this.w - 2 * inset, this.h - 2 * inset, vy);
+    return this.hazards.hits(x + inset, y + inset, this.w - 2 * inset, this.h - 2 * inset, vy, vx);
   }
 
   private touchesFinish(): boolean {
@@ -211,7 +213,7 @@ class Explorer {
       let safe = true;
       for (let s = 0; s <= 10 && safe; s++) {
         const x = cx + (1 - this.w) / 2 + (d * s) / 10;
-        if (this.hitsHazard(x, y, 0)) safe = false;
+        if (this.hitsHazard(x, y, 0, d)) safe = false;
       }
       if (safe) edges.push({ to: this.key(nx, cy), cells: new Set([this.key(cx, cy), this.key(nx, cy)]) });
     }
@@ -280,7 +282,7 @@ class Explorer {
       const [y0, y1] = cellSpan(c.y - grow, this.h + 2 * grow);
       for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) cells.add(y * width + x);
 
-      if (c.fellOut || this.hitsHazard(c.x, c.y, c.vy)) return { result: null, cells, touchedWall };
+      if (c.fellOut || this.hitsHazard(c.x, c.y, c.vy, c.vx)) return { result: null, cells, touchedWall };
       if (this.touchesFinish()) return { result: FINISH, cells, touchedWall };
       if (!c.grounded && c.wallSide !== 0) touchedWall = true;
 
@@ -424,6 +426,11 @@ export class PathGuard {
       if (!reachableFrom(this.graph, from, blocked)) return false;
     }
     return true;
+  }
+
+  /** Whether the path graph has explored this stand cell (y * width + x), i.e. it is reachable from the start. */
+  knowsCell(cell: number): boolean {
+    return this.graph.edges.has(cell);
   }
 
   /** Objects accepted so far, including the initial ones. */
