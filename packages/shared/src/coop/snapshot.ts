@@ -8,8 +8,8 @@
 import type { CoopBodyState } from "./coopController";
 import type { CoopWorldState } from "./world";
 
-const VERSION = 2;
-const HEADER = 1 + 4 + 4 + 2 + 2 + 1 + 1 + 1 + 1 + 1 + 2;
+const VERSION = 3;
+const HEADER = 1 + 4 + 4 + 2 + 2 + 2 + 1 + 1 + 1 + 1 + 1 + 2;
 const BODY = 9 * 8 + 2 + 4 + 1 + 2 + 1 + 1 + 1;
 
 export function encodeWorld(s: CoopWorldState): Uint8Array {
@@ -26,6 +26,8 @@ export function encodeWorld(s: CoopWorldState): Uint8Array {
   v.setUint16(o, s.attempt);
   o += 2;
   v.setUint16(o, s.dying);
+  o += 2;
+  v.setUint16(o, Math.min(0xffff, s.restartHeld));
   o += 2;
   v.setInt8(o, s.victim);
   o += 1;
@@ -90,6 +92,8 @@ export function decodeWorld(bytes: Uint8Array): CoopWorldState {
   o += 2;
   const dying = v.getUint16(o);
   o += 2;
+  const restartHeld = v.getUint16(o);
+  o += 2;
   const victim = v.getInt8(o);
   o += 1;
   const n = v.getUint8(o);
@@ -153,5 +157,5 @@ export function decodeWorld(bytes: Uint8Array): CoopWorldState {
   }
   const squashing = bodies.map((_, i) => (squash & (1 << i)) !== 0);
   const inside = bodies.map((_, i) => (insideBits & (1 << i)) !== 0);
-  return { tick, levelTick, attempt, dying, victim, won, bodies, squashing, inside, props };
+  return { tick, levelTick, attempt, dying, victim, won, bodies, squashing, inside, props, restartHeld };
 }

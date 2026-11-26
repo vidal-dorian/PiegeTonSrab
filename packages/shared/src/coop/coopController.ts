@@ -19,6 +19,9 @@
  * before this class's fields exist, so the overrides treat a missing `space` as "terrain only".
  */
 import { approach, CharacterController, CONTACT_PROBE, type StepInput } from "../movement/controller";
+
+/** Corner correction step, as in the race controller. */
+const CORNER_STEP = 0.02;
 import { boxOverlapsSolid, isSolidCell, type Level } from "../level";
 import type { MovementTuning } from "../movement/tuning";
 import type { Vine } from "../objects";
@@ -137,9 +140,32 @@ export class CoopController extends CharacterController {
   }
 
   protected override canGroundJump(): boolean {
-    // A carrier cannot jump; nobody jumps off a base in the air; a squashed friend is winded.
-    if (this.hasRider || !this.rooted || this.squashTimer > 0) return false;
+    // A carrier cannot jump (someone may have landed on it earlier in this step); nobody jumps off
+    // a base in the air; a squashed friend is winded.
+    if (this.hasRider || this.space?.hasRiderNow(this.index) || !this.rooted || this.squashTimer > 0) return false;
     return super.canGroundJump();
+  }
+
+  /** The race's corner correction, which must not push the body into another body or a solid thing. */
+  protected override tryCornerCorrection(): boolean {
+    const space = this.space;
+    if (!space) return super.tryCornerCorrection();
+    const max = this.tuning.cornerCorrection;
+    const w = this.tuning.bodyWidth;
+    const h = this.tuning.bodyHeight;
+    for (let shift = CORNER_STEP; shift <= max + 1e-9; shift += CORNER_STEP) {
+      for (const sign of [-1, 1]) {
+        const nx = this.x + sign * shift;
+        if (boxOverlapsSolid(this.level, nx, this.y, w, h)) continue;
+        const blocked = space.colliders.some(
+          (c) => !c.off && c.mode === "solid" && c.body !== this.index && !(c.node >= 0 && space.ridesOn(c.node, this.index)) && boxesOverlap(nx, this.y, w, h, c),
+        );
+        if (blocked) continue;
+        this.x = nx;
+        return true;
+      }
+    }
+    return false;
   }
 
   protected override gravityNow(input: StepInput): number {
@@ -270,29 +296,27 @@ export class CoopController extends CharacterController {
   }
 
   /**
-   * Climb over a lip while the rope pulls the body against a wall (being hauled). The rope pulls
-   * centre to centre, so once the hauled body's centre is level with the hauler's, its feet are
-   * still under the edge: this lifts it over, at most `maxRise` cells this step, when the top of the
-   * wall is less than MANTLE_REACH above its feet and there is room above the edge. Returns true if
-   * the body moved.
+   * How far to lift the body to climb over a lip while the rope hauls it against a wall. The rope
+   * pulls centre to centre, so once the hauled body's centre is level with the hauler's, its feet
+   * are still under the edge: when the top of the wall on `side` is less than MANTLE_REACH above
+   * its feet, with room above the edge, this returns the lift (at most `maxRise`), else 0. The
+   * world does the move, through collisions and carrying riders.
    */
-  mantle(side: -1 | 1, maxRise: number): boolean {
-    if (this.grounded || maxRise <= 0) return false;
+  mantleRise(side: -1 | 1, maxRise: number): number {
+    if (this.grounded || maxRise <= 0) return 0;
     const w = this.tuning.bodyWidth;
     const h = this.tuning.bodyHeight;
     const edge = side > 0 ? this.x + w : this.x;
     const col = side > 0 ? Math.round(edge) : Math.round(edge) - 1;
-    if (Math.abs(edge - (side > 0 ? col : col + 1)) > 0.02) return false;
+    if (Math.abs(edge - (side > 0 ? col : col + 1)) > 0.02) return 0;
     const feet = this.y + h;
     for (let r = Math.ceil(feet - MANTLE_REACH); r < feet - EPS; r++) {
       if (!isSolidCell(this.level, col, r) || isSolidCell(this.level, col, r - 1)) continue;
       const rise = Math.min(feet - r + 1e-4, maxRise);
-      if (boxOverlapsSolid(this.level, this.x, this.y - rise, w, h)) return false;
-      this.y -= rise;
-      if (this.vy > 0) this.vy = 0;
-      return true;
+      if (boxOverlapsSolid(this.level, this.x, this.y - rise, w, h)) return 0;
+      return rise;
     }
-    return false;
+    return 0;
   }
 
   /** Re-detect ground and support after the world moved the body (rope, depenetration). */

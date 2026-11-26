@@ -385,6 +385,28 @@ Build order (one commit per step): M0 base (golden test, controller hooks, intro
 and the dev tool; M2 the online room end to end (step A); M3 objects, titles, levels 1-5, intro integration;
 M4 prediction (step B); M5 levels 6-10c, polish, docs.
 
+Rope and inputs after the M1 review (2026-11-26, 15 confirmed findings fixed):
+
+- Each taut link is solved on its own: what one end cannot take (a wall, its haul budget) goes to the other,
+  so a pull passes through a friend standing still in the middle of the chain. A standing anchor never moves
+  for the link to a friend hanging below it: it only slides, at 0.15 cells/s per unit of mass hanging below
+  it in the whole chain, unless it pushes away. A body climbs over a lip only while the rope actually lifts
+  it. The rope lifts at most at the haul speed but never cuts a body's own jump.
+- Holding R is part of the world's inputs: the world counts the holders (one player, half the team from 3),
+  restarts after 1.5 s and says who held it; the count is in the snapshots.
+- Inputs are stamped with strictly increasing ticks (the server applies one change per step) and the
+  heartbeat is an empty `coopIn` (it never takes a change's step).
+- Prediction (step B, `packages/client/src/coop/net/predictor.ts`): the client runs the world ahead with its
+  own inputs stamped for the next step it has not simulated, the others' held keys and the changes the server
+  already queued for them (`coopSnap.pending`), and replays from each snapshot. Bench: at 50 ms one way with
+  three players changing keys every ~200 ms, 95 % of the own body's corrections stay under 0.06 cell.
+
+Merging `main` later: since this branch started, `main` changed `OnlineLink.connect` (comeback player key,
+`?salon=` remembered in the URL). The co-op join goes through `joinRoom` in `packages/client/src/net/link.ts`,
+which bypasses `connect`: when merging, give `joinRoom` the same join options (`key: playerKey()`) and URL
+memory for race rooms, keep the generic `BaseLink<S>` with main's one-message-at-a-time handler loop, then
+delete the dead `connect`.
+
 ## Open questions for Dorian
 
 - Maximum width of scrolling levels (proposed: about 2 screens, 64 cells).

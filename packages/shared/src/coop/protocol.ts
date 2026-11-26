@@ -14,7 +14,7 @@ export const COOP_ROOM_NAME = "coop";
  * Bumped whenever the co-op rules or messages change: every machine must simulate the same world,
  * so a tab still running an older build is refused with a message asking to reload.
  */
-export const COOP_PROTOCOL_VERSION = 2;
+export const COOP_PROTOCOL_VERSION = 3;
 /**
  * The server stops waiting for the story intro after this long, milliseconds: its length (87 s,
  * INTRO_DURATION_S on the client) plus 10 s for whoever paused on a frame or joined late.
@@ -28,7 +28,7 @@ export const COOP_SILENT_MS = 250;
 export const COOP_RECONNECT_SECONDS = 30;
 /** "Prêt ?" before tick 0 of a level, milliseconds. */
 export const COOP_LEVEL_LEAD_MS = 1500;
-/** Restart held this long (by half the team from 3 players) restarts the level, seconds. */
+/** Restart held this long (by half the team from 3 players) restarts the level, seconds (the world decides). */
 export const COOP_RESTART_HOLD = 1.5;
 
 export type CoopPhase = "lobby" | "intro" | "select" | "level";
@@ -81,8 +81,19 @@ export type CoopServerMessage =
   | { type: "coopIntroStatus"; done: string[] }
   /** A level starts (or restarts with a new team): tick 0 happens at server time `startsAt`. */
   | { type: "coopLevel"; index: number; levelId: string; seats: CoopSeat[]; startsAt: number }
-  /** The world at `tick`: encodeWorld bytes, plus the referee's events since the last snapshot. */
-  | { type: "coopSnap"; tick: number; world: Uint8Array; events: CoopRefereeEvent[] }
+  /**
+   * The world at `tick`: encodeWorld bytes, the referee's events since the last snapshot, each
+   * seat's held input bits at that tick, and the input changes the server already received for
+   * later ticks (clients predict the others with them, presses included).
+   */
+  | {
+      type: "coopSnap";
+      tick: number;
+      world: Uint8Array;
+      events: CoopRefereeEvent[];
+      held: number[];
+      pending: Array<Array<[number, number]>>;
+    }
   /** The world waits for a dropped player (null: it goes on). */
   | { type: "coopPause"; waitingFor: string | null; until: number }
   /** Everybody went through the door: the end-of-level card. Then the host picks the next level. */

@@ -42,8 +42,6 @@ import { coopBanner } from "./ui/coopScreens";
 
 export const COOP_SCENE_KEY = "coop";
 
-/** Holding restart this long restarts the level (dev tool; online the server decides), seconds. */
-const RESTART_HOLD = 1.5;
 /** Longest frame the simulation catches up on, seconds (a frozen tab does not fast-forward). */
 const MAX_FRAME = 0.25;
 /** Online: the world is drawn this many ticks behind the server (1.5 snapshot intervals). */
@@ -104,7 +102,6 @@ interface Driver {
 /** Dev tool: runs the world on this machine from local inputs. */
 class LocalDriver implements Driver {
   private acc = 0;
-  private restartHeld = 0;
   private prevX: number[] = [];
   private prevY: number[] = [];
   private events: ShownEvent[] = [];
@@ -122,18 +119,8 @@ class LocalDriver implements Driver {
     while (this.acc >= COOP_DT) {
       this.acc -= COOP_DT;
       this.snapshotPrev();
-      let restart = false;
-      const bits = this.inputs.map((src) => {
-        if (!src) return 0;
-        const inp = src.takeCoopInput();
-        if (inp.restart) restart = true;
-        return encodeInput(inp);
-      });
-      this.restartHeld = restart ? this.restartHeld + COOP_DT : 0;
-      if (this.restartHeld >= RESTART_HOLD) {
-        this.restartHeld = 0;
-        this.world.requestRestart();
-      }
+      // R held is in the bits: the world restarts the level itself.
+      const bits = this.inputs.map((src) => (src ? encodeInput(src.takeCoopInput()) : 0));
       this.world.step(bits);
       for (const e of this.world.events) {
         if (e.kind === "restart") this.events.push({ kind: "restart", attempt: e.attempt, by: null });
@@ -175,6 +162,7 @@ class OnlineDriver implements Driver {
   private sampleAcc = 0;
   private lastHeld = 0;
   private pending: Array<[number, number]> = [];
+  private lastStamp = 0;
   private lastSentAt = -Infinity;
   private drawn: Box[] = [];
   private onVisibility = () => {
@@ -226,12 +214,17 @@ class OnlineDriver implements Driver {
     this.place();
   }
 
-  /** Read this step's keys; queue a change (or a press) for the server. */
+  /**
+   * Read this step's keys; queue a change (or a press) for the server. Stamps strictly increase:
+   * the server applies one change per step, so two changes on one tick would land a step apart.
+   */
   private sample(): void {
     const bits = encodeInput(this.input!.takeCoopInput());
     const held = bits & HELD_BITS;
     if ((bits & PRESS_BITS) !== 0 || held !== this.lastHeld) {
-      this.pending.push([this.applyTick(), bits]);
+      const stamp = Math.max(this.applyTick(), this.lastStamp + 1);
+      this.lastStamp = stamp;
+      this.pending.push([stamp, bits]);
       this.lastHeld = held;
     }
   }
@@ -243,8 +236,8 @@ class OnlineDriver implements Driver {
 
   private flush(): void {
     const now = performance.now();
-    if (this.pending.length === 0 && now - this.lastSentAt >= HEARTBEAT_MS) this.pending.push([this.applyTick(), this.lastHeld]);
-    if (this.pending.length === 0) return;
+    if (this.pending.length === 0 && now - this.lastSentAt < HEARTBEAT_MS) return;
+    // With no change, an empty message only says "still here" (it must not take a change's step).
     this.link.send({ type: "coopIn", k: this.pending });
     this.pending = [];
     this.lastSentAt = now;

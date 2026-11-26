@@ -59,6 +59,8 @@ export interface CoopSpace {
   ridesOn(rider: number, base: number): boolean;
   /** Whether body `lander` may stand on body `body` (false for Ruben: nobody can carry him). */
   canStandOn(lander: number, body: number): boolean;
+  /** Whether something (a body or a crate) stands on body i right now. */
+  hasRiderNow(i: number): boolean;
 }
 
 /** Strict overlap of two intervals (touching is not overlapping). */

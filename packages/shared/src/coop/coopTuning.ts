@@ -31,8 +31,11 @@ export const COOP = {
    * hanging mass (a friend 1, Ruben 2), cells/s, unless it pushes away from them (bracing).
    */
   anchorSlide: 0.15,
-  /** Largest rope correction applied to one body in one step, cells. */
-  maxCorrection: 0.6,
+  /**
+   * Largest rope correction applied to one body in one step, cells: enough to catch a fall at full
+   * speed (0.18 per step) or a catapulted friend, small enough that a stretched link never snaps back.
+   */
+  maxCorrection: 0.3,
   /** Gauss-Seidel passes of the rope solver per step. */
   ropePasses: 4,
   /** A body counts as hanging from a neighbour when the neighbour's centre is at least this much higher, cells. */
@@ -50,7 +53,12 @@ export const COOP = {
   inheritMaxSpeed: DEFAULT_MOVEMENT.runSpeed,
   /** Players per room: same limit as the race mode (one colour per seat). */
   maxPlayers: 5,
+  /** R held this long (by one player, from 3 players by half the team) restarts the level, seconds. */
+  restartHold: 1.5,
 } as const;
 
 /** COOP.deathFreeze in steps. */
 export const DEATH_FREEZE_STEPS = Math.round(COOP.deathFreeze * COOP_HZ);
+
+/** COOP.restartHold in steps. */
+export const RESTART_HOLD_STEPS = Math.round(COOP.restartHold * COOP_HZ);

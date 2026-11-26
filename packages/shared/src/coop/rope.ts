@@ -3,16 +3,19 @@
  * neighbours' body centres (a slack rope pulls nothing). Solved after every body has taken its
  * step, all bodies at once, so the same world gives the same rope on every machine.
  *
- * - Position: each taut link is shortened back to its length, shared out by "how easily the rope
- *   moves each end" (grip / mass): in the air 1, standing 0.35, standing and pushing away from a
- *   friend who hangs below 0.12 (bracing). Ruben weighs twice as much. A player inside the door is a
- *   fixed point. Moves go through collisions, carrying whoever stands on the moved body.
- * - Velocity: then the speed that stretches a taut link is removed, but only from bodies in the
- *   air: a standing body is only dragged in position, so dragging a passive friend is a smooth
- *   half speed instead of jerks.
- * - A body hauled up rises at most COOP.riseCap per second (Ruben slower): whatever the rope cannot
- *   lift goes to the other end, so the hauler is held back while the friend climbs.
- * - A body blocked by terrain (the rope goes through walls) counts as fixed for the rest of the step.
+ * - Position: each taut link is shortened back to its length. The error is shared by "how easily
+ *   the rope moves each end" (grip / mass): in the air 1, standing 0.35; a standing body holding a
+ *   friend who hangs below it does not move for that link (it is an anchor: it only slides, see
+ *   below). What one end cannot take (a wall, its haul budget) goes to the other end, so a link only
+ *   stays stretched when both ends are stuck. Moves go through collisions, carrying whoever stands
+ *   on the moved body. A player inside the door is a fixed point. Sweeps go both ways along the
+ *   chain so a pull passes through a friend standing in the middle.
+ * - Velocity: then the speed that stretches each taut link is removed, shared the same way and
+ *   repeated a few times so a whole hanging chain comes to rest; a standing end only takes the
+ *   horizontal part (the floor holds it).
+ * - A body hauled up rises at most COOP.riseCap per second (Ruben slower); its own jump is kept.
+ * - An anchor that does not brace (push away) slowly slides towards the friends hanging from it,
+ *   faster the more hang below it.
  */
 import type { CoopController } from "./coopController";
 import { COOP } from "./coopTuning";
@@ -28,7 +31,7 @@ export interface RopeHost {
   moveStack(i: number, dx: number, dy: number): { dx: number; dy: number };
   /** How far body i already rose during this step on its own (cells, >= 0): it counts against the haul speed. */
   stepRise(i: number): number;
-  /** The rope moved body i by (dx, dy) towards body `by` (the referee's blame). */
+  /** The rope moved body i by (dx, dy) towards body `by` (the referee's blame, the mantle). */
   onPull?(i: number, by: number, dx: number, dy: number): void;
 }
 
@@ -42,19 +45,26 @@ export interface RopeLinkState {
   taut: boolean;
 }
 
+/** Velocity sweeps per step. */
+const VELOCITY_PASSES = 4;
+
 function riseCapOf(b: CoopController): number {
   return b.isRuben ? COOP.riseCap.ruben : COOP.riseCap.friend;
 }
 
-/** How easily the rope moves body i when pulled towards (nx, ny) by body `other`. */
-function mobility(host: RopeHost, i: number, other: number, nx: number): number {
+/** Whether `other` hangs from `b`: in the air, at least hangHeight lower. */
+function hangsBelow(b: CoopController, other: CoopController): boolean {
+  return !other.grounded && other.cy > b.cy + COOP.hangHeight;
+}
+
+/** How easily the rope moves body i, pulled by body `other` (0: it does not move for this link). */
+function mobility(host: RopeHost, i: number, other: number): number {
   if (host.isFixed(i)) return 0;
   const b = host.bodies[i]!;
   if (!b.grounded) return COOP.grip.air / b.mass;
-  const o = host.bodies[other]!;
-  const pushingAway = host.inputDir(i) * nx < 0 && Math.abs(nx) > 0.2;
-  const otherHangs = !o.grounded && o.cy > b.cy + COOP.hangHeight;
-  return (pushingAway && otherHangs ? COOP.grip.brace : COOP.grip.ground) / b.mass;
+  // A standing anchor holds a friend who hangs below it; it only slides (anchor slide below).
+  if (hangsBelow(b, host.bodies[other]!)) return 0;
+  return COOP.grip.ground / b.mass;
 }
 
 /**
@@ -65,117 +75,116 @@ export function solveRope(host: RopeHost, chain: readonly number[], length: numb
   const n = host.bodies.length;
   const riseLeft = new Array<number>(n);
   const corrLeft = new Array<number>(n).fill(COOP.maxCorrection);
-  const blocked = new Array<boolean>(n).fill(false);
-  for (let i = 0; i < n; i++) {
-    const b = host.bodies[i]!;
-    riseLeft[i] = Math.max(0, riseCapOf(b) * dt - host.stepRise(i));
-  }
+  for (let i = 0; i < n; i++) riseLeft[i] = Math.max(0, riseCapOf(host.bodies[i]!) * dt - host.stepRise(i));
 
-  /** Cut correction c (along direction (ux, uy)) for body i to its budgets; returns the part allowed. */
-  const allowed = (i: number, c: number, uy: number): number => {
-    if (c <= 0) return 0;
+  /** Move body i by up to c along (nx, ny) within its budgets and through collisions; returns the distance achieved. */
+  const pull = (i: number, c: number, nx: number, ny: number, by: number): number => {
+    if (c <= 1e-9 || host.isFixed(i)) return 0;
     let a = Math.min(c, corrLeft[i]!);
-    const up = -uy * a;
-    if (up > 0 && up > riseLeft[i]!) a = riseLeft[i]! / -uy;
-    return Math.max(0, a);
+    const up = -ny * a;
+    if (up > 0 && up > riseLeft[i]!) a = riseLeft[i]! / -ny;
+    if (a <= 1e-9) return 0;
+    const m = host.moveStack(i, nx * a, ny * a);
+    const got = Math.max(0, m.dx * nx + m.dy * ny);
+    if (got > 0) host.onPull?.(i, by, m.dx, m.dy);
+    corrLeft[i] = corrLeft[i]! - got;
+    if (m.dy < 0) riseLeft[i] = Math.max(0, riseLeft[i]! + m.dy);
+    return got;
   };
 
-  for (let pass = 0; pass < COOP.ropePasses; pass++) {
-    for (let k = 0; k + 1 < chain.length; k++) {
-      const ia = chain[k]!;
-      const ib = chain[k + 1]!;
-      const A = host.bodies[ia]!;
-      const B = host.bodies[ib]!;
-      const dx = B.cx - A.cx;
-      const dy = B.cy - A.cy;
-      const d = dist(dx, dy);
-      if (d <= length || d === 0) continue;
-      const nx = dx / d;
-      const ny = dy / d;
-      const err = d - length;
-      const wa = blocked[ia] ? 0 : mobility(host, ia, ib, nx);
-      const wb = blocked[ib] ? 0 : mobility(host, ib, ia, -nx);
-      if (wa + wb <= 0) continue;
-      // A moves along +n (towards B), B along -n (towards A). What one end cannot take (its
-      // correction or rise budget is spent) goes to the other end, within that end's budgets.
-      let ca = wa > 0 ? allowed(ia, (err * wa) / (wa + wb), ny) : 0;
-      const cb = wb > 0 ? allowed(ib, err - ca, -ny) : 0;
-      if (wa > 0 && ca + cb < err) ca = allowed(ia, err - cb, ny);
-      if (ca === 0 && cb === 0) continue;
-      if (ca > 0) {
-        const m = host.moveStack(ia, nx * ca, ny * ca);
-        const got = m.dx * nx + m.dy * ny;
-        if (got > 0) host.onPull?.(ia, ib, m.dx, m.dy);
-        corrLeft[ia] = corrLeft[ia]! - Math.max(0, got);
-        if (m.dy < 0) riseLeft[ia] = Math.max(0, riseLeft[ia]! + m.dy);
-        if (got < ca * 0.5) blocked[ia] = true;
-      }
-      if (cb > 0) {
-        const m = host.moveStack(ib, -nx * cb, -ny * cb);
-        const got = -(m.dx * nx + m.dy * ny);
-        if (got > 0) host.onPull?.(ib, ia, m.dx, m.dy);
-        corrLeft[ib] = corrLeft[ib]! - Math.max(0, got);
-        if (m.dy < 0) riseLeft[ib] = Math.max(0, riseLeft[ib]! + m.dy);
-        if (got < cb * 0.5) blocked[ib] = true;
-      }
-    }
-  }
+  const links: Array<[number, number]> = [];
+  for (let k = 0; k + 1 < chain.length; k++) links.push([chain[k]!, chain[k + 1]!]);
 
-  // An anchor that does not brace slowly slides towards the friends hanging from it.
-  for (let k = 0; k + 1 < chain.length; k++) {
-    for (const [ia, ib] of [
-      [chain[k]!, chain[k + 1]!],
-      [chain[k + 1]!, chain[k]!],
-    ] as const) {
-      const A = host.bodies[ia]!;
-      const B = host.bodies[ib]!;
-      if (!A.grounded || B.grounded || host.isFixed(ia)) continue;
-      if (B.cy <= A.cy + COOP.hangHeight) continue;
-      const dx = B.cx - A.cx;
-      const dy = B.cy - A.cy;
-      if (dist(dx, dy) < length - 0.02) continue;
-      const side = Math.sign(dx);
-      if (side === 0 || host.inputDir(ia) === -side) continue; // bracing: pushing away holds
-      host.moveStack(ia, side * COOP.anchorSlide * B.mass * dt, 0);
-    }
-  }
-
-  // Velocity: remove the speed that stretches each taut link, from bodies in the air only.
-  out.length = 0;
-  for (let k = 0; k + 1 < chain.length; k++) {
-    const ia = chain[k]!;
-    const ib = chain[k + 1]!;
+  const solveLink = (ia: number, ib: number): void => {
     const A = host.bodies[ia]!;
     const B = host.bodies[ib]!;
     const dx = B.cx - A.cx;
     const dy = B.cy - A.cy;
     const d = dist(dx, dy);
-    const taut = d >= length - 0.02;
-    out.push({ a: ia, b: ib, length: d, taut });
-    if (!taut || d === 0) continue;
+    if (d <= length || d === 0) return;
     const nx = dx / d;
     const ny = dy / d;
-    const vrel = (B.vx - A.vx) * nx + (B.vy - A.vy) * ny;
-    if (vrel <= 0) continue;
-    const airA = !A.grounded && !host.isFixed(ia);
-    const airB = !B.grounded && !host.isFixed(ib);
-    if (!airA && !airB) continue;
-    let sa = 0;
-    let sb = 0;
-    if (airA && airB) {
-      const ma = 1 / A.mass;
-      const mb = 1 / B.mass;
-      sa = ma / (ma + mb);
-      sb = mb / (ma + mb);
-    } else if (airA) sa = 1;
-    else sb = 1;
-    A.vx += nx * vrel * sa;
-    A.vy += ny * vrel * sa;
-    B.vx -= nx * vrel * sb;
-    B.vy -= ny * vrel * sb;
-    // A body the rope pulls upwards rises no faster than the haul speed.
-    if (sa > 0 && ny < 0) A.vy = Math.max(A.vy, -riseCapOf(A));
-    if (sb > 0 && ny > 0) B.vy = Math.max(B.vy, -riseCapOf(B));
+    const err = d - length;
+    const wa = mobility(host, ia, ib);
+    const wb = mobility(host, ib, ia);
+    const shareA = wa + wb > 0 ? wa / (wa + wb) : 0.5;
+    // A moves along +n (towards B), B along -n. What one end cannot take goes to the other.
+    let ga = pull(ia, err * shareA, nx, ny, ib);
+    const gb = pull(ib, err - ga, -nx, -ny, ia);
+    if (ga + gb < err - 1e-9) ga += pull(ia, err - ga - gb, nx, ny, ib);
+  };
+
+  for (let pass = 0; pass < COOP.ropePasses; pass++) {
+    // Alternate the sweep direction: a pull travels the whole chain in a few passes either way.
+    if (pass % 2 === 0) for (const [a, b] of links) solveLink(a, b);
+    else for (let k = links.length - 1; k >= 0; k--) solveLink(links[k]![0], links[k]![1]);
+  }
+
+  // An anchor that does not brace slowly slides towards the friends hanging from it.
+  for (let k = 0; k < links.length; k++) {
+    for (const [ia, ib, dirStep] of [
+      [links[k]![0], links[k]![1], 1],
+      [links[k]![1], links[k]![0], -1],
+    ] as const) {
+      const A = host.bodies[ia]!;
+      const B = host.bodies[ib]!;
+      if (!A.grounded || host.isFixed(ia) || !hangsBelow(A, B)) continue;
+      const dx = B.cx - A.cx;
+      const dy = B.cy - A.cy;
+      if (dist(dx, dy) < length - 0.02) continue;
+      const side = Math.sign(dx);
+      if (side === 0 || host.inputDir(ia) === -side) continue; // bracing: pushing away holds
+      // The whole hanging part of the chain below this anchor weighs on it.
+      let mass = 0;
+      for (let j = k + (dirStep > 0 ? 1 : 0); j >= 0 && j <= chain.length - 1; j += dirStep) {
+        const h = host.bodies[chain[j]!]!;
+        if (h === A) continue;
+        if (h.grounded || host.isFixed(chain[j]!)) break;
+        mass += h.mass;
+      }
+      host.moveStack(ia, side * COOP.anchorSlide * mass * dt, 0);
+    }
+  }
+
+  // Velocity: remove the speed that stretches each taut link from the bodies in the air (shared by
+  // mass when both are), repeated so a whole hanging chain comes to rest. A standing body keeps its
+  // own speed: the position pass alone drags it, so dragging a friend is a smooth half speed.
+  const vyBefore = host.bodies.map((b) => b.vy);
+  for (let pass = 0; pass < VELOCITY_PASSES; pass++) {
+    for (const [ia, ib] of links) {
+      const A = host.bodies[ia]!;
+      const B = host.bodies[ib]!;
+      const dx = B.cx - A.cx;
+      const dy = B.cy - A.cy;
+      const d = dist(dx, dy);
+      if (d < length - 0.02 || d === 0) continue;
+      const nx = dx / d;
+      const ny = dy / d;
+      const vrel = (B.vx - A.vx) * nx + (B.vy - A.vy) * ny;
+      if (vrel <= 0) continue;
+      const airA = !A.grounded && !host.isFixed(ia);
+      const airB = !B.grounded && !host.isFixed(ib);
+      if (!airA && !airB) continue;
+      const wa = airA ? 1 / A.mass : 0;
+      const wb = airB ? 1 / B.mass : 0;
+      const sa = wa / (wa + wb);
+      A.vx += nx * vrel * sa;
+      A.vy += ny * vrel * sa;
+      B.vx -= nx * vrel * (1 - sa);
+      B.vy -= ny * vrel * (1 - sa);
+    }
+  }
+  // The rope lifts at most at the haul speed; a body's own upward speed (a jump, a catapult) stays.
+  host.bodies.forEach((b, i) => {
+    if (b.vy < vyBefore[i]!) b.vy = Math.max(b.vy, Math.min(vyBefore[i]!, -riseCapOf(b)));
+  });
+
+  out.length = 0;
+  for (const [ia, ib] of links) {
+    const A = host.bodies[ia]!;
+    const B = host.bodies[ib]!;
+    const d = dist(B.cx - A.cx, B.cy - A.cy);
+    out.push({ a: ia, b: ib, length: d, taut: d >= length - 0.02 });
   }
 
   // Hanging flags for the next step, and the widest swing.

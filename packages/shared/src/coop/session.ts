@@ -15,14 +15,13 @@
  */
 import { MAX_NAME_LENGTH } from "../protocol";
 import { COOP, COOP_HZ } from "./coopTuning";
-import { ALL_BITS, BIT_RESTART, HELD_BITS, PRESS_BITS } from "./inputBits";
+import { ALL_BITS, HELD_BITS, PRESS_BITS } from "./inputBits";
 import { parseCoopLevel, type CoopLevelDef } from "./levelFormat";
 import {
   COOP_INTRO_MAX_MS,
   COOP_LEVEL_LEAD_MS,
   COOP_PROTOCOL_VERSION,
   COOP_RECONNECT_SECONDS,
-  COOP_RESTART_HOLD,
   COOP_SILENT_MS,
   COOP_SNAPSHOT_MS,
   type CoopClientMessage,
@@ -85,7 +84,6 @@ export class CoopSession {
   private startsAt = 0;
   private lastSnapAt = -Infinity;
   private events: CoopRefereeEvent[] = [];
-  private restartHeld = 0;
   private pausedFor: string | null = null;
   private pauseUntil = 0;
   private pausedAt = 0;
@@ -329,7 +327,6 @@ export class CoopSession {
     this.phase = "level";
     this.levelIndex = index;
     this.pausedFor = null;
-    this.restartHeld = 0;
     this.events = [];
     this.lastSnapAt = -Infinity;
     this.startsAt = this.io.now() + COOP_LEVEL_LEAD_MS;
@@ -394,8 +391,6 @@ export class CoopSession {
 
   private step(world: CoopWorld, now: number): void {
     const tick = world.tick + 1;
-    let holding = 0;
-    let holder: string | null = null;
     const bits = this.seats.map((s) => {
       const p = this.players.get(s.id);
       if (!p) return 0;
@@ -411,23 +406,12 @@ export class CoopSession {
       }
       const b = p.held | p.presses;
       p.presses = 0;
-      if (b & BIT_RESTART) {
-        holding++;
-        holder ??= p.name;
-      }
       return b;
     });
-    const needed = this.seats.length >= 3 ? Math.ceil(this.seats.length / 2) : 1;
-    this.restartHeld = holding >= needed ? this.restartHeld + 1 / COOP_HZ : 0;
-    let restartBy: string | null = null;
-    if (this.restartHeld >= COOP_RESTART_HOLD && world.dying === 0) {
-      this.restartHeld = 0;
-      world.requestRestart();
-      restartBy = holder;
-    }
+    // The world decides restarts (R held long enough, deaths); the referee names who held R.
     world.step(bits);
     for (const e of world.events) {
-      if (e.kind === "restart") this.events.push({ kind: "restart", tick: world.tick, attempt: e.attempt, by: restartBy });
+      if (e.kind === "restart") this.events.push({ kind: "restart", tick: world.tick, attempt: e.attempt, by: e.by >= 0 ? (this.seats[e.by]?.name ?? null) : null });
       else this.events.push({ ...e, tick: world.tick });
     }
     if (world.won) this.cleared(world);
@@ -456,8 +440,18 @@ export class CoopSession {
     const world = this.world;
     if (!world) return;
     this.lastSnapAt = this.io.now();
-    this.io.broadcast({ type: "coopSnap", tick: world.tick, world: encodeWorld(world.save()), events: this.events });
+    this.io.broadcast({ type: "coopSnap", tick: world.tick, world: encodeWorld(world.save()), events: this.events, held: this.heldBits(), pending: this.pendingInputs() });
     this.events = [];
+  }
+
+  /** Each seat's held bits at the world's current tick. */
+  private heldBits(): number[] {
+    return this.seats.map((s) => this.players.get(s.id)?.held ?? 0);
+  }
+
+  /** Each seat's input changes received but not applied yet (at most 16), in the order they will apply. */
+  private pendingInputs(): Array<Array<[number, number]>> {
+    return this.seats.map((s) => (this.players.get(s.id)?.queue ?? []).slice(0, 16).map(([t, b]) => [t, b] as [number, number]));
   }
 
   // --- Lobby and resync -------------------------------------------------------------------------
@@ -488,7 +482,7 @@ export class CoopSession {
     if (this.phase === "level" && this.world) {
       const def = this.levels[this.levelIndex]!;
       this.io.send(id, { type: "coopLevel", index: this.levelIndex, levelId: def.id, seats: this.seats, startsAt: this.startsAt });
-      this.io.send(id, { type: "coopSnap", tick: this.world.tick, world: encodeWorld(this.world.save()), events: [] });
+      this.io.send(id, { type: "coopSnap", tick: this.world.tick, world: encodeWorld(this.world.save()), events: [], held: this.heldBits(), pending: this.pendingInputs() });
       if (this.pausedFor) this.io.send(id, { type: "coopPause", waitingFor: this.pausedFor, until: this.pauseUntil });
     }
   }

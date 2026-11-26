@@ -25,7 +25,7 @@ import { HAZARD_INSET } from "../movement/tuning";
 import { boxHitsHazard, hazardsOf } from "../objects";
 import { boxesOverlap, EPS, OBJECT_COLLIDER_BASE, type BoxCollider, type CoopSpace, type Support } from "./colliders";
 import { CoopController, type CoopBodyState } from "./coopController";
-import { COOP, COOP_DT, COOP_MOVEMENT, DEATH_FREEZE_STEPS } from "./coopTuning";
+import { COOP, COOP_DT, COOP_MOVEMENT, DEATH_FREEZE_STEPS, RESTART_HOLD_STEPS } from "./coopTuning";
 import { Fnv32 } from "./detMath";
 import { decodeInput, type CoopInput } from "./inputBits";
 import type { CoopLevel } from "./levelFormat";
@@ -56,7 +56,8 @@ export type CoopEvent =
       /** The victim carried the key. */
       withKey: boolean;
     }
-  | { kind: "restart"; attempt: number }
+  /** The level restarts: after a death (by -1), or R held by enough players (by: the first holder). */
+  | { kind: "restart"; attempt: number; by: number }
   | { kind: "squash"; body: number; by: number }
   | { kind: "win" }
   | PropEvent;
@@ -76,6 +77,8 @@ export interface CoopWorldState {
   inside: boolean[];
   /** The props' state (props.ts save/load). */
   props: number[];
+  /** Steps R has been held by enough players (restart at RESTART_HOLD_STEPS). */
+  restartHeld: number;
 }
 
 /** What the referee counts for the end-of-level titles, per body, over every attempt. */
@@ -127,6 +130,8 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
   victim = -1;
   /** Everybody went through the door: the world stops. */
   won = false;
+  /** Steps R has been held by enough players; the level restarts at RESTART_HOLD_STEPS. */
+  restartHeld = 0;
   /** Bodies inside the door: fixed points of the rope, out of the game until they come out. */
   inside: boolean[] = [];
   /** What happened during the last step (deaths, squashes, the key...), for effects and the referee. */
@@ -157,6 +162,8 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
   private lastHolder: number[] = [];
   private lastSwitchBy = -1;
   private lastCrackBy = -1;
+  /** How far the rope lifted each body during this step (only a hauled body climbs over a lip). */
+  private lifted: number[] = [];
 
   constructor(
     readonly level: CoopLevel,
@@ -217,6 +224,15 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
     return !this.bodies[lander]!.isRuben;
   }
 
+  hasRiderNow(i: number): boolean {
+    for (let node = 0; node < this.nodeCount; node++) {
+      if (node === i) continue;
+      const s = this.supportOf(node);
+      if (s && s.kind === "collider" && s.id === i) return true;
+    }
+    return false;
+  }
+
   // --- RopeHost ---------------------------------------------------------------------------
 
   isFixed(i: number): boolean {
@@ -234,25 +250,59 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
   }
 
   moveStack(i: number, dx: number, dy: number): { dx: number; dy: number } {
-    const base = this.bodies[i]!;
-    const got = base.moveBy(dx, dy);
+    const riders = this.order.filter((j) => j !== i && this.ridesOn(j, i));
+    if (dy >= 0 || riders.length === 0) return this.movePile(i, riders, dx, dy).base;
+    // Lifting a pile: if a rider cannot follow (a ceiling above it), lift the pile only as far as it can.
+    const saved = [i, ...riders].map((node) => this.nodePosition(node));
+    const first = this.movePile(i, riders, dx, dy);
+    if (first.rise >= -first.base.dy - 1e-9) return first.base;
+    saved.forEach((p, k) => this.setNodePosition(k === 0 ? i : riders[k - 1]!, p));
+    return this.movePile(i, riders, dx, -first.rise).base;
+  }
+
+  /** Move body i, then its riders by what it achieved; `rise`: the least upward move any of them achieved. */
+  private movePile(i: number, riders: readonly number[], dx: number, dy: number): { base: { dx: number; dy: number }; rise: number } {
+    const got = this.bodies[i]!.moveBy(dx, dy);
     this.syncCollider(i);
+    let rise = -got.dy;
     if (got.dx !== 0 || got.dy !== 0) {
       // Whoever (and whatever) stands on it, directly or not, comes along, bottom-up.
-      for (const j of this.order) {
-        if (j === i || !this.ridesOn(j, i)) continue;
+      for (const j of riders) {
+        const before = this.nodePosition(j);
         if (j < this.bodies.length) {
           this.bodies[j]!.moveBy(got.dx, got.dy);
           this.syncCollider(j);
         } else {
           this.props.moveCrate(this.level.crateGrid, this.colliders, this.props.crates[j - this.bodies.length]!, got.dx, got.dy);
         }
+        rise = Math.min(rise, before.y - this.nodePosition(j).y);
       }
     }
-    return got;
+    return { base: got, rise };
+  }
+
+  private nodePosition(node: number): { x: number; y: number } {
+    const n = this.bodies.length;
+    const o = node < n ? this.bodies[node]! : this.props.crates[node - n]!;
+    return { x: o.x, y: o.y };
+  }
+
+  private setNodePosition(node: number, p: { x: number; y: number }): void {
+    const n = this.bodies.length;
+    if (node < n) {
+      this.bodies[node]!.x = p.x;
+      this.bodies[node]!.y = p.y;
+      this.syncCollider(node);
+    } else {
+      const c = this.props.crates[node - n]!;
+      c.x = p.x;
+      c.y = p.y;
+      c.sync();
+    }
   }
 
   onPull(i: number, by: number, dx: number, dy: number): void {
+    if (dy < 0) this.lifted[i] = (this.lifted[i] ?? 0) - dy;
     // Holding a friend up is not pulling them into danger: only sideways or downward pulls count.
     const d = Math.sqrt(dx * dx + dy * dy);
     if (dy < 0.3 * d && Math.abs(dx) < 0.7 * d) return;
@@ -314,6 +364,7 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
   spawnAll(): void {
     this.levelTick = 0;
     this.won = false;
+    this.restartHeld = 0;
     this.props.reset();
     this.bodies.forEach((b, i) => {
       this.inside[i] = false;
@@ -355,16 +406,16 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
     this.computeLoads();
   }
 
-  /** The level restarts for everyone (after a death, or R held by the team). */
-  restart(): void {
+  /** The level restarts for everyone (after a death: by -1; or R held by the team: the first holder). */
+  restart(by = -1): void {
     this.attempt++;
     this.dying = 0;
     this.victim = -1;
     this.spawnAll();
-    this.events.push({ kind: "restart", attempt: this.attempt });
+    this.events.push({ kind: "restart", attempt: this.attempt, by });
   }
 
-  /** The next step restarts the level instead of moving anyone (R held by the team). */
+  /** The next step restarts the level instead of moving anyone (dev tools). */
   requestRestart(): void {
     this.pendingRestart = true;
   }
@@ -374,6 +425,8 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
     this.events = [];
     this.tick++;
     if (this.won) return;
+    const n = this.bodies.length;
+    this.inputs = this.bodies.map((_, i) => decodeInput(inputs[i] ?? NO_INPUT_BITS));
     if (this.pendingRestart) {
       this.pendingRestart = false;
       this.restart();
@@ -384,9 +437,21 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
       if (this.dying === 0) this.restart();
       return;
     }
+    // R held long enough by one player (from 3 players: half the team) restarts the level.
+    let holders = 0;
+    let firstHolder = -1;
+    this.inputs.forEach((inp, i) => {
+      if (!inp.restart) return;
+      holders++;
+      if (firstHolder < 0) firstHolder = i;
+    });
+    this.restartHeld = holders >= (n >= 3 ? Math.ceil(n / 2) : 1) ? this.restartHeld + 1 : 0;
+    if (this.restartHeld >= RESTART_HOLD_STEPS) {
+      this.restart(firstHolder);
+      return;
+    }
     this.levelTick++;
-    const n = this.bodies.length;
-    this.inputs = this.bodies.map((_, i) => decodeInput(inputs[i] ?? NO_INPUT_BITS));
+    this.lifted = this.bodies.map(() => 0);
 
     // ↓ inside the door: come back out.
     for (let i = 0; i < n; i++) {
@@ -418,9 +483,13 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
 
     this.props.moveKinematic(this);
 
+    const stepped = new Array<boolean>(this.nodeCount).fill(false);
     for (const node of this.order) {
-      if (node < n) this.stepBody(node);
-      else {
+      stepped[node] = true;
+      if (node < n) {
+        this.stepBody(node);
+        this.carryLateRiders(node, stepped);
+      } else {
         const crate = this.props.crates[node - n]!;
         const x0 = crate.x;
         const y0 = crate.y;
@@ -501,6 +570,25 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
     this.syncCollider(i);
     c.dx = b.x - x0;
     c.dy = b.y - y0;
+  }
+
+  /**
+   * Nodes that landed on body i earlier in this step (they stepped before it) were not carried by
+   * its own move: carry them now, so they stay on top instead of sinking into it.
+   */
+  private carryLateRiders(i: number, stepped: readonly boolean[]): void {
+    const c = this.colliders[i]!;
+    if (c.dx === 0 && c.dy === 0) return;
+    const n = this.bodies.length;
+    for (let j = 0; j < this.nodeCount; j++) {
+      if (j === i || !stepped[j]) continue;
+      const s = this.supportOf(j);
+      if (!s || s.kind !== "collider" || s.id !== i) continue;
+      if (j < n) {
+        this.bodies[j]!.moveBy(c.dx, c.dy);
+        this.syncCollider(j);
+      } else this.props.moveCrate(this.level.crateGrid, this.colliders, this.props.crates[j - n]!, c.dx, c.dy);
+    }
   }
 
   private enterDoor(i: number): void {
@@ -672,44 +760,63 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
         const b = this.bodies[i]!;
         const anchor = this.bodies[j]!;
         if (b.grounded || this.inside[i] || anchor.cy > b.cy + COOP.hangHeight) continue;
+        // Only a body the rope actually lifted this step climbs: one merely near a taut length does not.
+        if ((this.lifted[i] ?? 0) <= 1e-6) continue;
         const dx = anchor.cx - b.cx;
         if (Math.abs(dx) < 0.3 * l.length) continue;
         const cap = b.isRuben ? COOP.riseCap.ruben : COOP.riseCap.friend;
         const rose = (this.stepStartY[i] ?? b.y) - b.y;
-        if (b.mantle(dx > 0 ? 1 : -1, cap * COOP_DT - Math.max(0, rose))) this.syncCollider(i);
+        const rise = b.mantleRise(dx > 0 ? 1 : -1, cap * COOP_DT - Math.max(0, rose));
+        if (rise > 0) {
+          const got = this.moveStack(i, 0, -rise);
+          if (got.dy < 0 && b.vy > 0) b.vy = 0;
+        }
       }
     }
   }
 
-  /** Nobody can carry Ruben: if he lands on (or ends up inside) a friend, the friend is squashed and Ruben slides off. */
+  /**
+   * Nobody can carry Ruben: if he lands on (or ends up inside) friends, they are squashed and he
+   * slides off, all of them at once, towards the side that clears them soonest. Against a wall,
+   * the friends get out of the way instead.
+   */
   private slideRubenOffFriends(): void {
     this.bodies.forEach((r, ri) => {
       if (!r.isRuben || this.inside[ri]) return;
+      const over: number[] = [];
       this.bodies.forEach((f, fi) => {
         if (fi === ri || this.inside[fi]) return;
-        const fc = this.colliders[fi]!;
-        const over = boxesOverlap(r.x, r.y, r.width, r.height, fc);
-        if (!over) {
+        if (!boxesOverlap(r.x, r.y, r.width, r.height, this.colliders[fi]!)) {
           this.squashing[fi] = false;
           return;
         }
+        over.push(fi);
         if (!this.squashing[fi]) {
           this.squashing[fi] = true;
           f.squashTimer = COOP.squashTime;
           this.events.push({ kind: "squash", body: fi, by: ri });
         }
-        const dir = r.cx === f.cx ? r.facing : Math.sign(r.cx - f.cx);
-        const overlap = dir > 0 ? f.x + f.width - r.x : r.x + r.width - f.x;
-        const want = Math.min(overlap + EPS, COOP.rubenSlideSpeed * COOP_DT);
-        const got = r.moveBy(dir * want, 0);
-        this.syncCollider(ri);
-        const rest = want - Math.abs(got.dx);
-        if (rest > EPS) {
-          // Ruben is against a wall: the friend gets out of the way instead.
-          f.moveBy(-dir * rest, 0);
+      });
+      if (over.length === 0) return;
+      let clearRight = 0;
+      let clearLeft = 0;
+      for (const fi of over) {
+        const f = this.bodies[fi]!;
+        clearRight = Math.max(clearRight, f.x + f.width - r.x);
+        clearLeft = Math.max(clearLeft, r.x + r.width - f.x);
+      }
+      const dir = clearRight < clearLeft ? 1 : clearLeft < clearRight ? -1 : r.facing;
+      const clear = dir > 0 ? clearRight : clearLeft;
+      const want = Math.min(clear + EPS, COOP.rubenSlideSpeed * COOP_DT);
+      const got = r.moveBy(dir * want, 0);
+      this.syncCollider(ri);
+      const rest = want - Math.abs(got.dx);
+      if (rest > EPS) {
+        for (const fi of over) {
+          this.bodies[fi]!.moveBy(-dir * rest, 0);
           this.syncCollider(fi);
         }
-      });
+      }
     });
   }
 
@@ -824,6 +931,7 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
       squashing: this.squashing.slice(),
       inside: this.inside.slice(),
       props: this.props.save(),
+      restartHeld: this.restartHeld,
     };
   }
 
@@ -834,6 +942,7 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
     this.dying = s.dying;
     this.victim = s.victim;
     this.won = s.won;
+    this.restartHeld = s.restartHeld;
     s.bodies.forEach((bs, i) => {
       this.bodies[i]!.load(bs);
       this.syncCollider(i);
@@ -858,6 +967,7 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
     f.num(s.dying);
     f.num(s.victim);
     f.bool(s.won);
+    f.num(s.restartHeld);
     for (const b of s.bodies) {
       for (const v of Object.values(b)) f.num(typeof v === "boolean" ? (v ? 1 : 0) : v);
     }

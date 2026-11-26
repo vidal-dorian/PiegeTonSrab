@@ -128,7 +128,8 @@ export class InputSource {
     if (padJumpDown && !this.padJumpWasDown) this.jumpPressedLatch = true;
     this.padJumpWasDown = padJumpDown;
     const padDown = pad ? this.padDownHeld(pad) : false;
-    if (padDown && !this.padDownWasDown) this.downPressedLatch = true;
+    // Only the co-op mode reads this edge (its "act" press); the race path stays as it was.
+    if (padDown && !this.padDownWasDown) this.padDownPressedLatch = true;
     this.padDownWasDown = padDown;
   }
 
@@ -148,6 +149,7 @@ export class InputSource {
     this.jumpPressedLatch = false;
     const down = anyDown(this.keysDown, this.downKeys) || padDown || this.downPressedLatch;
     this.downPressedLatch = false;
+    this.padDownPressedLatch = false;
     // Pressing both directions cancels out, like most platformers.
     return { left: left && !right, right: right && !left, jumpHeld, jumpPressed, down };
   }
@@ -157,7 +159,7 @@ export class InputSource {
    * restart is held. Consumes the jump and down presses.
    */
   takeCoopInput(): CoopStepInput {
-    const downPressed = this.downPressedLatch;
+    const downPressed = this.downPressedLatch || this.padDownPressedLatch;
     const base = this.takeStepInput();
     const pad = this.gamepad();
     const restart = anyDown(this.keysDown, this.restartKeys) || pad?.buttons[PAD_RESTART]?.pressed === true;
@@ -165,6 +167,8 @@ export class InputSource {
   }
 
   private padDownWasDown = false;
+  /** A gamepad Down press since the last step, for the co-op "act" edge only. */
+  private padDownPressedLatch = false;
 
   private padDownHeld(pad: Gamepad): boolean {
     const stickX = pad.axes[0] ?? 0;

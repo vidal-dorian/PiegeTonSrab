@@ -11,15 +11,19 @@ import { describe, expect, it } from "vitest";
 import {
   BIT_JUMP,
   BIT_JUMP_PRESS,
+  BIT_LEFT,
+  BIT_RIGHT,
   COOP_HZ,
   COOP_LEVEL_LEAD_MS,
   CoopSession,
   decodeWorld,
+  parseCoopLevel,
   sandboxLevel,
   type CoopClientMessage,
   type CoopServerMessage,
   type CoopSessionIO,
 } from "@game/shared/coop";
+import { CoopPredictor, predictionLead } from "./net/predictor";
 
 /** Deterministic pseudo-random numbers for jitter. */
 function rng(seed: number): () => number {
@@ -215,5 +219,74 @@ describe("co-op network bench (server world, snapshots)", () => {
       expect(perSecond).toBeLessThan(34);
       expect(net.bytesTo.get(id)! / seconds).toBeLessThan(60_000);
     }
+  });
+});
+
+describe("co-op prediction bench (step B)", () => {
+  it("keeps this client's own corrections under 0.1 cell in 95 % of snapshots at 50 ms", () => {
+    // Three players tied by the rope walk and jump at random; p1 predicts at 50 ms (+-10) one way.
+    const ids = ["p0", "p1", "p2"];
+    const links = new Map<string, Link>();
+    for (const id of ids) {
+      links.set(`up:${id}`, { latency: 50, jitter: 10, stalls: [] });
+      links.set(`down:${id}`, { latency: 50, jitter: 10, stalls: [] });
+    }
+    const net = new Net(links);
+    const s = new CoopSession(net, "ABCD", [sandboxLevel]);
+    net.session = s;
+    for (const id of ids) {
+      expect(s.addPlayer(id, id)).toBeNull();
+      net.clients.push(id);
+    }
+    net.up("p0", { type: "coopPlay", index: 0 });
+    net.advance(200);
+    const level = net.inbox.get("p1")!.find((m) => m.type === "coopLevel") as Extract<CoopServerMessage, { type: "coopLevel" }>;
+    const seats = level.seats;
+    const me = seats.findIndex((x) => x.id === "p1");
+    const predictor = new CoopPredictor(parseCoopLevel(sandboxLevel, seats.length), seats.map((x) => ({ name: x.name, isRuben: x.isRuben })), me);
+    const startsAt = level.startsAt;
+    const serverTick = (t: number) => Math.floor(((t - startsAt) * COOP_HZ) / 1000);
+    // Inputs reach the server 40 to 60 ms later: stamp them half a round trip + 25 ms ahead.
+    const lead = predictionLead(100);
+    const r = rng(3);
+    const held = new Map<string, number>(ids.map((id) => [id, 0]));
+    // A client's stamps strictly increase: the server applies one change per step, so two changes
+    // on one tick would land a step apart there and not here.
+    const lastStamp = new Map<string, number>(ids.map((id) => [id, 0]));
+    let read = 0;
+    net.advance(COOP_LEVEL_LEAD_MS + 100, () => undefined);
+    net.advance(12_000, (t) => {
+      // Snapshots that reached p1.
+      const inbox = net.inbox.get("p1")!;
+      for (; read < inbox.length; read++) {
+        const m = inbox[read]!;
+        if (m.type === "coopSnap") predictor.onSnapshot(m.tick, decodeWorld(m.world), m.held, m.pending);
+      }
+      const tick = serverTick(t);
+      if (tick < 1) return;
+      // Every 10 ms (about one step), each player may change keys.
+      if (t % 8 === 0) {
+        for (const id of ids) {
+          let bits = held.get(id)!;
+          if (r() < 0.04) bits = r() < 0.45 ? BIT_RIGHT : r() < 0.8 ? BIT_LEFT : 0;
+          const press = r() < 0.01 ? BIT_JUMP | BIT_JUMP_PRESS : 0;
+          if (bits !== held.get(id) || press) {
+            held.set(id, bits);
+            // p1 stamps the next step its predicted world has not simulated yet, so it applies
+            // the key exactly where the server will.
+            const next = id === "p1" ? predictor.tick + 1 : 0;
+            const stamp = Math.max(tick + lead, next, lastStamp.get(id)! + 1);
+            lastStamp.set(id, stamp);
+            net.up(id, { type: "coopIn", k: [[stamp, bits | press]] });
+            if (id === "p1") predictor.addInput(stamp, bits | press);
+          } else if (t % 96 === 0) net.up(id, { type: "coopIn", k: [] }); // still here: no key change
+        }
+      }
+      predictor.advanceTo(tick + lead);
+    });
+    const c = predictor.corrections.slice().sort((a, b) => a - b);
+    expect(c.length).toBeGreaterThan(200);
+    const p95 = c[Math.floor(c.length * 0.95)]!;
+    expect(p95).toBeLessThan(0.1);
   });
 });
