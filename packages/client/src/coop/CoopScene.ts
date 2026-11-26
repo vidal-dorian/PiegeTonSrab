@@ -4,9 +4,9 @@
  * (with the host's level list) when everyone is through the door.
  *
  * Where the world comes from is a driver:
- * - OnlineDriver (a room): the server runs the world; this screen draws its snapshots about
- *   50 ms in the past, blended (bodies, crates, platforms, seesaws...), and sends this player's
- *   inputs (step A of the plan; client prediction comes later);
+ * - OnlineDriver (a room): the server runs the world; this screen draws its snapshots just behind
+ *   the newest one received (net/playout.ts), blended (bodies, crates, platforms, seesaws...), and
+ *   sends this player's inputs (step A of the plan; client prediction comes later);
  * - LocalDriver (dev tool ?coopLocal=2): the world runs here, from two keyboard halves.
  */
 import Phaser from "phaser";
@@ -43,6 +43,7 @@ import { overlay } from "../ui/overlay";
 import { GroupCamera } from "./groupCamera";
 import type { CoopLink } from "./net/coopLink";
 import { CoopInputSender } from "./net/inputSender";
+import { bracket, PlayoutClock } from "./net/playout";
 import { loadCleared, markCleared } from "./progress";
 import { CoopBodyView } from "./render/coopBodyView";
 import { stackLabels } from "./render/labelLayout";
@@ -59,8 +60,6 @@ export const COOP_SCENE_KEY = "coop";
 
 /** Longest frame the simulation catches up on, seconds (a frozen tab does not fast-forward). */
 const MAX_FRAME = 0.25;
-/** Online: the world is drawn this many ticks behind the server (1.5 snapshot intervals). */
-const INTERP_TICKS = 6;
 /** Two presses of Échap within this long leave the game, ms. */
 const QUIT_CONFIRM_MS = 2000;
 /** The level card stays this long when a level starts, ms. */
@@ -191,6 +190,8 @@ class OnlineDriver implements Driver {
   /** Tick of the snapshot loaded into the world (-1: none). */
   private loaded = -1;
   private drawnHeld: number[] = [];
+  /** How far behind the server's clock the world is drawn, from the snapshots' arrivals. */
+  private playout = new PlayoutClock();
   private out: PropFrame;
   private onVisibility = () => {
     if (document.hidden) this.sender.idle();
@@ -218,6 +219,7 @@ class OnlineDriver implements Driver {
   onSnapshot(msg: SnapMessage): void {
     const state = decodeWorld(msg.world);
     if (this.snaps.length > 0 && msg.tick <= this.snaps[this.snaps.length - 1]!.tick) return;
+    this.playout.arrive(this.serverTick(), msg.tick);
     // What moves in this state, read once: frames blend between snapshots.
     this.world.load(state);
     this.loaded = msg.tick;
@@ -255,16 +257,8 @@ class OnlineDriver implements Driver {
   /** The snapshots around the drawing time: the later one in the world, the frame blended. */
   private place(): void {
     if (this.snaps.length === 0) return;
-    const at = this.serverTick() - INTERP_TICKS;
-    let a = this.snaps[0]!;
-    let b = a;
-    for (let i = this.snaps.length - 1; i >= 0; i--) {
-      if (this.snaps[i]!.tick <= at) {
-        a = this.snaps[i]!;
-        b = this.snaps[i + 1] ?? a;
-        break;
-      }
-    }
+    const at = this.playout.drawTick(this.serverTick());
+    const [a, b] = bracket(this.snaps, at);
     if (this.loaded !== b.tick) {
       this.world.load(b.state);
       this.loaded = b.tick;
