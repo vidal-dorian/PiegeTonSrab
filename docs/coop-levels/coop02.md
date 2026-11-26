@@ -180,9 +180,12 @@ All measured on the real physics (anchor held in place, friend stepping off), no
    too hard.
 3. The spikes at the bottom of shaft B: the whole team going in (or three stepping off together).
 
-Beat 1 cannot kill a team where somebody stands on the raised floor: the only death there is the
-whole team going into shaft A at once (or an anchor standing still for about 15 s at the edge
-while his friend hangs without landing).
+Beat 1 cannot kill a team where somebody stands on the raised floor: the only deaths there are the
+whole team going into shaft A at once, and a catcher who stands still while a friend hangs without
+landing. With Ruben hanging (the anchor slides 0.3 cells/s) the whole team falls out of shaft A
+after about 5 s of standing still (measured by the level critic: catcher at x 6.5 safe up to 4 s,
+dead from 5 s; at x 8.0 dead from 6 s); with a friend hanging it takes about 15 s. The sign
+at the start ends with « Ruben saute ? On RECULE ! » to tell the team.
 
 ## Ruben's active moments
 

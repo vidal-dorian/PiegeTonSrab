@@ -146,7 +146,7 @@ right:
 | 3-tower Ruben + the jumper's other neighbour + the jumper | across, landing at 39.1 |
 
 So at 2 players the plain 2-tower always works, and at 3+ the team must huddle right behind Ruben
-(« Collez-vous ! », the corridor's sign coming back), or let the end of the rope jump, or build a
+(the sign « Collez-vous derrière Ruben ! » on the muret top), or let the end of the rope jump, or build a
 3-tower. All three are fine; a failed jump just drops the jumper into the floored trench. The same
 holds at the pillar: the climber's rope neighbours must stand within about 3.3 cells of it (the
 base and the next body in line).

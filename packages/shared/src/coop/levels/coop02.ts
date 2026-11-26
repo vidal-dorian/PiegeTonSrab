@@ -66,7 +66,8 @@ export const coop02: CoopLevelDef = {
     j: { "2": ".", "3+": "K" },
   },
   signs: [
-    { x: 9, y: 2, text: "Avance : il descend.\nRecule : il remonte." },
+    // Last line: Ruben steps off last, and an idle catcher slides 0.3 cells/s under his weight.
+    { x: 9, y: 2.2, text: "Avance : il descend.\nRecule : il remonte.\nRuben saute ? On RECULE !" },
     { x: 10, y: 8, text: "Ruben, t'es lourd !" },
     { x: 22.2, y: 8, text: "Stop !\nRemonte un peu !" },
   ],
