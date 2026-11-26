@@ -8,7 +8,7 @@
  * docs/coop-levels/coop05.md.
  */
 import { BIT_DOWN, BIT_DOWN_PRESS, BIT_JUMP, BIT_JUMP_PRESS, BIT_LEFT, BIT_RIGHT } from "../inputBits";
-import { cond, enter, friends, hold, jumpTo, mount, roleIndex, seq, walk, when, type CoopSolution, type Goal, type Phase, type Role } from "../bots";
+import { cond, enter, friends, hold, jumpTo, mount, roleIndex, seq, wait, walk, when, type CoopSolution, type Goal, type Phase, type Role } from "../bots";
 import type { CoopWorld } from "../world";
 
 // --- Helpers (goals and conditions the toolbox does not have) --------------------------------
@@ -99,7 +99,7 @@ const CAP = 26.5;
 /** The mezzanine: floor top 9, x 12-24, the door at 14; the flyer lands at its lip. */
 const LANDING = 24.45;
 /** The plate on the mezzanine (x 23) and the step it holds (x 26, top 11). */
-const PLATE = 23.4;
+const PLATE = 23.55;
 const STEP_G = 26.5;
 /** Where a climber waits on the mezzanine for the next one (left of the plate holder, within rope reach of the tunnel mouth). */
 const WAITING = 22.6;
@@ -180,7 +180,7 @@ function catapulte(n: number): Phase[] {
       timeout: 15,
     },
     {
-      name: "2. « 3, 2, 1, saute ! »: the anchor jumps into the switch, the barbell falls, F0 flies onto the mezzanine",
+      name: "2. « Vas-y ! »: the anchor jumps into the switch, the barbell falls, F0 (not jumping) steers onto the mezzanine",
       do: { [anchor]: jumpTo(MOUTH), F0: fly(LANDING) },
       until: cond.all(cond.standsAbove("F0", 9), (w) => body(w, "F0").cx < 24.9),
       timeout: 5,
@@ -270,10 +270,55 @@ export const shortcuts: Record<string, CoopSolution> = {
     return [
       ...poulie(n),
       ...ready(n),
-      { name: "the anchor walks off the mouth onto the raised pad", do: { [anchor]: walk(25.5, { drop: true, jump: "never" }) }, until: feetBelow(anchor, 14.2), timeout: 5 },
+      { name: "the anchor walks off the mouth onto the raised pad", do: { [anchor]: walk(25.5, { drop: true, jump: "never" }) }, until: feetBelow(anchor, 13.95), timeout: 5 },
       { name: "ATTEMPT: F0, thrown by the anchor's fall, steers onto the mezzanine", do: { F0: fly(LANDING) }, until: cond.standsAbove("F0", 9), timeout: 5 },
       ...keyAfterShot(),
       ...monte(n),
     ];
   },
+
+  /** Beat 2 wasted on purpose: the barbell dropped on the empty seesaw, then a tower on it (the anchor as the base, F0 on top). */
+  "a tower on the spent barbell": (n) => barbellTower(n, false),
+
+  /** The same after a second hit of the switch, which brings shelf s back as a ledge. */
+  "a tower on the spent barbell, shelf back": (n) => barbellTower(n, true),
 };
+
+/**
+ * F0, first in the tunnel, hits the switch with nobody on the seesaw (and again if `twice`); a
+ * base (Ruben at 2 players, F0 from 3) drops onto the spent barbell, a friend climbs onto it and
+ * jumps for the mezzanine (or the restored shelf, then the mezzanine).
+ */
+function barbellTower(n: number, twice: boolean): Phase[] {
+  const c = chain(n);
+  const base: Role = n === 2 ? "R" : "F0";
+  const top: Role = n === 2 ? "F0" : "F1";
+  const line: Phase["do"] = { F0: walk(MOUTH, never) };
+  c.slice(1).forEach((r, i) => (line[r] = walk(MOUTH - 0.85 * (i + 1), never)));
+  // The others close up behind (their ropes would hold the base back otherwise).
+  const follow: Phase["do"] = {};
+  c.slice(1).forEach((r, i) => (follow[r] = walk(MOUTH - 0.85 * i, never)));
+  const spent = (w: CoopWorld) => w.crates[0]!.y > 12.5 && w.crates[0]!.support !== null;
+  const onBarbell = (r: Role) => (w: CoopWorld) => cond.near(r, 25.55, 0.2)(w) && body(w, r).y + body(w, r).height > 13.5 && body(w, r).y + body(w, r).height < 15.2;
+  const build: Phase[] =
+    n === 2
+      ? [
+          { name: "F0 drops onto the seesaw's cap", do: { F0: walk(26.5, { drop: true }) }, until: cond.near("F0", 26.5, 0.3), timeout: 6 },
+          { name: "Ruben walks off the mouth onto the barbell", do: { R: seq(walk(MOUTH, never), walk(25.6, { drop: true, jump: "never", tol: 0.08 })) }, until: onBarbell("R"), timeout: 8 },
+        ]
+      : [
+          { name: "F0 drops onto the barbell", do: { ...follow, F0: walk(25.6, { drop: true, jump: "never", tol: 0.08 }) }, until: onBarbell("F0"), timeout: 6 },
+          { name: "F1 drops onto the seesaw's cap", do: { F1: seq(walk(MOUTH, never), walk(26.6, { drop: true, tol: 0.1 })) }, until: cond.near("F1", 26.6, 0.3), timeout: 8 },
+        ];
+  return [
+    ...poulie(n),
+    { name: "F0 at the mouth", do: line, until: cond.near("F0", MOUTH, 0.3), timeout: 15 },
+    { name: "F0 jumps into the switch: the barbell falls onto the empty seesaw", do: { F0: jumpTo(MOUTH) }, until: spent, timeout: 6 },
+    ...(twice ? [{ name: "a second jump into the switch: shelf s is back", do: { F0: seq(wait(0.5), jumpTo(MOUTH)) }, until: (w: CoopWorld) => w.props.shelves[0]!.solid, timeout: 6 } as Phase] : []),
+    ...build,
+    { name: `${top} climbs onto ${base}`, do: { [top]: mount(base) }, until: cond.on(top, base), timeout: 12 },
+    { name: `ATTEMPT: ${top} jumps from the tower onto the ${twice ? "shelf, then the mezzanine" : "mezzanine"}`, do: { [top]: twice ? seq(jumpTo(25.5, { rise: 0.2 }), jumpTo(LANDING)) : jumpTo(LANDING, { rise: 0.3 }) }, until: cond.standsAbove(top, 9), timeout: 6 },
+    ...keyAfterShot(),
+    ...monte(n),
+  ];
+}

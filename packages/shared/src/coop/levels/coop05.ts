@@ -6,9 +6,9 @@
  *    Ruben's neighbour, last, hauls Ruben out of the pulley shaft.
  * 2. Le développé-catapulte (x 24-27): Ruben (F1 from 3 players) stands at the tunnel mouth under
  *    the switch k and anchors the rope; F0, the end of the chain, goes down onto the seesaw's far
- *    pad. « 3, 2, 1, saute ! »: the anchor jumps into k, the shelf s vanishes, the barbell c falls
- *    onto the raised pad and F0 flies up the shaft. Straight up is the saw; steering left lands him
- *    on the mezzanine, on the key. Ruben falling onto the seesaw himself would hold F0 down by the
+ *    pad. On « vas-y ! » the anchor jumps into k, the shelf s vanishes, the barbell c falls onto
+ *    the raised pad and F0 flies up the shaft. Straight up is the saw; steering left lands him on
+ *    the mezzanine, on the key. Ruben falling onto the seesaw himself would hold F0 down by the
  *    rope: the barbell is the weight, Ruben the anchor.
  * 3. Le pote qui vole fait monter Ruben (x 12-26): F0 stands on plate p, the step g appears in the
  *    shaft; the others climb tunnel mouth, step, mezzanine, Ruben last; the key goes to the front
@@ -26,17 +26,17 @@ export const coop05: CoopLevelDef = {
     "#........###................#####",
     "#........###................#####",
     "#........###................#####",
-    "#........###................#####",
-    "#........###................#####",
+    "#........###.............c..#####",
+    "#........###.............s..#####",
     "#........###..D.............#####",
-    "#........###..D.........K..*#####",
-    "#........##############p#c..#####",
-    "#........################s..#####",
+    "#........###..D.......#.K..*#####",
+    "#........##############p#...#####",
+    "#........################...#####",
     "#........###############k.g.#####",
     "#.S.....l...................#####",
     "########..###############...#####",
     "########..###############...#####",
-    "########..###############www#####",
+    "########..###############WWW#####",
     "########..#######################",
     "#########r#######################",
     "#########.#######################",
@@ -50,8 +50,10 @@ export const coop05: CoopLevelDef = {
     // 1. La poulie: one unit of difference moves the pans the whole way (4 cells).
     l: { kind: "pan", balance: "poulie", step: 4, travel: 4 },
     r: { kind: "pan", balance: "poulie", step: 4, travel: 4 },
-    // 2. Le développé-catapulte: the barbell rests on shelf s until the switch k is hit.
+    // 2. Le développé-catapulte: the barbell rests on shelf s until the switch k is hit. Seesaw v
+    //    (from 4 players) tilts further, so a 4-tower on the spent barbell stays short of the mezzanine.
     w: { kind: "seesaw", travel: 0.4 },
+    v: { kind: "seesaw", travel: 1.0 },
     k: { kind: "switch" },
     s: { kind: "shelf", group: "A" },
     c: { kind: "crate", need: 2, weight: 2 },
@@ -59,11 +61,15 @@ export const coop05: CoopLevelDef = {
     p: { kind: "plate", need: 1, link: "marche" },
     g: { kind: "gate", link: "marche", inverted: true },
   },
+  cells: {
+    W: { "2-3": "w", "4-5": "v" },
+  },
   signs: [
     { x: 8.5, y: 5.5, text: "La poulie" },
     { x: 4.5, y: 8.5, text: "Ruben pèse 2" },
     { x: 18, y: 4, text: "Mezzanine" },
-    { x: 19, y: 12.5, text: "3, 2, 1, saute !" },
-    { x: 26, y: 2.5, text: "Développé-catapulte" },
+    { x: 19.5, y: 12.5, text: "Au bout : saute dans le bloc" },
+    { x: 26, y: 4.2, text: "Une seule barre !" },
+    { x: 25.6, y: 13.5, text: "Toi : pas de saut, tire à gauche" },
   ],
 };

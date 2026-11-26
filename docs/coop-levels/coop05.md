@@ -27,17 +27,17 @@ keeps the beats and the déclic, and changes who falls and what the flyer lands 
 #........###................#####   2
 #........###................#####   3
 #........###................#####   4
-#........###................#####   5
-#........###................#####   6
+#........###.............c..#####   5
+#........###.............s..#####   6
 #........###..D.............#####   7
-#........###..D.........K..*#####   8
-#........##############p#c..#####   9
-#........################s..#####  10
+#........###..D.......#.K..*#####   8
+#........##############p#...#####   9
+#........################...#####  10
 #........###############k.g.#####  11
 #.S.....l...................#####  12
 ########..###############...#####  13
 ########..###############...#####  14
-########..###############www#####  15
+########..###############WWW#####  15
 ########..#######################  16
 #########r#######################  17
 #########.#######################  18-21 (pan r's pit)
@@ -50,9 +50,10 @@ keeps the beats and the déclic, and changes who falls and what the flyer lands 
 | `r` | pan | x 9, row 17 (rest), rises to 13 (the tunnel floor), sinks to 21 | balance `poulie` |
 | — | tunnel | row 12, x 9-24, 1 high (floor 13, solid above) | |
 | `k` | switch block | x 24, row 11, right above the tunnel mouth (x 24) | |
-| `s` | shelf, group A | x 25, row 10: holds the barbell | |
-| `c` | crate « 2 » (the barbell) | x 25, row 9 | need 2, weight 2 |
-| `w` | seesaw | row 15: B x 25 (under the barbell), cap x 26, A x 27 | travel 0.4 |
+| `s` | shelf, group A | x 25, row 6: holds the barbell, high above the climb and the mezzanine | |
+| `c` | crate « 2 » (the barbell) | x 25, row 5 | need 2, weight 2 |
+| `W` → `w` / `v` | seesaw (cells variant) | row 15: B x 25 (under the barbell), cap x 26, A x 27 | travel 0.4 at 2-3 players, 1.0 at 4-5 |
+| — | block | x 22, row 8: keeps the plate holder on the plate's right half | |
 | `*` | saw | x 27, row 8, above pad A | |
 | — | mezzanine | floor top 9, x 12-24 | |
 | `K` | key | x 24, row 8: on the mezzanine's lip | |
@@ -86,8 +87,8 @@ drops back) and up its far wall into the tunnel (« Tire ! »).
 
 The tunnel's last cell is under the switch. F0 walks out of the mouth, drops onto the seesaw and
 crosses to pad A (it sinks; pad B, under the barbell, rises). His neighbour (Ruben at 2 players, F1
-from 3) takes the mouth: he is the anchor. « 3, 2, 1, saute ! »: the anchor jumps into the switch,
-the shelf vanishes, the barbell falls 3.6 onto the raised pad and throws F0 (launch 8, the cap).
+from 3) takes the mouth: he is the anchor. When the flyer says « vas-y ! » the anchor jumps into the switch,
+the shelf vanishes, the barbell falls 7.6 onto the raised pad and throws F0 (launch 8, the cap).
 The rope to the anchor caps the flight; F0 steers left and lands on the mezzanine's lip (top 9, 6
 above the seesaw), on the key. Straight up, he meets the saw (the bots die there at 2, 3, 4 and 5
 players): « Tire à gauche ! ».
@@ -104,10 +105,10 @@ and everyone goes through the door.
 
 | Players | Total | Beat 1 | Beat 2 | Beat 3 |
 |---|---|---|---|---|
-| 2 | 16.1 s | 7.3 s | 6.2 s | 2.8 s |
-| 3 | 19.1 s | 9.1 s | 5.3 s | 4.6 s |
-| 4 | 19.7 s | 10.5 s | 3.4 s | 5.8 s |
-| 5 | 22.5 s | 12.4 s | 2.7 s | 7.3 s |
+| 2 | 17.5 s | 7.3 s | 6.4 s | 3.9 s |
+| 3 | 19.1 s | 9.1 s | 5.5 s | 4.4 s |
+| 4 | 20.0 s | 10.5 s | 3.7 s | 6.0 s |
+| 5 | 22.8 s | 12.4 s | 3.0 s | 7.5 s |
 
 Players who know the level should take 45-60 s: the crossing order, the countdown and the climb
 are all talk.
@@ -118,7 +119,9 @@ are all talk.
 |---|---|---|---|
 | Pan l | 1 above the floor | Ruben's jump | — |
 | Tunnel floor over pan r | r raised 4 | walking from the edge (a hop over l) | from r at rest (4 below) a jump reaches 1 short (margin 1.0); from the approach, the 1-high tunnel only takes a body whose feet are within 0.1 of its floor, so nobody jumps in |
-| Barbell drop | 4 above the seesaw, 3.6 onto the raised pad | the switch | launch 1.4 x 3.6 x 2 = 10, capped at 8 |
+| Barbell drop | 8 above the seesaw, 7.6 onto the raised pad | the switch | launch capped at 8 |
+| Shelf s after a second hit | top 6, 3 above the mezzanine, over pad B | — | useless: above the climb and the flight, out of a lone jump from the mezzanine (3.0) |
+| Spent barbell as a step | top 14.4 (2-3 players), 15.0 (4-5, seesaw travel 1.0) | towers | 3-tower apex 9.6 (margin 0.6), 4-tower apex 9.3 (margin 0.3) against the mezzanine at 9 |
 | F0's flight | rope-limited by the anchor at the mouth (centre 2.45 above the seesaw, 3 left of pad A) | | measured head apex: 8.75 (row) straight up, 7.3 above the seesaw steering left; free apex 7.6 |
 | Mezzanine | 6 above the seesaw (4 above the tunnel) | the flight | 4-tower on the cap: feet apex 5.7 (margin 0.3); 2-tower on Ruben on the cap: 3.9 (shortcut bot fails); coyote jump from the mouth after the shot: 3 (margin 1.0) |
 | Saw | circle at row 8.5 over pad A | straight-up flight | the bots die there at every size; the steering flight passes x ≤ 26.6 by then |
@@ -149,13 +152,17 @@ failing phase's name):
 | a friend crosses the pulley alone | nobody on pan l; F0 hops over l and walks for the tunnel | pan r is at rest, 4 below the tunnel: F0 drops into its pit |
 | a tower from the seesaw to the mezzanine | F0's neighbour on the seesaw's cap, F0 on his head jumps for the lip | 3.9 is short of 6, and the barbell's column blocks the way |
 | the anchor jumps onto the seesaw himself | the plan's beat 2: the anchor walks off the mouth onto the raised pad instead of hitting the switch | a fall of 1.6 throws F0 about 4, and the anchor, now on the seesaw, holds him down by the rope |
+| a tower on the spent barbell | the switch hit with nobody on the seesaw, a 2-tower on the fallen barbell jumps for the mezzanine | too low (the critic's 4-tower at 5 players, `c5_barbell_tower`, now fails too: seesaw travel 1.0 from 4 players) |
+| a tower on the spent barbell, shelf back | the same after a second hit, through the restored shelf | the shelf is now at top 6, out of reach and above the climb (the critic's 3-tower at 3 players, `c5_shelf_step`, now fails) |
 
 ### Accepted
 
 - Two friends as the counterweight on pan l (3+).
 - Climbing Ruben's head on pan l to reach the tunnel: it still needs Ruben on the pan.
-- A failed shot (nobody on pad A, F0 missing the lip) wastes the barbell: hold R to restart. It is
-  the level's only irreversible mistake besides the saw.
+- A failed shot (the switch hit before the flyer is on pad A, the flyer jumping at the launch, F0
+  missing the lip) wastes the barbell: hold R to restart. A sign over the shaft says « Une seule
+  barre ! »; the one at the mouth says who jumps (« Au bout : saute dans le bloc »), the one by the
+  seesaw says who does not (« Toi : pas de saut, tire à gauche »).
 
 ## Deadly moments
 
@@ -168,8 +175,9 @@ on « saute ! ». He sits on pan l only while the friends cross (under 10 s for 
 
 ## Communication moment
 
-The countdown at the mouth (« 3, 2, 1, saute ! ») between the friend on pad A and the anchor; then
-« Tire à gauche ! » for the flyer; in beat 1 « Un par un sur le plateau ! ».
+The shot: the flyer must be standing on pad A, still, when the anchor jumps, or the only barbell is
+spent. He calls « vas-y ! » and must not jump himself (a jump pressed before the launch cancels
+it, `c5_flight_inputs`), then « Tire à gauche ! ». In beat 1 « Un par un sur le plateau ! ».
 
 ## Deviations from the plan, and why
 
@@ -219,3 +227,16 @@ The physics make two of the plan's sentences impossible at 2 players; both come 
   needs the hauler's floor to be the lip.
 - A climber below the mezzanine is held by the rope to whoever is still in the tunnel: climbing
   order and waiting spots matter as much as heights.
+
+## Review fixes (critic round 1)
+
+| Issue | Status |
+|---|---|
+| 1. Beat 2 skipped by a tower on the spent barbell, through the restored shelf (3 players) or directly (5 players) | Fixed: barbell and shelf moved up 4 rows (the restored shelf is useless), seesaw travel 1.0 from 4 players. Two new shortcuts; the critic's two scripts now fail. |
+| 2. A jump at the mouth before the flyer is ready wastes the barbell | Kept, signed (« Une seule barre ! »): it is the level's timing moment. A recoverable barbell needs a way back to its shelf; a `~` or an exit near the seesaw would put a deadly pit or a crate chute in the shot's room. |
+| 3. The flyer who jumps loses the shot | Kept, signed: « Au bout : saute dans le bloc » at the mouth, « Toi : pas de saut, tire à gauche » at the seesaw. |
+| 4. One jump in beat 3 brings the shelf back and blocks the climb | Fixed by moving the shelf up: `c5_shelf_back` now wins at every size with one or two jumps. |
+| 5. Rope margin at the plate | Fixed: a block at x 22, row 8, the holder stands at 23.55; `c5_rope_margins` wins at every size. |
+| 6. The déclic is not literal (the flyer does not haul Ruben) | Not fixed. Hauling from the mezzanine drags the hauled one into the tunnel mouth (the pull is level with it), and every arrangement tried in this geometry either reopened the tower route or broke a rope distance at 4-5 players. What the level teaches: the friend Ruben anchors is the one who flies, and his landing (holding the plate) is what opens the way up for Ruben and the others. |
+| 7. Ruben's role from 3 players | Not fixed: at 3+ the anchor must be F0's only neighbour (F1). Making Ruben the anchor at every size (Ruben's neighbour as the flyer, a weight-2 plate at the mouth instead of the switch) was built and tested: it needs the flyer's second neighbour within 4.5 of pad A, which fails as soon as the seesaw tilts 1.0 (the fix for issue 1 at 4-5 players). Ruben remains the counterweight at every size and the anchor at 2 players. |
+| 8. A communication moment that matters | The shot's order now matters and is signed (see above): the barbell is single-use. |
