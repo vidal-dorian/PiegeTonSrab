@@ -45,13 +45,13 @@ export const coop01: CoopLevelDef = {
   ],
   signs: [
     { x: 11, y: 10.3, text: "Personne ne lâche personne" },
-    { x: 23, y: 7.5, text: "Salle B12 →" },
+    { x: 23, y: 7.5, text: "Salle B12 →", print: true },
     { x: 31, y: 7.6, text: "Tire !" },
     // From 3 players the jumper over the trench needs its rope neighbours close behind it.
     { x: 29.5, y: 8.8, text: "Collez-vous derrière Ruben !" },
     { x: 44.5, y: 4.6, text: "Saute, je te remonte !" },
     { x: 56, y: 8, text: "En bas !" },
-    { x: 42.5, y: 16.2, text: "Salle B12" },
+    { x: 42.5, y: 16.2, text: "Salle B12", print: true },
     { x: 34, y: 14.6, text: "Ruben, fais la base !" },
   ],
 };

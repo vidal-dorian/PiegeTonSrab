@@ -93,9 +93,16 @@ export function drawLevel(scene: Phaser.Scene, level: Level, options: DrawLevelO
 
   for (const l of level.labels) {
     const t = scene.add
-      .text(l.x * CELL_PX, l.y * CELL_PX, l.text, { fontFamily: FONT_MARKER, fontSize: "20px", color: INK_CSS })
+      .text(
+        l.x * CELL_PX,
+        l.y * CELL_PX,
+        l.text,
+        l.print
+          ? { fontFamily: FONT_TITLE, fontStyle: "600", fontSize: "20px", color: INK_CSS }
+          : { fontFamily: FONT_MARKER, fontSize: "20px", color: INK_CSS },
+      )
       .setOrigin(0.5, 0.5)
-      .setRotation(-0.04);
+      .setRotation(l.print ? 0 : -0.04);
     if (options.singleTextureSigns && "renderNodes" in scene.sys.renderer) t.setRenderNodeRole("BatchHandler", "BatchHandlerQuadSingle");
   }
   return { grid };

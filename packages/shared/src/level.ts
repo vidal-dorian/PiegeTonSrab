@@ -37,6 +37,8 @@ export interface LevelLabel {
   x: number;
   y: number;
   text: string;
+  /** Printed letters (a door plate) instead of the marker, whose capitals make "B12" read "BIZ". */
+  print?: boolean;
 }
 
 export interface LevelDefinition {
