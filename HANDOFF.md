@@ -377,7 +377,8 @@ Defaults (proposed in the approved plan, not yet played by Dorian):
   1.5 s restarts the level (half the team from 3 players).
 - Network: the server runs the authoritative co-op world (120 steps/s) from the players' inputs. Step A:
   30 compact snapshots per second, interpolated on every client. Step B: each client predicts the whole world
-  ahead and reconciles on the snapshots (wired in M4, off by default for now: `?predict=1`). The
+  ahead and reconciles on the snapshots (wired in M4; since the auto rule, on by itself when the round trip
+  is short, see "Réactivité setting" below). The
   own-body-plus-ghosts model of the race mode was measured not to work for a rope or towers (a dragged
   friend moves at 0.01-0.07 cells/s instead of 3.5).
 - Levels: 9 levels plus a finale in 3 parts. Their design sheets are in `docs/coop-levels.md`.
@@ -509,17 +510,16 @@ Prediction wired (M4, 2026-11-26):
   server's latest world (`Driver.authority`). Plates, gates, crates, seesaws and platforms are drawn from the
   copy. A new `coopLevel` restarts the screen, so the predictor is rebuilt on a new level, a rebuilt team, a
   resume or a moved clock. Spectators and `?coopLocal=2` keep their paths.
-- Default: OFF. `?predict=1` turns it on, `?predict=0` forces it off (`PREDICT_BY_DEFAULT` in
-  `predictedPlay.ts`; step A stays the fallback). The plan turns it on only if the bench passes, and it does
+- Default at M4: OFF (`PREDICT_BY_DEFAULT`, since replaced by the auto rule of the "Réactivité" setting,
+  below). The plan turns it on only if the bench passes, and at 50 ms it does
   not: with the plan's bench model (three players changing keys every ~200 ms, jumping every ~0.8 s) each
   player's own-body corrections p95 at 50 ms is 0.058 / 0.217 / 0.219 cell, over twice the 0.1 threshold
   for two players of three (8 runs, only the 10 s while the keys change; pooled 0.154, 5.7 % of snapshots
   over 0.1 cell). The first M4 figure, 0.108, also counted the idle seconds before and after the keys, all
   zeros; the next one, 0.182, pooled the players over 4 runs (a verdict that flipped with the seed set).
-  With more jitter it grows (the review measured 0.236 at 50 +30 ms, 0.438 at 50 +60). The bench test
-  checks that `PREDICT_BY_DEFAULT` matches the worst player's verdict and that both halves of the runs
-  agree (else: too close to call, add runs). Every big correction comes from another player's keys, which no client can know for a round trip
-  (with only its own keys moving, none is over 0.1 cell).
+  With more jitter it grows (the review measured 0.236 at 50 +30 ms, 0.438 at 50 +60). Every big
+  correction comes from another player's keys, which no client can know for a round trip (with only its own
+  keys moving, none is over 0.1 cell).
 - Known limit (the main reason to keep it off): the copy runs the other players a full lead ahead on their
   last known keys, and their changes reach it about a round trip plus half a snapshot late (about 115 ms
   at 50 ms one way, 250 ms at 120 ms). A friend who stops, turns or jumps is drawn wrong for that long and
@@ -595,6 +595,70 @@ Prediction wired (M4, 2026-11-26):
     platform-base clamp and the 8 cells/s glide. The bench file has a 60 s timeout (its rooms went over
     vitest's 5 s default on a shared machine).
 
+"Réactivité" setting and the auto rule (after M4, 2026-11-26, decided with Dorian):
+
+- Rule (`packages/client/src/coop/net/reactivity.ts`): `?predict=1` / `?predict=0` always forces. Otherwise
+  the player's setting in the co-op lobby, "Réactivité : Auto / Stable / Instantanée" (stable = step A,
+  instantanée = step B), kept in localStorage (`coop.reactivity`, every access guarded; default auto; a
+  choice made while storage fails lasts until the page is reloaded). In auto, the screen predicts when its
+  recent round trip is under 60 ms (`AUTO_ON_BELOW_MS`) and draws step A over 80 ms (`AUTO_OFF_ABOVE_MS`);
+  in between it keeps its previous auto choice (module-level memory, so a ping wobbling around one threshold
+  does not flip the display every level); no round trip measured yet: step A.
+- The round trip read is `ServerClock.recentRtt`, the 75th percentile of the last 12 pings (one per second,
+  a burst of 6 on joining; the clock itself still trusts the best one), so jitter counts. The co-op link
+  pings from the moment the room is joined, so the lobby (and the intro) fill the window before the first
+  level.
+- When: once per level start, when `CoopScene` builds `OnlineDriver`. A `coopLevel` whose clock already runs
+  (`serverNow >= startsAt`: a resume after a dropped player, the clock moved after a server stall) continues
+  the level and keeps its choice, so the display never switches in the middle of a level. Spectators and
+  `?coopLocal=2` keep their paths; step A, when chosen, is the same code as before.
+- Lobby: the block sits above "Revoir l'intro / Quitter": three small buttons, one hint line per choice
+  ("Instantanée si ton ping est bas, stable sinon." / "Tout reste fluide, tes touches répondent avec un petit
+  retard." / "Tu bouges tout de suite, les autres peuvent être recalés."), and in auto the current decision
+  and the ping, refreshed every second ("Auto : instantanée (ping 39 ms)"); when the address forces it,
+  "Forcé par l'adresse (?predict) : …". The race mode has no such setting.
+- Calibration (the plan's bench, three players changing keys every ~200 ms, 8 seeded runs per row, worst
+  player's own-body corrections p95, threshold 0.1 cell; recent round trip as the bench's clients measure
+  it, median):
+
+  | one way + jitter | worst p95 | round trip | | one way + jitter | worst p95 | round trip |
+  |---|---|---|---|---|---|---|
+  | 20 +10 | 0.025 | 55 | | 32 +10 | 0.132 (both halves fail) | 79 |
+  | 22 +10 | 0.029 | 59 | | 33 +10 | 0.083 | 80 |
+  | 23 +10 | 0.048 | 61 | | 34 +10 | 0.096 (halves split) | 83 |
+  | 24 +10 | 0.011 | 62 | | 35 +10 | 0.122 (halves split) | 84 |
+  | 25 +10 | 0.089 | 64 | | 40 +10 | 0.122 (halves split) | 94 |
+  | 26 +10 | 0.045 | 67 | | 45 +10 | 0.131 (halves split) | 104 |
+  | 28 +10 | 0.055 | 70 | | 50 +10 | 0.219 (both halves fail) | 114 |
+  | 30 +10 | 0.069 | 75 | | | | |
+  | 20 +5 | 0.021 | 48 | | 20 +20 | 0.051 | 69 |
+  | 25 +5 | 0.056 | 57 | | 25 +20 | 0.134 (both halves fail) | 78 |
+  | 30 +5 | 0.053 | 67 | | 30 +20 | 0.076 | 88 |
+
+  The worst player's p95 crosses 0.1 between 30 and 35 ms one way with 10 ms of jitter (noisy there: 0.07 to
+  0.13), that is at a measured round trip of about 75-80 ms; with 20 ms of jitter at about 25 ms one way
+  (78 ms). Auto turns prediction on under 60 ms (23 ms one way +10: 0.048, half the limit) and off over 80
+  ms (where it starts failing).
+- Bench check (`coopPredictBench.test.ts`, replacing the `PREDICT_BY_DEFAULT` check): at the one-way
+  latency whose round trip is `AUTO_ON_BELOW_MS` (computed from the constant: 23 ms +10), the clients'
+  median recent round trip is within 5 ms of it and every player's p95 is under 0.1 cell (under 0.075,
+  both halves agreeing): 0.002 / 0.000 / 0.048, round trips 56-64 ms. At 50 ms +10 the verdict fails (both
+  halves) and every client's round trip (112-116 ms) is over `AUTO_OFF_ABOVE_MS`, so auto draws step A even
+  after a predicted level. With the threshold raised to 85 ms, the check runs at 35 ms +10 and fails.
+- Browser (3 Chromium, one per player, through a Node WebSocket proxy delaying each way + 5 ms jitter; my own
+  server and Vite): at 15 ms one way the lobby shows "Auto : instantanée (ping 36-40 ms)" and level 1
+  predicts on all three screens; switched to 50 ms in the middle of the level, all three keep predicting
+  (also through a resume after Bob's link dropped: a new epoch, the same level); the next level start at
+  50 ms draws step A on all three ("Auto : stable"). With Alice on "Instantanée" and Chloe on "Stable": at
+  50 ms Alice predicts, Bob (auto) and Chloe do not; at 15 ms Alice and Bob predict, Chloe does not; Chloe's
+  choice survives a reload. No console error.
+- Known limit, seen in that browser run: the pongs are read on the page's main thread, so long frames add to
+  the round trips measured during play. This machine (three software-GL browsers on 4 cores) ran the level
+  at 13-15 frames/s, and its in-game round trips read 120-300 ms at 50 ms one way (102-110 ms in the lobby)
+  and 64-235 ms at 15 ms; a level started after such a window drew step A at 15 ms. At 60 frames/s a frame
+  adds at most about 16 ms. A slow computer therefore falls back to step A, which also spares it the
+  replays. A level started after the lobby (or a long end-of-level card) reads the light screen's pings.
+
 Status at the end of M4 (2026-11-26):
 
 - Done: step B is wired into the online screen (opt-in, `?predict=1`; step A stays the default because the
@@ -606,17 +670,18 @@ Status at the end of M4 (2026-11-26):
   1-5 both with step A and with `?predict=1` (identical server bodies on all screens, drawn equal to server
   once settled, no console error).
 - Open: whether to turn prediction on by default, or to draw the other players on the server's timeline
-  (see "Open questions for Dorian").
+  (see "Open questions for Dorian"). Since then: on by itself when the round trip is short, with the lobby
+  setting (see "Réactivité setting" above).
 - Next: M5 (levels 6 to 10c, polish, docs, final review), when Dorian asks.
 
 ## Open questions for Dorian
 
-- Co-op prediction: on by default? It moves the own body on the next frame instead of about a third of a
-  second later, but the plan's bench gives up to 0.219 cell at 50 ms (worst player), over twice its 0.1
-  threshold, and the
-  other players are drawn up to 1-2 cells off and corrected whenever they change keys (see "Prediction
-  wired (M4)", known limit). Try `?predict=1` in the playtest. Turning it on is `PREDICT_BY_DEFAULT = true`
-  and the bench's check; drawing the others on the server's timeline would be a change to the plan.
+- Co-op "Réactivité": playtest the setting. Auto predicts under a 60 ms round trip and draws step A over
+  80 ms (bench: the worst player's corrections cross 0.1 cell around 75-80 ms). Check that "Auto" picks
+  what feels best on your connections (the lobby shows its decision and ping), that "Instantanée" is worth
+  it for you (own body on the next frame, the others corrected when they change keys, up to 1-2 cells at
+  50 ms one way), and whether the thresholds should move. Drawing the others on the server's timeline would
+  still be a change to the plan.
 
 - Maximum width of scrolling levels (proposed: about 2 screens, 64 cells).
 - Whether a catch-up bonus is needed for the last-placed player (only if playtests show the leader running away).

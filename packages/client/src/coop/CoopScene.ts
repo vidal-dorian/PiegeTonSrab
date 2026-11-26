@@ -5,7 +5,8 @@
  *
  * Where the world comes from is a driver:
  * - OnlineDriver (a room): the server runs the world. A player's screen can predict it (step B of
- *   the plan, net/predictedPlay.ts; ?predict=1 or ?predict=0, else PREDICT_BY_DEFAULT): the drawn
+ *   the plan, net/predictedPlay.ts; chosen at each level start by net/reactivity.ts: ?predict=1 or
+ *   ?predict=0, else the lobby's "Réactivité" setting, auto by the round trip): the drawn
  *   world runs ahead of the server with this player's keys at once and is corrected by every
  *   snapshot, smoothly; deaths, restarts, the win, the HUD's key and door come from the snapshots
  *   only. Otherwise, and for a spectator, this screen draws the snapshots just behind the newest
@@ -47,7 +48,8 @@ import { GroupCamera } from "./groupCamera";
 import type { CoopLink } from "./net/coopLink";
 import { CoopInputSender } from "./net/inputSender";
 import { bracket, PlayoutClock } from "./net/playout";
-import { PredictedPlay, predictionWanted } from "./net/predictedPlay";
+import { PredictedPlay } from "./net/predictedPlay";
+import { predictionWanted } from "./net/reactivity";
 import { loadCleared, markCleared } from "./progress";
 import { CoopBodyView } from "./render/coopBodyView";
 import { stackLabels } from "./render/labelLayout";
@@ -421,7 +423,16 @@ export class CoopScene extends Phaser.Scene {
       this.driver = new LocalDriver(world, inputs, this.names);
     } else {
       const input = this.mySeat >= 0 ? new InputSource({ keys: COOP_KEYS, pad: "first", keepHeldKeys: true }) : null;
-      this.online = new OnlineDriver(world, data.link, data.level.startsAt, data.level.epoch, input, this.mySeat, predictionWanted(location.search));
+      // Decided here, once per level start (reactivity.ts): a coopLevel whose clock already runs
+      // continues the level (a resume, a moved clock) and keeps its choice. A spectator draws step A.
+      const predict =
+        this.mySeat >= 0 &&
+        predictionWanted(location.search, {
+          rttMs: data.link.recentRtt,
+          levelId: data.level.levelId,
+          continuing: data.link.serverNow() >= data.level.startsAt,
+        });
+      this.online = new OnlineDriver(world, data.link, data.level.startsAt, data.level.epoch, input, this.mySeat, predict);
       this.driver = this.online;
     }
 

@@ -1,7 +1,8 @@
 /**
- * The co-op room before and between levels: the lobby (who plays Ruben, the host launches), and
- * the story intro, which every player watches on their own computer. When the server starts a
- * level, the game screen (CoopScene) takes over the link.
+ * The co-op room before and between levels: the lobby (who plays Ruben, the host launches, each
+ * player's "Réactivité" setting with the ping this link measures), and the story intro, which
+ * every player watches on their own computer. When the server starts a level, the game screen
+ * (CoopScene) takes over the link.
  */
 import Phaser from "phaser";
 import { COOP_LEVELS, type CoopIntroCast, type CoopLobbyInfo, type CoopServerMessage } from "@game/shared/coop";
@@ -10,7 +11,8 @@ import { overlay } from "../ui/overlay";
 import { COOP_SCENE_KEY, type CoopSceneData } from "./CoopScene";
 import { INTRO_SCENE_KEY, type IntroCast, type IntroSceneData } from "./intro/introContract";
 import type { CoopLink } from "./net/coopLink";
-import { coopBanner, coopLobbyScreen } from "./ui/coopScreens";
+import { loadReactivity, previewPrediction, saveReactivity } from "./net/reactivity";
+import { coopBanner, coopLobbyScreen, type ReactivityControls } from "./ui/coopScreens";
 import { loadCleared } from "./progress";
 import { levelLabel } from "./ui/coopText";
 
@@ -48,6 +50,12 @@ export class CoopLobbyScene extends Phaser.Scene {
   private lobby: CoopLobbyInfo | null = null;
   private introRunning = false;
   private introDone = false;
+  /** This player's "Réactivité" setting; the preview reads the link's recent round trip. */
+  private reactivity: ReactivityControls = {
+    setting: () => loadReactivity(),
+    choose: (value) => saveReactivity(value),
+    preview: () => previewPrediction(location.search, loadReactivity(), this.link.recentRtt),
+  };
 
   constructor() {
     super(COOP_LOBBY_KEY);
@@ -66,6 +74,8 @@ export class CoopLobbyScene extends Phaser.Scene {
       else overlay.showNotice("Reconnecté !", 1500);
     };
     this.link.setHandler((msg) => this.onMessage(msg));
+    // The ping moves: the auto decision shown follows it (the scene's clock stops with it).
+    this.time.addEvent({ delay: 1000, loop: true, callback: () => coopLobbyScreen.refreshReactivity() });
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       coopLobbyScreen.hide();
       coopBanner.hide();
@@ -130,6 +140,7 @@ export class CoopLobbyScene extends Phaser.Scene {
       },
       import.meta.env.DEV,
       COOP_LEVELS.map((l) => ({ label: levelLabel(COOP_LEVELS, l), cleared: loadCleared().has(l.id) })),
+      this.reactivity,
     );
   }
 

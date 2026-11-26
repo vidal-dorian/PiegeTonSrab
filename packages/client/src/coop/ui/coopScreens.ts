@@ -1,13 +1,16 @@
 /**
- * HTML panels of the co-op mode: the room's lobby (with the role of Ruben) and the small panels
- * shown over the game (waiting for the others after the intro, a dropped player, "Prêt ?").
+ * HTML panels of the co-op mode: the room's lobby (with the role of Ruben and this player's
+ * "Réactivité" setting) and the small panels shown over the game (waiting for the others after
+ * the intro, a dropped player, "Prêt ?").
  * Built like the race mode's screens (ui/screens.ts): plain DOM in the overlay, textContent only.
  * The lobby reuses the race lobby's look (.ui-lobby) and its squared-paper background.
  */
 import type { CoopLobbyInfo } from "@game/shared/coop";
 import { el, overlay } from "../../ui/overlay";
 import { cssColor } from "../../ui/screens";
+import type { PredictionChoice, Reactivity } from "../net/reactivity";
 import { levelPicker, type LevelChoice } from "./coopCleared";
+import { REACTIVITY_LABELS, reactivityHint, reactivityStatus } from "./coopText";
 import "./coop.css";
 
 function panel(className: string): HTMLDivElement {
@@ -37,12 +40,65 @@ export interface CoopLobbyActions {
   leave(): void;
 }
 
+/** This player's "Réactivité" setting (how their screen draws the online world), for the lobby. */
+export interface ReactivityControls {
+  setting(): Reactivity;
+  choose(value: Reactivity): void;
+  /** What a level starting now would choose (the auto decision and the ping it read). */
+  preview(): PredictionChoice;
+}
+
+/**
+ * The "Réactivité" block of the lobby: Auto / Stable / Instantanée, a hint, and in auto the
+ * current decision with the ping (refreshed while the lobby is up: the ping moves).
+ */
+class ReactivityPanel {
+  readonly div = el("div", "coop-reactivity");
+  private status = el("div", "coop-reactivity-status");
+  private controls: ReactivityControls | null = null;
+
+  render(controls: ReactivityControls): HTMLElement {
+    this.controls = controls;
+    const setting = controls.setting();
+    const choices = el("div", "ui-row ui-toggle coop-reactivity-choices");
+    for (const { value, label } of REACTIVITY_LABELS) {
+      const b = button(label, () => {
+        controls.choose(value);
+        this.render(controls);
+      });
+      b.classList.add("small");
+      b.classList.toggle("on", value === setting);
+      b.setAttribute("aria-pressed", String(value === setting));
+      b.dataset.reactivity = value;
+      choices.append(b);
+    }
+    this.div.replaceChildren(el("div", "coop-reactivity-title", "Réactivité"), choices, el("div", "coop-reactivity-hint", reactivityHint(setting)), this.status);
+    this.refresh();
+    return this.div;
+  }
+
+  refresh(): void {
+    if (!this.controls) return;
+    const text = reactivityStatus(this.controls.preview());
+    this.status.textContent = text;
+    this.status.hidden = text === "";
+  }
+}
+
 export class CoopLobbyScreen {
   private div = panel("ui-lobby ui-coop-lobby");
   /** The level the host clicked in the list, for the server's next level it was picked against. */
   private picked: { index: number; next: number } | null = null;
+  private reactivity = new ReactivityPanel();
 
-  show(info: CoopLobbyInfo, myId: string, actions: CoopLobbyActions, allowSolo: boolean, levels: readonly LevelChoice[] = []): void {
+  show(
+    info: CoopLobbyInfo,
+    myId: string,
+    actions: CoopLobbyActions,
+    allowSolo: boolean,
+    levels: readonly LevelChoice[] = [],
+    reactivity: ReactivityControls | null = null,
+  ): void {
     const isHost = info.hostId === myId;
     const list = el("ul");
     for (const p of info.players) {
@@ -104,7 +160,7 @@ export class CoopLobbyScreen {
         const selected = Math.min(this.picked?.index ?? info.levelIndex, levels.length - 1);
         const list = levelPicker(levels, selected, (i) => {
           this.picked = { index: i, next: info.levelIndex };
-          this.show(info, myId, actions, allowSolo, levels);
+          this.show(info, myId, actions, allowSolo, levels, reactivity);
         });
         parts.push(el("div", "coop-next", "Niveau suivant"), list, button("Jouer", () => actions.play(selected), true), button("Rejouer l'histoire", () => actions.start()));
       } else {
@@ -122,11 +178,17 @@ export class CoopLobbyScreen {
     } else {
       parts.push(el("div", "wait", "En attente de l'hôte…"));
     }
+    if (reactivity) parts.push(this.reactivity.render(reactivity));
     const bottom = el("div", "ui-row");
     bottom.append(button("Revoir l'intro", () => actions.replayIntro()), button("Quitter", () => actions.leave()));
     parts.push(bottom);
     this.div.replaceChildren(...parts);
     this.div.hidden = false;
+  }
+
+  /** Update the "Réactivité" decision and ping shown (the lobby calls it every second). */
+  refreshReactivity(): void {
+    if (!this.div.hidden) this.reactivity.refresh();
   }
 
   hide(): void {

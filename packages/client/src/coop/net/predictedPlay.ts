@@ -8,23 +8,14 @@
  * predictor.ts). It never runs backwards: it runs a little faster or slower to follow the lead,
  * and jumps forward only when far behind. Each step of it reads the keys once and stamps them for
  * that step, so the copy applies them exactly where the server will when they arrive in time.
+ *
+ * Whether a screen predicts at all is decided at each level start in reactivity.ts (the address,
+ * the lobby's "Réactivité" setting, or the auto rule on the recent round trip).
  */
 import { BIT_RESTART, COOP_HZ, CoopWorld, type CoopClientMessage, type CoopWorldState } from "@game/shared/coop";
 import type { PropFrame } from "../render/propFrame";
 import { CoopInputSender } from "./inputSender";
 import { CoopPredictor, predictionLead } from "./predictor";
-
-/**
- * Whether a player's screen predicts unless the address says otherwise. The plan turns it on only
- * if the bench passes its thresholds (coopPredictBench.test.ts checks this matches its verdict).
- */
-export const PREDICT_BY_DEFAULT = false;
-
-/** Whether this screen predicts: ?predict=1 turns it on, ?predict=0 off, else PREDICT_BY_DEFAULT. */
-export function predictionWanted(search: string): boolean {
-  const v = new URLSearchParams(search).get("predict");
-  return v === null || v === "" ? PREDICT_BY_DEFAULT : v !== "0";
-}
 
 /** The round trip assumed before the first pong, ms. */
 const DEFAULT_RTT_MS = 100;

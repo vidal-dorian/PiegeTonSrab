@@ -309,3 +309,17 @@
 }
 .coop-level.cleared .coop-level-tick { background: var(--ink); color: var(--surface); }
 .ui-coop-lobby .coop-levels { max-height: 190px; }
+
+/* The lobby's "Réactivité" setting: a dashed note box, three small choices, a hint line. */
+.coop-reactivity {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px 9px;
+  border: 2px dashed var(--ink);
+  border-radius: 10px;
+}
+.coop-reactivity-title { font-family: var(--font-marker); font-size: 15px; transform: rotate(-1deg); align-self: flex-start; }
+.coop-reactivity-choices { gap: 8px; }
+.coop-reactivity-hint { font-size: 13px; opacity: 0.75; line-height: 1.25; }
+.coop-reactivity-status { font-family: var(--font-title); font-weight: 600; font-size: 14px; }

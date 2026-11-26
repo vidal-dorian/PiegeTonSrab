@@ -4,8 +4,11 @@
  * running the screen's PredictedPlay (clock estimated from pings, inputs stamped with the
  * predicted tick through CoopInputSender, a frame every 16.7 ms).
  *
- * Thresholds (the plan's, at 50 ms one way): no input lost, and 95 % of each player's own-body
- * corrections under 0.1 cell, over the seconds while keys change. Then the cases around it: TCP
+ * Thresholds (the plan's): no input lost, and 95 % of each player's own-body corrections under
+ * 0.1 cell, over the seconds while keys change. The auto rule of the "Réactivité" setting
+ * (net/reactivity.ts) is tied to it: the verdict passes at the one-way latency whose measured
+ * recent round trip is AUTO_ON_BELOW_MS, and fails at 50 ms one way, where the round trip is over
+ * AUTO_OFF_ABOVE_MS (so auto draws step A there). Then the cases around it: TCP
  * stalls (both ways, downlink only, past the copy's 1.75 s full-speed window), this screen's own
  * link dead (silent or reported lost), a press stuck in a stalled upstream, a pause and resume, a
  * level change, a death and restart decided by the server, a tab hidden while a key is held, what
@@ -29,8 +32,9 @@ import {
   type CoopLevelDef,
 } from "@game/shared/coop";
 import { countServerPresses, Net, PredictingClient, predictionVerdict, quantile, rng, type Link } from "./benchNet";
-import { PREDICT_BY_DEFAULT, STALE_EASE_TICKS, STALE_FULL_TICKS } from "./net/predictedPlay";
+import { STALE_EASE_TICKS, STALE_FULL_TICKS } from "./net/predictedPlay";
 import { CoopPredictor } from "./net/predictor";
+import { AUTO_OFF_ABOVE_MS, AUTO_ON_BELOW_MS, autoPredicts } from "./net/reactivity";
 
 /** A flat floor, 46 cells wide: hauling and riding. */
 const flatLevel: CoopLevelDef = {
@@ -130,10 +134,20 @@ const CALM: KeyModel = { change: 0.02, jump: 0.005 };
 /** Runs pooled per latency (each run's keys and jitter differ)... */
 const SEEDS = [1, 2, 3, 4];
 /**
- * ...and for the run that decides PREDICT_BY_DEFAULT (50 ms, keys every ~200 ms), twice as many:
- * with 4 the verdict flipped in 2 of 6 equally valid seed sets.
+ * ...and for the runs that tie the auto threshold to the verdict (keys every ~200 ms), twice as
+ * many: with 4 the verdict at 50 ms flipped in 2 of 6 equally valid seed sets.
  */
 const VERDICT_SEEDS = [1, 2, 3, 4, 5, 6, 7, 8];
+/** The jitter of the auto threshold's run, ms (one way, uniform 0..this). */
+const AUTO_JITTER = 10;
+/**
+ * The one-way latency whose recent round trip (ServerClock.recentRtt, the 75th percentile) is
+ * about `rttMs` with `jitter`: two trips, plus about 1.5 jitter for the two trips' 75th
+ * percentile and the bench's 1 ms steps (measured: 2 L + 14 to 15 ms at 10 ms of jitter).
+ */
+function oneWayFor(rttMs: number, jitter: number): number {
+  return Math.round((rttMs - 1.5 * jitter) / 2);
+}
 /**
  * Every test here simulates seconds of a room: a latency run takes 1-3 s on a quiet machine, and
  * several times that when the machine is shared (vitest's default 5 s is not enough then).
@@ -240,6 +254,8 @@ describe("co-op prediction bench (step B, the screen's PredictedPlay end to end)
     runs: number[][][];
     presses: number;
     lead: number;
+    /** Each client's recent round trip (what the auto rule reads) at the end of each run's keys. */
+    rtts: number[];
   }
 
   /**
@@ -250,12 +266,14 @@ describe("co-op prediction bench (step B, the screen's PredictedPlay end to end)
   function latencyRun(latency: number, jitter: number, model: KeyModel, seeds: readonly number[] = SEEDS): LatencyRun {
     const corr: number[] = [];
     const runs: number[][][] = [];
+    const rtts: number[] = [];
     let presses = 0;
     let lead = 0;
     for (const seed of seeds) {
       const r = room({ latency, jitter, seed: latency * 10 + seed });
       const from = r.clients.map((c) => c.allCorrections().length);
       r.run(10_000, randomKeys(r.clients, seed * 7 + latency, model));
+      for (const c of r.clients) rtts.push(c.clock.recentRtt);
       const run = r.clients.map((c, i) => c.allCorrections().slice(from[i]));
       runs.push(run);
       for (const list of run) corr.push(...list);
@@ -265,19 +283,19 @@ describe("co-op prediction bench (step B, the screen's PredictedPlay end to end)
       expectSettled(r);
       lead = r.clients[0]!.play!.lead;
     }
-    return { corr, runs, presses, lead };
+    return { corr, runs, presses, lead, rtts };
   }
 
   function describeRun(label: string, run: LatencyRun): string {
     const { corr } = run;
     const over = corr.filter((x) => x > 0.1).length / corr.length;
     const each = predictionVerdict(run.runs).perPlayer.map(fmt).join(" / ");
-    return `${label}: ${run.presses} presses, none lost; own corrections p95 ${fmt(p95(corr))} pooled, ${each} per player, p99 ${fmt(quantile(corr, 0.99))}, ${(100 * over).toFixed(1)} % over 0.1 cell (${corr.length} snapshots, ${run.runs.length} runs); lead ${run.lead} ticks`;
+    return `${label}: ${run.presses} presses, none lost; own corrections p95 ${fmt(p95(corr))} pooled, ${each} per player, p99 ${fmt(quantile(corr, 0.99))}, ${(100 * over).toFixed(1)} % over 0.1 cell (${corr.length} snapshots, ${run.runs.length} runs); lead ${run.lead} ticks; recent round trip ${Math.min(...run.rtts)}-${Math.max(...run.rtts)} ms (median ${quantile(run.rtts, 0.5)})`;
   }
 
-  // The plan's bench: three players changing keys every ~200 ms. The prediction is on by default
-  // only if 95 % of each player's own-body corrections stay under 0.1 cell at 50 ms here, and
-  // both halves of the runs say the same (else the seeds are too few to decide).
+  // The plan's bench: three players changing keys every ~200 ms. At 50 ms the verdict fails (95 %
+  // of each player's own-body corrections are not all under 0.1 cell), both halves of the runs
+  // saying the same (else the seeds are too few to decide), and the auto rule draws step A there.
   it.each([
     [20, 5, 0.1],
     [50, 10, 0.2],
@@ -290,9 +308,34 @@ describe("co-op prediction bench (step B, the screen's PredictedPlay end to end)
     if (latency === 50) {
       const v = predictionVerdict(run.runs);
       expect(v.stable, `per-player p95 ${v.perPlayer.map(fmt).join(" / ")}, halves ${v.halves.join(" / ")}: too close to call, add seeds`).toBe(true);
-      expect(v.on, `worst player's p95 ${fmt(v.worst)} at 50 ms decides PREDICT_BY_DEFAULT`).toBe(PREDICT_BY_DEFAULT);
+      expect(v.on, `worst player's p95 ${fmt(v.worst)} at 50 ms: prediction must not pass here`).toBe(false);
+      // Every screen's round trip is over the auto rule's high threshold: auto draws step A, even
+      // for a screen that predicted on its previous level.
+      for (const rtt of run.rtts) {
+        expect(rtt, "recent round trip at 50 ms one way").toBeGreaterThan(AUTO_OFF_ABOVE_MS);
+        expect(autoPredicts(rtt, true)).toBe(false);
+      }
     }
     results.push(describeRun(`${latency} ms (+${jitter}), keys every ~200 ms`, run));
+  });
+
+  // The auto rule's low threshold, from the bench: at the one-way latency whose recent round trip
+  // is AUTO_ON_BELOW_MS (with 10 ms of jitter), every player's p95 is under 0.1 cell, both halves
+  // agreeing. (Calibration, HANDOFF.md: the worst player's p95 crosses 0.1 around 32-35 ms one way
+  // with 10 ms of jitter, a recent round trip of about 80 ms, AUTO_OFF_ABOVE_MS.)
+  it(`at the auto threshold (${AUTO_ON_BELOW_MS} ms round trip: ${oneWayFor(AUTO_ON_BELOW_MS, AUTO_JITTER)} ms one way +${AUTO_JITTER}), keys every ~200 ms: each player's own corrections p95 under 0.1 cell`, () => {
+    const latency = oneWayFor(AUTO_ON_BELOW_MS, AUTO_JITTER);
+    const run = latencyRun(latency, AUTO_JITTER, STRESS, VERDICT_SEEDS);
+    expect(run.presses).toBeGreaterThan(100);
+    // The run is at the threshold: its screens measure about AUTO_ON_BELOW_MS.
+    const median = quantile(run.rtts, 0.5);
+    expect(Math.abs(median - AUTO_ON_BELOW_MS), `median recent round trip ${median} ms`).toBeLessThanOrEqual(5);
+    const v = predictionVerdict(run.runs);
+    expect(v.stable, `per-player p95 ${v.perPlayer.map(fmt).join(" / ")}, halves ${v.halves.join(" / ")}: too close to call, add seeds`).toBe(true);
+    expect(v.on, `worst player's p95 ${fmt(v.worst)} at the auto threshold`).toBe(true);
+    // With margin: well under the limit where auto turns prediction on.
+    expect(v.worst).toBeLessThan(0.075);
+    results.push(describeRun(`auto threshold: ${latency} ms (+${AUTO_JITTER}), keys every ~200 ms`, run));
   });
 
   it("at 50 ms one way (+10 jitter), keys every ~400 ms: each player's own corrections p95 under 0.1 cell", () => {

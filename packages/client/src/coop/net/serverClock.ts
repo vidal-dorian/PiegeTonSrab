@@ -39,6 +39,17 @@ export class ServerClock {
     return this.samples.reduce((m, s) => Math.min(m, s.rtt), Infinity);
   }
 
+  /**
+   * A typical recent round trip: the 75th percentile of the window's samples, milliseconds
+   * (Infinity before the first sample). Unlike `rtt` (the best one, right for the clock), it
+   * grows with the jitter, which is what makes a predicted screen correct itself.
+   */
+  get recentRtt(): number {
+    if (this.samples.length === 0) return Infinity;
+    const sorted = this.samples.map((s) => s.rtt).sort((a, b) => a - b);
+    return sorted[Math.min(sorted.length - 1, Math.floor(0.75 * sorted.length))]!;
+  }
+
   now(): number {
     return this.localNow() + this.offset;
   }

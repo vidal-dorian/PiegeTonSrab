@@ -1,12 +1,13 @@
 /**
- * The predicted screen's parts (step B): the ?predict flag, stamps for the predicted tick, the
- * bounded lead, a copy that never steps into a death the server has not decided, own inputs
- * replayed until the server's ack covers them. The end-to-end bench is coopPredictBench.test.ts.
+ * The predicted screen's parts (step B): stamps for the predicted tick, the bounded lead, a copy
+ * that never steps into a death the server has not decided, own inputs replayed until the
+ * server's ack covers them. The end-to-end bench is coopPredictBench.test.ts; whether a screen
+ * predicts at all is coopReactivity.test.ts.
  */
 import { describe, expect, it } from "vitest";
 import { BIT_RIGHT, COOP_HZ, COOP_STAMP_AHEAD, CoopWorld, parseCoopLevel, type CoopClientMessage, type CoopLevelDef } from "@game/shared/coop";
 import { CoopInputSender } from "./net/inputSender";
-import { PREDICT_BY_DEFAULT, PredictedPlay, predictionWanted } from "./net/predictedPlay";
+import { PredictedPlay } from "./net/predictedPlay";
 import { CoopPredictor, MAX_LEAD, predictionLead } from "./net/predictor";
 
 const pit: CoopLevelDef = {
@@ -48,13 +49,6 @@ function placed(level: ReturnType<typeof parseCoopLevel>, x: number, y: number, 
 }
 
 describe("co-op prediction parts", () => {
-  it("reads ?predict=0 and ?predict=1, else the default", () => {
-    expect(predictionWanted("")).toBe(PREDICT_BY_DEFAULT);
-    expect(predictionWanted("?salon=ABCD")).toBe(PREDICT_BY_DEFAULT);
-    expect(predictionWanted("?predict=0")).toBe(false);
-    expect(predictionWanted("?predict=1&salon=ABCD")).toBe(true);
-  });
-
   it("keeps the lead well under the server's clamp", () => {
     expect(predictionLead(100)).toBe(10);
     expect(predictionLead(5000)).toBe(MAX_LEAD);

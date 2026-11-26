@@ -17,6 +17,8 @@ export interface CoopLink {
   serverNow(): number;
   /** Shortest recent round trip to the server, milliseconds. */
   readonly rtt: number;
+  /** A typical recent round trip (75th percentile of the recent pings), milliseconds; Infinity before the first. */
+  readonly recentRtt: number;
   leave(): void;
 }
 
@@ -44,6 +46,10 @@ export class CoopOnlineLink extends BaseLink<CoopServerMessage> implements CoopL
 
   get rtt(): number {
     return this.clock.rtt;
+  }
+
+  get recentRtt(): number {
+    return this.clock.recentRtt;
   }
 
   send(msg: CoopClientMessage): void {
