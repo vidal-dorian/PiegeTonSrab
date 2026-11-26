@@ -5,7 +5,9 @@
  * private members to become protected and a few small extractions. Those edits must not change a
  * single bit of the race mode: the server's placement check (PathGuard) and the client preview both
  * run the real controller. The values below were recorded on the untouched controller (main,
- * 4aec1cb). Every step of every scenario feeds the exact float64 bits of the body's state into a
+ * 4aec1cb). The two scenarios springWallRun and vineDropRun were added after a review showed that no
+ * scenario covered the spring's jump-buffer clear or the vine-drop reset on landing; their values were
+ * recorded on a git-archive copy of 4aec1cb as well. Every step of every scenario feeds the exact float64 bits of the body's state into a
  * hash, so any change in arithmetic or order shows up.
  *
  * To re-record after an intended change of the race mode (from packages/client):
@@ -188,6 +190,126 @@ function vineRun(seed: number, steps: number): string {
   return f.hex();
 }
 
+const NO_INPUT: StepInput = { left: false, right: false, jumpHeld: false, jumpPressed: false, down: false };
+
+/** A spring in each bottom corner, against the wall. */
+const SPRING_WALL_ROOM: LevelDefinition = {
+  name: "springs against the walls",
+  rows: [
+    "##########",
+    "#........#",
+    "#........#",
+    "#........#",
+    "#........#",
+    "#........#",
+    "#........#",
+    "#........#",
+    "#...S....#",
+    "##########",
+  ],
+};
+
+/**
+ * Falling straight onto a spring next to a wall (0.1 cell from it, not touching it), with a jump
+ * pressed just before landing, then steering towards the wall, nowhere or away. The launch uses up
+ * the buffered jump: reaching the wall right after it must not wall-jump.
+ */
+function springWallRun(): string {
+  const room = parseLevel(SPRING_WALL_ROOM);
+  const placed: PlacedObject[] = [
+    { id: 1, kind: "spring", x: 1, y: 8 },
+    { id: 2, kind: "spring", x: 8, y: 8 },
+  ];
+  const c = new CharacterController(withSolidObjects(room, prepareObjects(room, placed)), { ...DEFAULT_MOVEMENT });
+  const f = new Fnv();
+  const springTop = 8;
+  for (const side of [-1, 1]) {
+    for (const steer of [side, 0, -side]) {
+      for (const lead of [0.05, 0.3, 0.6, 1.2]) {
+        c.standInCell(side < 0 ? 1 : 8, 2);
+        const bounces = c.bounceCount;
+        let pressed = false;
+        let launched = false;
+        for (let i = 0; i < 180; i++) {
+          const input = { ...NO_INPUT };
+          if (launched) {
+            input.left = steer < 0;
+            input.right = steer > 0;
+          } else if (!pressed && c.vy > 0 && springTop - (c.y + DEFAULT_MOVEMENT.bodyHeight) <= lead) {
+            input.jumpPressed = true;
+            input.jumpHeld = true;
+            pressed = true;
+          }
+          c.step(DT, input);
+          if (c.bounceCount !== bounces) launched = true;
+          hashState(f, c);
+        }
+      }
+    }
+  }
+  return f.hex();
+}
+
+/** A vine (rope 3.5 cells from y = 3) that reaches down near the floor: the floor is within its reach. */
+const SHORT_VINE_ROOM: LevelDefinition = {
+  name: "short vine room",
+  rows: [
+    "############",
+    "#..........#",
+    "#..........#",
+    "#..........#",
+    "#..........#",
+    "#..........#",
+    "#S.........#",
+    "############",
+  ],
+};
+
+/**
+ * Jump into the vine from below, hang (pumping or not), let go with Down, land, and jump straight back
+ * up at once: landing makes the dropped vine grabbable again, though the body never left its reach.
+ */
+function vineDropRun(): string {
+  const room = parseLevel(SHORT_VINE_ROOM);
+  const objects = prepareObjects(room, [{ id: 9, kind: "vine", x: 5, y: 2 }]);
+  const c = new CharacterController(withSolidObjects(room, objects), { ...DEFAULT_MOVEMENT });
+  const vines = vinesOf(objects);
+  const f = new Fnv();
+  const rounds: Array<[pump: number, pumpSteps: number]> = [[0, 0], [1, 0], [1, 30], [1, 70], [-1, 0], [-1, 30], [-1, 70]];
+  for (const [pump, pumpSteps] of rounds) {
+    c.standInCell(5, 5);
+    let phase: "jump" | "hang" | "drop" | "fall" | "rejump" | "done" = "jump";
+    let t = 0;
+    for (let i = 0; i < 260; i++) {
+      let input = NO_INPUT;
+      if (phase === "jump" || phase === "rejump") input = { ...NO_INPUT, jumpPressed: t === 0, jumpHeld: true };
+      else if (phase === "hang") input = { ...NO_INPUT, left: pump < 0 && t % 40 < 20, right: pump > 0 && t % 40 < 20 };
+      else if (phase === "drop") input = { ...NO_INPUT, down: true };
+      c.step(DT, input);
+      if (!c.swing) c.tryGrabVine(vines, () => true);
+      hashState(f, c);
+      t++;
+      if (phase === "jump" && c.swing) {
+        phase = "hang";
+        t = 0;
+      } else if (phase === "hang" && t > pumpSteps) {
+        phase = "drop";
+        t = 0;
+      } else if (phase === "drop") {
+        phase = "fall";
+        t = 0;
+      } else if (phase === "fall" && c.grounded) {
+        phase = "rejump";
+        t = 0;
+      } else if (phase === "rejump" && c.swing) {
+        phase = "done";
+        t = 0;
+      }
+    }
+  }
+  return f.hex();
+}
+
 /** Fingerprint of a reach graph: every edge (from, to, cells), sorted. */
 function graphFingerprint(def: LevelDefinition): string {
   const level = parseLevel(def);
@@ -221,6 +343,8 @@ const GOLDEN = {
     "wall-jump shaft 6": "e8419a8e",
     "vines 7": "71ef6049",
     "vines 8": "fd755a37",
+    "spring by a wall + buffered jump": "4190e915",
+    "vine drop, land, jump back": "fb7422e7",
   } as Record<string, string>,
   graphs: {
     "Le Parc": "896e8cf3",
@@ -246,6 +370,8 @@ const TRAJECTORIES: Record<string, () => string> = {
   "wall-jump shaft 6": () => shaftRun(6, 4000),
   "vines 7": () => vineRun(7, 6000),
   "vines 8": () => vineRun(8, 6000),
+  "spring by a wall + buffered jump": springWallRun,
+  "vine drop, land, jump back": vineDropRun,
 };
 
 describe("race-mode controller golden values", () => {
