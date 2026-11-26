@@ -33,20 +33,22 @@ export class CoopInputSender {
   }
 
   /**
-   * This step's keys; queue a change (or a press) for the server. Stamps strictly increase: the
-   * server applies one change per step, so two changes on one tick would land a step apart.
+   * This step's keys; queue a change (or a press) for the server, stamped for tick `at` (the
+   * predicted step they belong to, step B) or, without it, the server's next step (step A).
+   * Stamps strictly increase: the server applies one change per step, so two changes on one tick
+   * would land a step apart. Returns the stamp of the change queued, or null when none was.
    */
-  sample(bits: number): void {
+  sample(bits: number, at?: number): number | null {
     // Paused: the keys are consumed (no press replays later) and nothing counts as sent, so
     // whatever is held when the world goes on is sent then.
-    if (this.paused) return;
+    if (this.paused) return null;
     const held = bits & HELD_BITS;
-    if ((bits & PRESS_BITS) !== 0 || held !== this.lastHeld) {
-      const stamp = Math.max(this.applyTick(), this.lastStamp + 1);
-      this.lastStamp = stamp;
-      this.pending.push([stamp, bits]);
-      this.lastHeld = held;
-    }
+    if ((bits & PRESS_BITS) === 0 && held === this.lastHeld) return null;
+    const stamp = Math.max(at ?? this.applyTick(), this.lastStamp + 1);
+    this.lastStamp = stamp;
+    this.pending.push([stamp, bits]);
+    this.lastHeld = held;
+    return stamp;
   }
 
   /** Step A: inputs are applied as soon as the server gets them. */

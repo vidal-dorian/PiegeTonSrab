@@ -4,145 +4,22 @@
  * stalls (messages held, then delivered in order, never dropped). Every message goes through
  * msgpack, the codec Colyseus uses, so binary snapshots must survive it.
  *
- * Checks: no input press is ever lost, the snapshot rate and size stay within budget.
+ * Checks: no input press is ever lost, the snapshot rate and size stay within budget. The
+ * prediction (step B) has its own bench: coopPredictBench.test.ts.
  */
-import { pack, unpack } from "msgpackr";
 import { describe, expect, it } from "vitest";
 import {
   BIT_JUMP,
   BIT_JUMP_PRESS,
-  BIT_LEFT,
-  BIT_RIGHT,
   COOP_HZ,
   COOP_LEVEL_LEAD_MS,
   COOP_PROTOCOL_VERSION,
   CoopSession,
   decodeWorld,
-  parseCoopLevel,
   sandboxLevel,
-  type CoopClientMessage,
   type CoopServerMessage,
-  type CoopSessionIO,
 } from "@game/shared/coop";
-import { CoopPredictor, predictionLead } from "./net/predictor";
-
-/** Deterministic pseudo-random numbers for jitter. */
-function rng(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-interface Link {
-  /** One-way delay, ms. */
-  latency: number;
-  jitter: number;
-  /** [from, to] server times during which messages are held (a TCP stall), then released in order. */
-  stalls: Array<[number, number]>;
-}
-
-class Net implements CoopSessionIO {
-  t = 1_000_000;
-  private timers: Array<{ at: number; fn: () => void; every?: number; id: number }> = [];
-  private nextId = 1;
-  /** Messages in flight: delivery time, receiver, payload (already msgpack-encoded). */
-  private flight: Array<{ at: number; to: string; bytes: Uint8Array; order: number }> = [];
-  private order = 0;
-  private lastArrival = new Map<string, number>();
-  bytesTo = new Map<string, number>();
-  snapsTo = new Map<string, number>();
-  inbox = new Map<string, CoopServerMessage[]>();
-  session!: CoopSession;
-  private jitter = rng(7);
-
-  constructor(private links: Map<string, Link>) {}
-
-  now() {
-    return this.t;
-  }
-  /** CoopSessionIO.random (drawing Ruben by lot): fixed. */
-  random() {
-    return 0.1;
-  }
-
-  /** Arrival time on a link: latency + jitter, held by stalls, never before the previous message (in order). */
-  private arrival(key: string): number {
-    const l = this.links.get(key)!;
-    let at = this.t + l.latency + this.jitter() * l.jitter;
-    for (const [from, to] of l.stalls) if (at >= from && at < to) at = to;
-    at = Math.max(at, this.lastArrival.get(key) ?? 0);
-    this.lastArrival.set(key, at);
-    return at;
-  }
-
-  send(to: string, msg: CoopServerMessage) {
-    const bytes = pack(msg);
-    this.bytesTo.set(to, (this.bytesTo.get(to) ?? 0) + bytes.length);
-    if (msg.type === "coopSnap") this.snapsTo.set(to, (this.snapsTo.get(to) ?? 0) + 1);
-    this.flight.push({ at: this.arrival(`down:${to}`), to, bytes, order: this.order++ });
-  }
-  broadcast(msg: CoopServerMessage) {
-    for (const id of this.clients) this.send(id, msg);
-  }
-  clients: string[] = [];
-
-  /** A client sends a message to the server. */
-  up(from: string, msg: CoopClientMessage) {
-    const bytes = pack(msg);
-    this.flight.push({ at: this.arrival(`up:${from}`), to: `server:${from}`, bytes, order: this.order++ });
-  }
-
-  setTimeout(fn: () => void, ms: number) {
-    const id = this.nextId++;
-    this.timers.push({ at: this.t + ms, fn, id });
-    return () => {
-      this.timers = this.timers.filter((x) => x.id !== id);
-    };
-  }
-  setInterval(fn: () => void, ms: number) {
-    const id = this.nextId++;
-    this.timers.push({ at: this.t + ms, fn, every: ms, id });
-    return () => {
-      this.timers = this.timers.filter((x) => x.id !== id);
-    };
-  }
-
-  /** Advance time, firing timers and delivering messages in order. */
-  advance(ms: number, onTick?: (t: number) => void) {
-    const end = this.t + ms;
-    while (this.t < end) {
-      const step = Math.min(end, this.t + 1);
-      for (;;) {
-        const timer = this.timers.filter((x) => x.at <= step).sort((a, b) => a.at - b.at)[0];
-        const msg = this.flight.filter((x) => x.at <= step).sort((a, b) => a.at - b.at || a.order - b.order)[0];
-        if (!timer && !msg) break;
-        if (msg && (!timer || msg.at <= timer.at)) {
-          this.flight = this.flight.filter((x) => x !== msg);
-          this.t = Math.max(this.t, msg.at);
-          const decoded = unpack(msg.bytes);
-          if (msg.to.startsWith("server:")) this.session.handle(msg.to.slice(7), decoded as CoopClientMessage);
-          else {
-            const list = this.inbox.get(msg.to) ?? [];
-            list.push(decoded as CoopServerMessage);
-            this.inbox.set(msg.to, list);
-          }
-        } else if (timer) {
-          this.t = Math.max(this.t, timer.at);
-          if (timer.every) timer.at += timer.every;
-          else this.timers = this.timers.filter((x) => x !== timer);
-          timer.fn();
-        }
-      }
-      this.t = step;
-      onTick?.(this.t);
-    }
-  }
-}
+import { Net, type Link } from "./benchNet";
 
 describe("co-op network bench (server world, snapshots)", () => {
   it("loses no jump press through latency, jitter and stalls, within the bandwidth budget", () => {
@@ -221,75 +98,5 @@ describe("co-op network bench (server world, snapshots)", () => {
       expect(perSecond).toBeLessThan(34);
       expect(net.bytesTo.get(id)! / seconds).toBeLessThan(60_000);
     }
-  });
-});
-
-describe("co-op prediction bench (step B)", () => {
-  it("keeps this client's own corrections under 0.1 cell in 95 % of snapshots at 50 ms", () => {
-    // Three players tied by the rope walk and jump at random; p1 predicts at 50 ms (+-10) one way.
-    const ids = ["p0", "p1", "p2"];
-    const links = new Map<string, Link>();
-    for (const id of ids) {
-      links.set(`up:${id}`, { latency: 50, jitter: 10, stalls: [] });
-      links.set(`down:${id}`, { latency: 50, jitter: 10, stalls: [] });
-    }
-    const net = new Net(links);
-    const s = new CoopSession(net, "ABCD", [sandboxLevel]);
-    net.session = s;
-    for (const id of ids) {
-      expect(s.addPlayer(id, id, COOP_PROTOCOL_VERSION)).toBeNull();
-      net.clients.push(id);
-    }
-    net.up("p0", { type: "coopPlay", index: 0 });
-    net.advance(200);
-    const level = net.inbox.get("p1")!.find((m) => m.type === "coopLevel") as Extract<CoopServerMessage, { type: "coopLevel" }>;
-    const seats = level.seats;
-    const me = seats.findIndex((x) => x.id === "p1");
-    const predictor = new CoopPredictor(parseCoopLevel(sandboxLevel, seats.length), seats.map((x) => ({ name: x.name, isRuben: x.isRuben })), me);
-    const startsAt = level.startsAt;
-    const epoch = level.epoch;
-    const serverTick = (t: number) => Math.floor(((t - startsAt) * COOP_HZ) / 1000);
-    // Inputs reach the server 40 to 60 ms later: stamp them half a round trip + 25 ms ahead.
-    const lead = predictionLead(100);
-    const r = rng(3);
-    const held = new Map<string, number>(ids.map((id) => [id, 0]));
-    // A client's stamps strictly increase: the server applies one change per step, so two changes
-    // on one tick would land a step apart there and not here.
-    const lastStamp = new Map<string, number>(ids.map((id) => [id, 0]));
-    let read = 0;
-    net.advance(COOP_LEVEL_LEAD_MS + 100, () => undefined);
-    net.advance(12_000, (t) => {
-      // Snapshots that reached p1.
-      const inbox = net.inbox.get("p1")!;
-      for (; read < inbox.length; read++) {
-        const m = inbox[read]!;
-        if (m.type === "coopSnap") predictor.onSnapshot(m.tick, decodeWorld(m.world), m.held, m.pending);
-      }
-      const tick = serverTick(t);
-      if (tick < 1) return;
-      // Every 10 ms (about one step), each player may change keys.
-      if (t % 8 === 0) {
-        for (const id of ids) {
-          let bits = held.get(id)!;
-          if (r() < 0.04) bits = r() < 0.45 ? BIT_RIGHT : r() < 0.8 ? BIT_LEFT : 0;
-          const press = r() < 0.01 ? BIT_JUMP | BIT_JUMP_PRESS : 0;
-          if (bits !== held.get(id) || press) {
-            held.set(id, bits);
-            // p1 stamps the next step its predicted world has not simulated yet, so it applies
-            // the key exactly where the server will.
-            const next = id === "p1" ? predictor.tick + 1 : 0;
-            const stamp = Math.max(tick + lead, next, lastStamp.get(id)! + 1);
-            lastStamp.set(id, stamp);
-            net.up(id, { type: "coopIn", e: epoch, k: [[stamp, bits | press]] });
-            if (id === "p1") predictor.addInput(stamp, bits | press);
-          } else if (t % 96 === 0) net.up(id, { type: "coopIn", e: epoch, k: [] }); // still here: no key change
-        }
-      }
-      predictor.advanceTo(tick + lead);
-    });
-    const c = predictor.corrections.slice().sort((a, b) => a - b);
-    expect(c.length).toBeGreaterThan(200);
-    const p95 = c[Math.floor(c.length * 0.95)]!;
-    expect(p95).toBeLessThan(0.1);
   });
 });

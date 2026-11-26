@@ -4,9 +4,12 @@
  * (with the host's level list) when everyone is through the door.
  *
  * Where the world comes from is a driver:
- * - OnlineDriver (a room): the server runs the world; this screen draws its snapshots just behind
- *   the newest one received (net/playout.ts), blended (bodies, crates, platforms, seesaws...), and
- *   sends this player's inputs (step A of the plan; client prediction comes later);
+ * - OnlineDriver (a room): the server runs the world. A player's screen can predict it (step B of
+ *   the plan, net/predictedPlay.ts; ?predict=1 or ?predict=0, else PREDICT_BY_DEFAULT): the drawn
+ *   world runs ahead of the server with this player's keys at once and is corrected by every
+ *   snapshot, smoothly; deaths, restarts, the win, the HUD's key and door come from the snapshots
+ *   only. Otherwise, and for a spectator, this screen draws the snapshots just behind the newest
+ *   one received (net/playout.ts), blended (step A);
  * - LocalDriver (dev tool ?coopLocal=2): the world runs here, from two keyboard halves.
  */
 import Phaser from "phaser";
@@ -44,6 +47,7 @@ import { GroupCamera } from "./groupCamera";
 import type { CoopLink } from "./net/coopLink";
 import { CoopInputSender } from "./net/inputSender";
 import { bracket, PlayoutClock } from "./net/playout";
+import { PredictedPlay, predictionWanted } from "./net/predictedPlay";
 import { loadCleared, markCleared } from "./progress";
 import { CoopBodyView } from "./render/coopBodyView";
 import { stackLabels } from "./render/labelLayout";
@@ -105,6 +109,11 @@ type ShownEvent = (Exclude<CoopEvent, { kind: "restart" }> | { kind: "restart"; 
 interface Driver {
   /** The world to draw (its bodies' flags drive the poses). */
   readonly world: CoopWorld;
+  /**
+   * What the HUD shows and what cannot be undone (the death freeze, the key, the door): the
+   * server's latest world when predicting, else the drawn world itself.
+   */
+  readonly authority: CoopWorld;
   advance(dt: number): void;
   /** What moves, blended for this frame. */
   frame(): PropFrame;
@@ -131,6 +140,10 @@ class LocalDriver implements Driver {
   ) {
     captureFrame(world, this.cur);
     captureFrame(world, this.prev);
+  }
+
+  get authority(): CoopWorld {
+    return this.world;
   }
 
   advance(dt: number): void {
@@ -180,13 +193,20 @@ interface Snap {
   held: number[];
 }
 
-/** A room: draws the server's snapshots and sends this player's inputs. */
+/**
+ * A room: sends this player's inputs and draws the world, predicted (step B) or from the server's
+ * snapshots (step A).
+ */
 class OnlineDriver implements Driver {
   private snaps: Snap[] = [];
   private events: ShownEvent[] = [];
   private seen = new Set<string>();
   private sampleAcc = 0;
   private sender: CoopInputSender;
+  /** Step B: the world predicted ahead of the server (null: the snapshots are drawn, step A). */
+  private play: PredictedPlay | null = null;
+  /** Tick of the newest snapshot received. */
+  private newest = -Infinity;
   /** Tick of the snapshot loaded into the world (-1: none). */
   private loaded = -1;
   private drawnHeld: number[] = [];
@@ -205,10 +225,25 @@ class OnlineDriver implements Driver {
     epoch: number,
     private input: InputSource | null,
     private mySeat: number,
+    /** Predict (a player only: a spectator has no keys to see at once). */
+    predict: boolean,
   ) {
     this.out = captureFrame(world);
-    this.sender = new CoopInputSender((msg) => link.send(msg), epoch, () => this.serverTick());
+    if (predict && input && mySeat >= 0) {
+      const authority = new CoopWorld(world.level, world.players);
+      this.play = new PredictedPlay(world, authority, mySeat, epoch, { send: (msg) => link.send(msg), serverTick: () => this.serverTick(), rtt: () => link.rtt });
+      this.sender = this.play.sender;
+    } else this.sender = new CoopInputSender((msg) => link.send(msg), epoch, () => this.serverTick());
     document.addEventListener("visibilitychange", this.onVisibility);
+  }
+
+  get authority(): CoopWorld {
+    return this.play?.authority ?? this.world;
+  }
+
+  /** Whether the drawn world is predicted. */
+  get predicting(): boolean {
+    return this.play !== null;
   }
 
   /** Server tick now (fractional). */
@@ -217,14 +252,19 @@ class OnlineDriver implements Driver {
   }
 
   onSnapshot(msg: SnapMessage): void {
+    if (msg.tick <= this.newest) return;
+    this.newest = msg.tick;
     const state = decodeWorld(msg.world);
-    if (this.snaps.length > 0 && msg.tick <= this.snaps[this.snaps.length - 1]!.tick) return;
-    this.playout.arrive(this.serverTick(), msg.tick);
-    // What moves in this state, read once: frames blend between snapshots.
-    this.world.load(state);
-    this.loaded = msg.tick;
-    this.snaps.push({ tick: msg.tick, state, frame: captureFrame(this.world), held: Array.isArray(msg.held) ? msg.held : [] });
-    if (this.snaps.length > 40) this.snaps.shift();
+    const held = Array.isArray(msg.held) ? msg.held : [];
+    if (this.play) this.play.onSnapshot(msg.tick, state, held, Array.isArray(msg.pending) ? msg.pending : []);
+    else {
+      this.playout.arrive(this.serverTick(), msg.tick);
+      // What moves in this state, read once: frames blend between snapshots.
+      this.world.load(state);
+      this.loaded = msg.tick;
+      this.snaps.push({ tick: msg.tick, state, frame: captureFrame(this.world), held });
+      if (this.snaps.length > 40) this.snaps.shift();
+    }
     const restarts = msg.events.filter((e) => e.kind === "restart");
     for (const e of msg.events) {
       const key = JSON.stringify(e);
@@ -237,6 +277,12 @@ class OnlineDriver implements Driver {
   }
 
   advance(dt: number): void {
+    if (this.play) {
+      const input = this.input!;
+      input.poll();
+      this.play.advance(dt, () => encodeInput(input.takeCoopInput()), performance.now());
+      return;
+    }
     if (this.input) {
       this.input.poll();
       this.sampleAcc = Math.min(this.sampleAcc + dt, 8 * COOP_DT);
@@ -251,7 +297,8 @@ class OnlineDriver implements Driver {
 
   /** The world waits for a dropped player (true) or goes on (false): keys are not sent meanwhile. */
   setPaused(paused: boolean): void {
-    this.sender.setPaused(paused);
+    if (this.play) this.play.setPaused(paused);
+    else this.sender.setPaused(paused);
   }
 
   /** The snapshots around the drawing time: the later one in the world, the frame blended. */
@@ -271,7 +318,7 @@ class OnlineDriver implements Driver {
   }
 
   frame(): PropFrame {
-    return this.out;
+    return this.play ? this.play.frame() : this.out;
   }
 
   drainEvents(): ShownEvent[] {
@@ -279,6 +326,7 @@ class OnlineDriver implements Driver {
   }
 
   restartHolders(): number[] {
+    if (this.play) return this.play.restartHolders(this.mySeat);
     const out = this.drawnHeld.flatMap((bits, i) => ((bits & BIT_RESTART) !== 0 ? [i] : []));
     // This player's own R shows at once.
     if (this.mySeat >= 0 && (this.sender.held & BIT_RESTART) !== 0 && !out.includes(this.mySeat)) out.push(this.mySeat);
@@ -366,7 +414,7 @@ export class CoopScene extends Phaser.Scene {
       this.driver = new LocalDriver(world, inputs, this.names);
     } else {
       const input = this.mySeat >= 0 ? new InputSource({ keys: COOP_KEYS, pad: "first", keepHeldKeys: true }) : null;
-      this.online = new OnlineDriver(world, data.link, data.level.startsAt, data.level.epoch, input, this.mySeat);
+      this.online = new OnlineDriver(world, data.link, data.level.startsAt, data.level.epoch, input, this.mySeat, predictionWanted(location.search));
       this.driver = this.online;
     }
 
@@ -662,14 +710,16 @@ export class CoopScene extends Phaser.Scene {
 
   private draw(dt: number, now: number): void {
     const world = this.driver.world;
+    const authority = this.driver.authority;
     const frame = this.driver.frame();
     const boxes = frame.bodies;
-    const frozen = world.dying > 0;
+    // Only the server's world dies (a predicted death is never shown).
+    const frozen = authority.dying > 0;
     world.bodies.forEach((b, i) => {
       const box = boxes[i];
       if (!box) return;
       // The victim vanishes during the death freeze; whoever is inside the door is hidden in it.
-      const shown = !(frozen && world.victim === i) && !world.inside[i];
+      const shown = !(frozen && authority.victim === i) && !world.inside[i];
       // A body carrying someone hides its name under the rider's.
       this.bodyViews[i]!.update(box.x, box.y, b, shown, !b.hasRider);
     });
@@ -686,7 +736,7 @@ export class CoopScene extends Phaser.Scene {
     }
     this.rope.draw(segments);
     this.objects.update(this.level.objects, frame.levelTick * COOP_DT);
-    this.things.update(frame, world, now, this.colors);
+    this.things.update(frame, world, now, this.colors, authority);
     this.camera.update(dt, boxes);
     this.camera.apply(this.cameras.main);
     this.updateHud(frame, now);
@@ -694,7 +744,8 @@ export class CoopScene extends Phaser.Scene {
   }
 
   private updateHud(frame: PropFrame, now: number): void {
-    const world = this.driver.world;
+    // The server's word: the key, the door, the attempt and the restart count.
+    const world = this.driver.authority;
     const p = world.props;
     const person = (i: number) => ({ name: this.names[i] ?? "?", color: this.colors[i] ?? PLAYER_COLORS[0] });
     let key: HudState["key"] = { kind: "none" };

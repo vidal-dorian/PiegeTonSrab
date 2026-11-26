@@ -680,8 +680,13 @@ export class ThingViews {
     }
   }
 
-  update(frame: PropFrame, world: CoopWorld, nowMs: number, colors: readonly number[]): void {
+  /**
+   * `world` is the drawn world; `authority` the one whose key and door are shown (the server's
+   * latest world when the drawn one is predicted: who holds the key is the server's word).
+   */
+  update(frame: PropFrame, world: CoopWorld, nowMs: number, colors: readonly number[], authority: CoopWorld = world): void {
     const p = world.props;
+    const said = authority.props;
     const t = nowMs / 1000;
     const back = this.back;
     const front = this.front;
@@ -840,7 +845,7 @@ export class ThingViews {
 
     // The key: at its place, above its carrier, or in the lock.
     if (this.key && this.level.key) {
-      const c = p.keyCarrier;
+      const c = said.keyCarrier;
       const box = c >= 0 ? frame.bodies[c] : undefined;
       if (c >= 0 && box) {
         const carrying = world.bodies[c]?.hasRider === true;
@@ -862,8 +867,8 @@ export class ThingViews {
     // The door and whoever is inside it.
     if (this.door && this.level.door) {
       const d = this.level.door;
-      this.atlas.set(this.door.img, p.doorOpen ? "door-open" : "door-closed");
-      const inside = world.inside.flatMap((x, i) => (x ? [i] : []));
+      this.atlas.set(this.door.img, said.doorOpen ? "door-open" : "door-closed");
+      const inside = authority.inside.flatMap((x, i) => (x ? [i] : []));
       doorPebbles(d, inside.length).forEach((pos, k) => {
         const color = colors[inside[k]!] ?? WHITE;
         front.fillStyle(INK, 1);
