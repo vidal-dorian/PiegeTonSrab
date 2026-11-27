@@ -109,6 +109,7 @@ function buildContent(): HTMLElement[] {
       "Saute sur une tête : tu rebondis plus haut, l'autre est écrasé et sonné.",
       "Touche quelqu'un de côté : vous êtes repoussés tous les deux.",
       "Bien placé, un coup d'épaule envoie un rival dans un piège.",
+      "Dans la zone de départ, pas de contact : on se traverse.",
     ]),
   );
 
@@ -116,11 +117,19 @@ function buildContent(): HTMLElement[] {
   for (const kind of OBJECT_KINDS) {
     const def = OBJECT_DEFS[kind];
     const li = el("li");
-    const hint = def.rotatable ? `${def.hint} · R ou clic droit pour l'orienter` : def.hint;
+    // Worded without agreement ("R ou clic droit : tourner"), so it reads for "Pics" as well as "Canon".
+    const hint = def.rotatable ? `${def.hint} · R ou clic droit : tourner` : def.hint;
     li.append(el("span", `tag ${def.family}`, FAMILY_TAG[def.family]), el("strong", "", def.name), el("span", "desc", hint));
     objects.append(li);
   }
-  const objectsSection = section("Les objets", objects);
+  const objectsSection = section(
+    "Les objets",
+    objects,
+    list([
+      "Les pics ne tuent que par leurs pointes : les longer ou les toucher par le côté ne fait rien.",
+      "Rien ne se pose près du départ (7 × 4 cases) ni du drapeau (5 × 5 cases).",
+    ]),
+  );
 
   const controls = section(
     "Les commandes",
@@ -133,7 +142,7 @@ function buildContent(): HTMLElement[] {
         { left: "Saut contre un mur", right: "Saut mural" },
         { left: "Clic", right: "Poser ou reprendre un objet" },
         { left: "1, 2, 3", right: "Choisir l'objet à poser" },
-        { left: "R ou clic droit", right: "Tourner le canon" },
+        { left: "R ou clic droit", right: "Tourner l'objet (canon, pics, ressort)" },
         { left: "Échap ×2", right: "Quitter la partie" },
       ],
       "rules-keys",

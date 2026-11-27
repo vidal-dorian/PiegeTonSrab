@@ -8,31 +8,39 @@
  * its own character and shows the others as interpolated ghosts), then the score.
  * Dead players can place one platform during the race and choose whom to watch.
  * Players collide (build step 5 extra): landing on a head bounces you up and slams the other
- * player down, touching sideways pushes both apart (see contacts.ts in the shared package).
+ * player down, touching sideways pushes both apart (see contacts.ts in the shared package),
+ * except in the start zone, where players pass through each other (level.ts, protected zones).
  */
 import Phaser from "phaser";
 import {
+  BLOCK_CLEARANCE,
   bodiesOverlap,
+  bodyInSpawnZone,
+  SPAWN_CONTACT_MARGIN,
   buildReachGraph,
-  canPlaceAt,
   cardInfo,
   contactWith,
   DEFAULT_MOVEMENT,
+  defaultDir,
+  DIR_VECTORS,
   erasableAt,
   erasureKeepsPath,
-  isSpawnPadCell,
   OBJECT_DEFS,
+  objectPlacementProblem,
   parseLevel,
   PathGuard,
   placementKeepsPath,
+  placementProblem,
   POINTS,
   prepareObjects,
   RACE_LEVELS,
+  supportFirst,
   TIMING,
   vinesOf,
   withSolidObjects,
   type CardKind,
   type Dir,
+  type PlacementProblem,
   type Ghost,
   type Level,
   type LobbyInfo,
@@ -55,6 +63,7 @@ import { drawLevel } from "../render/levelView";
 import { ObjectViews } from "../render/objectViews";
 import { PlayerView, PLAYER_COLORS } from "../render/playerView";
 import { Stains } from "../render/stains";
+import { drawProtectedZones } from "../render/zoneView";
 import { LocalPlayer } from "../sim/localPlayer";
 import { RoundKills, statusAfterOwnReport, statusFromCountdown, type MyStatus } from "../sim/raceResume";
 import { tuning } from "../tuningStore";
@@ -87,6 +96,10 @@ const VINE_NOTICE_MS = 2000;
 const ESCAPE_CONFIRM_MS = 2000;
 /** How long the end-of-placement messages stay on screen, milliseconds. */
 const PLACEMENT_RESULT_MS = 6500;
+/** Said wherever the protected start and finish zones refuse something (see level.ts). */
+const PROTECTED_TEXT = "Pas dans la zone de départ ni près de l'arrivée";
+/** Said when spikes would not lean on a block (objects.ts, objectPlacementProblem). */
+const SUPPORT_TEXT = "Les pics doivent toucher un bloc (R pour les tourner)";
 
 type Phase = "carousel" | "placement" | "countdown" | "race" | "raceEnd" | "score" | "over";
 
@@ -151,8 +164,13 @@ export class GameScene extends Phaser.Scene {
   private verdicts = new Map<string, Verdict>();
   private hover: { x: number; y: number } | null = null;
   private nextLocalId = -1;
-  /** Direction the next cannon is placed with (R or right click turns it). */
-  private placeDir: Dir = 2;
+  /**
+   * Direction the next object of each rotatable kind is placed with. The rule, kept simple so
+   * it is predictable: every kind starts each round at its default (cannon left, spikes and
+   * spring up, see defaultDir); turning it (R or right click, on the selected card or on a
+   * placed object of that kind) sets it for the next ones of that kind until the round ends.
+   */
+  private placeDirs = new Map<ObjectKind, Dir>();
   /** Objects as drawn: this round's pending ones included, with cannon lines measured. */
   private shown: PlacedObject[] = [];
   // Race
@@ -191,6 +209,8 @@ export class GameScene extends Phaser.Scene {
   private effects!: Effects;
   private gridGfx!: Phaser.GameObjects.Graphics;
   private preview!: Phaser.GameObjects.Graphics;
+  /** The protected start and finish zones, shown while something can be placed (placement, a dead player's block). */
+  private zoneGfx!: Phaser.GameObjects.Graphics;
   /** Ink crosses over the objects this player erases. */
   private eraseMarks!: Phaser.GameObjects.Graphics;
   private arrows!: Phaser.GameObjects.Graphics;
@@ -229,6 +249,9 @@ export class GameScene extends Phaser.Scene {
     this.effects = new Effects(this);
     this.objectViews = new ObjectViews(this);
     this.preview = this.add.graphics().setDepth(5);
+    // Under the objects and the preview: the zones are a backdrop that says "not here".
+    this.zoneGfx = this.add.graphics().setDepth(1.2).setVisible(false);
+    drawProtectedZones(this.zoneGfx, this.level, CELL_PX);
     this.eraseMarks = this.add.graphics().setDepth(4);
     this.arrows = this.add.graphics().setDepth(9).setScrollFactor(0);
     this.playerView = new PlayerView(this, this.colorOf(this.link.myId));
@@ -480,6 +503,7 @@ export class GameScene extends Phaser.Scene {
     this.noRoom = new Set();
     this.announcedNoRoom = new Set();
     this.refusal = null;
+    this.placeDirs = new Map();
     // Rebuild our own choice when rejoining in the middle of placement.
     this.pending = [];
     this.erasing = [];
@@ -503,7 +527,7 @@ export class GameScene extends Phaser.Scene {
     this.player.reset();
     this.rebuildGraph();
     this.scanForRoom();
-    overlay.setHelp("Clic : poser ou reprendre · 1 à 3 : choisir l'objet · R ou clic droit : tourner le canon · Échap ×2 : quitter");
+    overlay.setHelp("Clic : poser ou reprendre · 1 à 3 : choisir l'objet · R ou clic droit : tourner l'objet · Échap ×2 : quitter");
     this.renderTray();
     this.updateTopBar();
     this.showWholeLevel();
@@ -575,54 +599,91 @@ export class GameScene extends Phaser.Scene {
     this.objectViews.sync(this.shown, dimmed);
   }
 
-  /** Direction a placed object of this kind gets right now. */
+  /** Direction a placed object of this kind gets right now (see placeDirs). */
   private dirFor(kind: CardKind): Dir | undefined {
-    return kind !== "eraser" && OBJECT_DEFS[kind].rotatable ? this.placeDir : undefined;
+    if (kind === "eraser" || !OBJECT_DEFS[kind].rotatable) return undefined;
+    return this.placeDirs.get(kind) ?? defaultDir(kind);
   }
 
-  /** R or right click: turn the cannon under the cursor, or the direction of the next one. */
+  /**
+   * R or right click: turn the rotatable object (cannon, spikes, spring) placed under the
+   * cursor, or else the direction the selected card will be placed with.
+   */
   private rotate(): void {
     if (this.phase !== "placement" || this.validated) return;
     const next = (d: Dir) => ((d + 1) % 4) as Dir;
     const h = this.hover;
     const target = h ? this.pending.find((p) => p.x === h.x && p.y === h.y && OBJECT_DEFS[p.kind].rotatable) : undefined;
     if (target) {
-      // Turning a placed cannon must keep the path open, with the whole hand applied in order.
-      let d = target.dir ?? 2;
+      // Turning a placed object must keep the whole hand valid, applied as the session does
+      // (wholeHandAccepted): the path stays open, and spikes keep a block behind them. The
+      // directions that don't are skipped, so R on spikes goes straight to the next wall.
+      let d = target.dir ?? defaultDir(target.kind);
       let turned = false;
+      const problems = new Set<HandProblem>();
       for (let i = 0; i < 3 && !turned; i++) {
         d = next(d);
         const hand = this.pending.map((p) => (p === target ? { ...this.plain(p), dir: d } : this.plain(p)));
-        if (this.wholeHandAccepted(hand)) {
+        const problem = this.handProblem(hand);
+        if (problem === null) {
           target.dir = d;
-          this.placeDir = d;
+          this.placeDirs.set(target.kind, d);
           this.sendPlacement(false);
           this.rebuildGraph();
           this.scanForRoom();
           turned = true;
-        }
+        } else problems.add(problem);
       }
-      if (!turned) this.showRefusal(target.x, target.y, "Tourné autrement, il bloquerait le chemin");
+      if (!turned) {
+        const text = problems.has("path")
+          ? "Tourné autrement, ça bloquerait le chemin"
+          : problems.has("support")
+            ? "Tournés autrement, les pics ne toucheraient aucun bloc"
+            : "Impossible de le tourner ici";
+        this.showRefusal(target.x, target.y, text);
+      }
     } else {
-      this.placeDir = next(this.placeDir);
-      this.verdicts.clear();
+      const kind = this.selected !== null ? this.offer[this.selected]?.kind : undefined;
+      const dir = kind ? this.dirFor(kind) : undefined;
+      if (kind && kind !== "eraser" && dir !== undefined) {
+        this.placeDirs.set(kind, next(dir));
+        this.verdicts.clear();
+      } else if (kind) {
+        overlay.showNotice(kind === "eraser" ? "La gomme ne se tourne pas" : `${OBJECT_DEFS[kind].name} : ne se tourne pas`, 1500);
+      }
     }
     this.renderTray();
   }
 
   /**
-   * Whether the session will accept all of these pending objects, applied one after the other
-   * in this order as it does at the end of placement. One object can make another legal (a
-   * platform shielding a cannon's line), so taking back or turning one must keep the rest valid.
+   * Whether the session will accept all of these pending objects (see handProblem). One
+   * object can make another legal (a platform shielding a cannon's line, a block that spikes
+   * lean on), so taking back or turning one must keep the rest valid.
    */
   private wholeHandAccepted(pending: readonly PlacedObject[], erasing: readonly Erasure[] = this.erasing): boolean {
+    return this.handProblem(pending, erasing) === null;
+  }
+
+  /**
+   * What the session would refuse first in these pending objects, applied exactly as it does
+   * at the end of placement (session.endPlacement): our erasures first, then the hand in
+   * supportFirst order (spikes last, so they can lean on a block of the same hand), each
+   * object through objectPlacementProblem and then the path check. Null: all accepted.
+   */
+  private handProblem(pending: readonly PlacedObject[], erasing: readonly Erasure[] = this.erasing): HandProblem | null {
     const base = this.baseObjects(erasing);
     // The cached graph is for the current erasures only.
     const graph = erasing === this.erasing ? (this.baseGraph ??= buildReachGraph(this.level, base, DEFAULT_MOVEMENT)) : undefined;
     const guard = new PathGuard(this.level, base, DEFAULT_MOVEMENT, graph ? { graph } : undefined);
     // An erased object's cell counts as taken, as on screen: the hand never goes there.
     const taken = (x: number, y: number) => erasing.some((e) => e.target.x === x && e.target.y === y);
-    return pending.every((p) => !taken(p.x, p.y) && canPlaceAt(this.level, guard.objects, p.x, p.y) && guard.tryAdd(p));
+    for (const p of supportFirst(pending)) {
+      if (taken(p.x, p.y)) return "taken";
+      const problem = objectPlacementProblem(this.level, guard.objects, p);
+      if (problem) return problem;
+      if (!guard.tryAdd(p)) return "path";
+    }
+    return null;
   }
 
   /** Verdict for the eraser card on the cell (x, y). */
@@ -635,7 +696,9 @@ export class GameScene extends Phaser.Scene {
     }
     // ...then our new objects are added one by one to what is left.
     const hand = this.pending.map((p) => this.plain(p));
-    if (!this.wholeHandAccepted(hand, [...this.erasing, { card: -1, target }])) {
+    const problem = this.handProblem(hand, [...this.erasing, { card: -1, target }]);
+    if (problem === "support") return { ok: false, takeBack: false, text: "Tes pics sont posés dessus : reprends-les d'abord" };
+    if (problem) {
       return { ok: false, takeBack: false, text: "Sans cet objet, un de tes objets couperait le chemin : reprends-le d'abord" };
     }
     const owner = target.ownerId ? ` de ${this.nameOf(target.ownerId)}` : "";
@@ -650,9 +713,13 @@ export class GameScene extends Phaser.Scene {
       const cached = this.verdicts.get(key);
       if (cached) return cached;
       const rest = this.pending.filter((p) => p !== mine).map((p) => this.plain(p));
-      const v = this.wholeHandAccepted(rest)
-        ? { ok: true, takeBack: true, text: "Clic : reprendre cet objet" }
-        : { ok: false, takeBack: true, text: "Sans lui, un autre de tes objets couperait le chemin : reprends l'autre d'abord" };
+      const problem = this.handProblem(rest);
+      const v =
+        problem === null
+          ? { ok: true, takeBack: true, text: "Clic : reprendre cet objet" }
+          : problem === "support"
+            ? { ok: false, takeBack: true, text: "Tes pics sont posés dessus : reprends-les d'abord" }
+            : { ok: false, takeBack: true, text: "Sans lui, un autre de tes objets couperait le chemin : reprends l'autre d'abord" };
       this.verdicts.set(key, v);
       return v;
     }
@@ -680,28 +747,28 @@ export class GameScene extends Phaser.Scene {
       return v;
     }
 
-    const all = [...this.objects, ...this.pending.map((p) => this.plain(p))];
+    const hand = this.pending.map((p) => this.plain(p));
     const l = this.level;
+    const candidate: PlacedObject = { id: 0, kind, x, y, ...(dir !== undefined ? { dir } : {}) };
+    // The cell: against everything on screen, erased objects included (their cell stays
+    // taken for this round). The block behind spikes: against what will be there once our
+    // erasures are applied, as the session checks it.
+    const problem =
+      placementProblem(l, [...this.objects, ...hand], x, y) ??
+      objectPlacementProblem(l, [...this.baseObjects(), ...hand], candidate);
     let v: Verdict;
-    if (x < 0 || x >= l.width || y < 0 || y >= l.height || l.solid[y * l.width + x]) {
-      v = { ok: false, takeBack: false, text: "Pas dans le décor" };
-    } else if (isSpawnPadCell(l, x, y) || (l.finish && x === l.finish.x && y === l.finish.y)) {
-      v = { ok: false, takeBack: false, text: "Pas sur la zone de départ ni sur l'arrivée" };
-    } else if (!canPlaceAt(l, all, x, y)) {
-      v = { ok: false, takeBack: false, text: "Case déjà prise" };
+    if (problem) {
+      v = { ok: false, takeBack: false, text: problemText(problem) };
     } else if (
-      !placementKeepsPath(
-        l,
-        [...this.baseObjects(), ...this.pending.map((p) => this.plain(p))],
-        { id: 0, kind, x, y, ...(dir !== undefined ? { dir } : {}) },
-        DEFAULT_MOVEMENT,
-        this.graph ?? undefined,
-      )
+      !placementKeepsPath(l, [...this.baseObjects(), ...hand], candidate, DEFAULT_MOVEMENT, this.graph ?? undefined) ||
+      // The session applies spikes after the rest of the hand (supportFirst): when this
+      // object would go before pending spikes, the order changes, so check it that way.
+      (!OBJECT_DEFS[kind].needsSupport && hand.some((p) => OBJECT_DEFS[p.kind].needsSupport) && !this.wholeHandAccepted([...hand, candidate]))
     ) {
       v = {
         ok: false,
         takeBack: false,
-        text: dir !== undefined ? "Bloquerait le chemin vers l'arrivée (essaie de le tourner : R)" : "Bloquerait le chemin vers l'arrivée",
+        text: dir !== undefined ? "Bloquerait le chemin vers l'arrivée (essaie de tourner : R)" : "Bloquerait le chemin vers l'arrivée",
       };
     } else {
       v = { ok: true, takeBack: false, text: `Poser : ${OBJECT_DEFS[kind].name}${dir !== undefined ? ` ${DIR_ARROWS[dir]}` : ""}` };
@@ -911,7 +978,7 @@ export class GameScene extends Phaser.Scene {
       {
         cards: this.offer.map((c, i) => {
           const placed = this.pending.find((p) => p.card === i);
-          const dir = this.dirFor(c.kind) !== undefined ? (placed?.dir ?? this.placeDir) : undefined;
+          const dir = placed?.dir ?? this.dirFor(c.kind);
           return { ...c, arrow: dir !== undefined ? DIR_ARROWS[dir] : undefined, out: this.cardOut(i) };
         }),
         selected: this.validated ? null : this.selected,
@@ -974,21 +1041,40 @@ export class GameScene extends Phaser.Scene {
     const color = v.takeBack && v.ok ? 0x161616 : v.ok ? 0xf07a2e : 0xb3361a;
     this.preview.lineStyle(4, color, 1);
     drawDashedRect(this.preview, this.hover.x * CELL_PX + 3, this.hover.y * CELL_PX + 3, CELL_PX - 6, CELL_PX - 6);
-    // A cannon about to be placed: show where it would fire.
     const kind = this.selected !== null ? this.offer[this.selected]?.kind : undefined;
-    if (!v.takeBack && kind && kind !== "eraser" && OBJECT_DEFS[kind].rotatable) {
+    const dir = kind && !v.takeBack ? this.dirFor(kind) : undefined;
+    if (!kind || dir === undefined) return;
+    const { x, y } = this.hover;
+    const d = DIR_VECTORS[dir];
+    if (kind === "cannon") {
+      // A cannon about to be placed: show where it would fire.
       const all = [...this.objects, ...this.pending.map((p) => this.plain(p))];
-      const ghost = prepareObjects(this.level, [...all, { id: 0, kind, x: this.hover.x, y: this.hover.y, dir: this.placeDir }]).pop()!;
-      const { x, y } = this.hover;
-      const d = { 0: [1, 0], 1: [0, 1], 2: [-1, 0], 3: [0, -1] }[this.placeDir];
-      const sx = (x + 0.5 + d[0]! * 0.5) * CELL_PX;
-      const sy = (y + 0.5 + d[1]! * 0.5) * CELL_PX;
+      const ghost = prepareObjects(this.level, [...all, { id: 0, kind, x, y, dir }]).pop()!;
+      const sx = (x + 0.5 + d.dx * 0.5) * CELL_PX;
+      const sy = (y + 0.5 + d.dy * 0.5) * CELL_PX;
       const len = (ghost.range ?? 0) * CELL_PX;
       this.preview.lineStyle(3, 0xb3361a, 0.7);
       for (let s = 0; s < len; s += 14) {
         const e = Math.min(s + 7, len);
-        this.preview.lineBetween(sx + d[0]! * s, sy + d[1]! * s, sx + d[0]! * e, sy + d[1]! * e);
+        this.preview.lineBetween(sx + d.dx * s, sy + d.dy * s, sx + d.dx * e, sy + d.dy * e);
       }
+    } else {
+      // Spikes and springs: a small arrowhead on the face that points (or throws) that way,
+      // so the player sees which way the next one goes before clicking.
+      const cx = (x + 0.5) * CELL_PX;
+      const cy = (y + 0.5) * CELL_PX;
+      const tip = CELL_PX * 0.36;
+      const back = CELL_PX * 0.12;
+      const half = CELL_PX * 0.18;
+      this.preview.fillStyle(color, 0.85);
+      this.preview.fillTriangle(
+        cx + d.dx * tip,
+        cy + d.dy * tip,
+        cx + d.dx * back - d.dy * half,
+        cy + d.dy * back + d.dx * half,
+        cx + d.dx * back + d.dy * half,
+        cy + d.dy * back - d.dx * half,
+      );
     }
   }
 
@@ -1153,6 +1239,13 @@ export class GameScene extends Phaser.Scene {
       }
       return;
     }
+    // Players never touch each other in the start zone (decided 2026-11-26): no stomp, no
+    // bump while either body overlaps it, as the session ignores stomps there. Bodies are
+    // grown by SPAWN_CONTACT_MARGIN here (and shrunk on the server), so a stomp sent from
+    // near the edge is never one the server drops. `touching` is still kept up to date
+    // below, so a bump only fires for a touch that starts outside.
+    const zm = SPAWN_CONTACT_MARGIN;
+    const meInZone = bodyInSpawnZone(this.level, c.x, c.y, m.bodyWidth, m.bodyHeight, zm);
     for (const g of this.ghosts.values()) {
       const other = g.current;
       if (!other || other.status !== "running") {
@@ -1160,7 +1253,8 @@ export class GameScene extends Phaser.Scene {
         continue;
       }
       const touching = this.touching.has(g.id);
-      const contact = contactWith(me, this.player.prevY, c.vy, other, m.bodyWidth, m.bodyHeight, touching);
+      const inZone = meInZone || bodyInSpawnZone(this.level, other.x, other.y, m.bodyWidth, m.bodyHeight, zm);
+      const contact = inZone ? null : contactWith(me, this.player.prevY, c.vy, other, m.bodyWidth, m.bodyHeight, touching);
       if (contact === "stomp" && t - (this.lastStompAt.get(g.id) ?? -Infinity) >= STOMP_REPEAT) {
         this.lastStompAt.set(g.id, t);
         c.launch(m.stompBounceHeight, true);
@@ -1328,13 +1422,34 @@ export class GameScene extends Phaser.Scene {
     overlay.setHelp(parts.join(" · ") || "Échap ×2 : quitter");
   }
 
-  /** Why a dead player's block can't go on this cell, as far as this client can tell (null: try it). */
+  /**
+   * Why a dead player's block can't go on this cell, as far as this client can tell (null:
+   * try it). It mirrors the session's cheap checks (session.onBlock); the session stays the
+   * referee and also checks that no living player gets shut in.
+   */
   private blockVerdict(x: number, y: number): string | null {
-    const l = this.level;
-    if (x < 0 || x >= l.width || y < 0 || y >= l.height || l.solid[y * l.width + x]) return "Pas dans le décor";
-    if (isSpawnPadCell(l, x, y) || (l.finish && x === l.finish.x && y === l.finish.y)) return "Pas sur la zone de départ ni sur l'arrivée";
-    if (!canPlaceAt(l, this.allObjects(), x, y)) return "Case occupée";
+    const problem = placementProblem(this.level, this.allObjects(), x, y);
+    if (problem === "outside" || problem === "terrain") return "Pas dans le décor";
+    if (problem === "protected") return PROTECTED_TEXT;
+    if (problem) return "Case occupée";
+    if (this.blockNearLivingPlayer(x, y)) return "Trop près d'un joueur";
     return null;
+  }
+
+  /**
+   * Whether (x, y) is within BLOCK_CLEARANCE cells of a living player's body, as the session
+   * checks it (body size from DEFAULT_MOVEMENT, like the session). We see other players a
+   * little in the past; the session uses their last pose and has the final word.
+   */
+  private blockNearLivingPlayer(x: number, y: number): boolean {
+    const m = DEFAULT_MOVEMENT;
+    const r = BLOCK_CLEARANCE;
+    for (const g of this.ghosts.values()) {
+      const p = g.current;
+      if (!p || p.status !== "running") continue;
+      if (p.x - r < x + 1 && p.x + m.bodyWidth + r > x && p.y - r < y + 1 && p.y + m.bodyHeight + r > y) return true;
+    }
+    return false;
   }
 
   /** A dead player clicks the level to drop their block. */
@@ -1469,6 +1584,10 @@ export class GameScene extends Phaser.Scene {
     const dt = Math.min(deltaMs / 1000, MAX_FRAME_TIME);
     this.controls.poll();
     this.gridGfx.setVisible(debugView.showGrid);
+    // The zones where nothing may be placed: during placement, and while a dead player can
+    // still drop a block.
+    const choosingBlock = this.phase === "race" && this.myStatus === "dead" && !this.blockPlaced;
+    this.zoneGfx.setVisible(this.phase === "placement" || choosingBlock);
 
     if (this.phase === "placement") this.drawPlacementPreview();
     if (this.phase === "countdown" && this.link.serverNow() >= this.raceStartsAt) this.startRace();
@@ -1654,5 +1773,23 @@ export class GameScene extends Phaser.Scene {
   private quit(message = ""): void {
     this.link.leave();
     this.scene.start("menu", { message });
+  }
+}
+
+/** What a pending hand can be refused for (see GameScene.handProblem). */
+type HandProblem = PlacementProblem | "path";
+
+/** French reason for a placement problem, shown above the cell. */
+function problemText(problem: PlacementProblem): string {
+  switch (problem) {
+    case "outside":
+    case "terrain":
+      return "Pas dans le décor";
+    case "protected":
+      return PROTECTED_TEXT;
+    case "taken":
+      return "Case déjà prise";
+    case "support":
+      return SUPPORT_TEXT;
   }
 }

@@ -13,6 +13,7 @@
 import Phaser from "phaser";
 import {
   bodiesOverlap,
+  bodyInSpawnZone,
   contactWith,
   parseLevel,
   prepareObjects,
@@ -284,7 +285,12 @@ export class TutorialScene extends Phaser.Scene {
     const r = this.rival.controller;
     const me = { x: c.x, y: c.y };
     const other = { x: r.x, y: r.y };
-    const contact = contactWith(me, this.player.prevY, c.vy, other, m.bodyWidth, m.bodyHeight, this.touching);
+    // No contact at all while either body is in the start zone (as in a race); the touch is
+    // still tracked below, so a bump only fires for a touch that starts outside it.
+    const inZone =
+      bodyInSpawnZone(this.level, c.x, c.y, m.bodyWidth, m.bodyHeight) ||
+      bodyInSpawnZone(this.level, r.x, r.y, m.bodyWidth, m.bodyHeight);
+    const contact = inZone ? null : contactWith(me, this.player.prevY, c.vy, other, m.bodyWidth, m.bodyHeight, this.touching);
     if (contact === "stomp" && this.player.time - this.lastStompAt >= STOMP_REPEAT) this.stomp();
     else if (contact === "bump") {
       const away = Math.sign(c.x - r.x) || -1;

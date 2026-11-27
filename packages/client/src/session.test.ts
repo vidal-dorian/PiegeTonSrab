@@ -79,6 +79,19 @@ const openField: LevelDefinition = {
   name: "open",
   rows: ["....................", "....................", "S..................F", "####################"],
 };
+// In the open field, the start zone covers x 0..3 (every row) and the finish zone x 17..19:
+// objects go in x 4..16.
+
+/**
+ * Legal cells of the open field for a hand: objects in the air on row `y` from column x0,
+ * except spikes, which can't float: they sit on the floor pointing up from column floorX,
+ * under open sky so they can still be jumped over (the tests keep x 14..16 free above).
+ */
+function spots(offer: readonly CardKind[], x0: number, y = 0, floorX = 15) {
+  let air = x0;
+  let floor = floorX;
+  return offer.map((kind) => (kind === "spikes" ? { kind, x: floor++, y: 2, dir: 3 as const } : { kind, x: air++, y }));
+}
 
 function setup(level: LevelDefinition = openField) {
   const io = new FakeIO();
@@ -123,9 +136,9 @@ describe("GameSession", () => {
     expect(pa.offer).toHaveLength(3);
 
     // Each player places their first three offered objects in the air.
-    s.handle("a", { type: "placement", objects: pa.offer.slice(0, 3).map((kind, i) => ({ kind, x: 3 + i, y: 0 })), done: true });
+    s.handle("a", { type: "placement", objects: spots(pa.offer.slice(0, 3), 4), done: true });
     expect(io.last("placedStatus")!.done).toEqual(["a"]);
-    s.handle("b", { type: "placement", objects: pb.offer.slice(0, 3).map((kind, i) => ({ kind, x: 10 + i, y: 0 })), done: true });
+    s.handle("b", { type: "placement", objects: spots(pb.offer.slice(0, 3), 10), done: true });
 
     const cd = io.last("countdown", "a")!;
     expect(cd.objects).toHaveLength(6);
@@ -154,9 +167,9 @@ describe("GameSession", () => {
     toPlacement(io, s, ids);
     const place = (id: string, x0: number) => {
       const offer = io.last("placement", id)!.offer;
-      s.handle(id, { type: "placement", objects: offer.map((kind, i) => ({ kind, x: x0 + i, y: 0 })), done: true });
+      s.handle(id, { type: "placement", objects: spots(offer, x0), done: true });
     };
-    place("a", 3);
+    place("a", 4);
     place("c", 12);
     io.advance(35_000 + TIMING.placementGrace);
     const objects = io.last("countdown", "a")!.objects;
@@ -221,12 +234,16 @@ describe("GameSession", () => {
       toPlacement(io, s, ["a", "b"]);
       if (io.last("placement", "a")!.offer.some(isTrap) && io.last("placement", "b")!.offer.some(isTrap)) break;
     }
-    // Each player puts a killing object in one lane and the rest in harmless cells of the top-left corner.
+    // Each player puts a killing object in one lane and the rest in harmless cells of the top
+    // row. Spikes in a lane sit on its floor; spare spikes hang from the ceiling, pointing down
+    // (they can't float, and walking under them is safe).
     const choose = (offer: CardKind[], lane: { x: number; y: number }, spareX: number) => {
       const killer = offer.findIndex((k) => k === "saw" || k === "spikes");
       expect(killer, `offer ${offer.join(",")} has no trap`).toBeGreaterThanOrEqual(0);
       const kinds = [offer[killer]!, ...offer.filter((_, i) => i !== killer).slice(0, 2)];
-      return kinds.map((kind, i) => (i === 0 ? { kind, ...lane } : { kind, x: spareX + i, y: 1 }));
+      return kinds.map((kind, i) =>
+        i === 0 ? { kind, ...lane } : { kind, x: spareX + i, y: 1, ...(kind === "spikes" ? { dir: 1 as const } : {}) },
+      );
     };
     s.handle("a", { type: "placement", objects: choose(io.last("placement", "a")!.offer, UPPER_SAW, 3), done: true });
     s.handle("b", { type: "placement", objects: choose(io.last("placement", "b")!.offer, LOWER_SAW, 12), done: true });
@@ -266,11 +283,11 @@ describe("GameSession", () => {
     s.addPlayer("b", "B");
     toPlacement(io, s, ["a", "b"]);
     const pa = io.last("placement", "a")!;
-    const tooMany = [...pa.offer, pa.offer[0]!].map((kind, i) => ({ kind, x: 3 + i, y: 0 }));
+    const tooMany = spots([...pa.offer, pa.offer[0]!], 4);
     s.handle("a", { type: "placement", objects: tooMany, done: true });
     expect(io.last("placedStatus")!.done).toEqual([]);
     s.handle("a", { type: "placement", objects: [], done: true });
-    s.handle("a", { type: "placement", objects: pa.offer.map((kind, i) => ({ kind, x: 3 + i, y: 0 })), done: false });
+    s.handle("a", { type: "placement", objects: spots(pa.offer, 4), done: false });
     io.advance(35_000 + TIMING.placementGrace);
     expect(io.last("countdown", "a")!.objects.filter((o) => o.ownerId === "a")).toHaveLength(0);
   });
@@ -340,9 +357,9 @@ describe("GameSession", () => {
     const place = (id: string, x0: number) => {
       const offer = io.last("placement", id)!.offer;
       expect(offer).not.toContain("eraser");
-      s.handle(id, { type: "placement", objects: offer.slice(0, 3).map((kind, i) => ({ kind, x: x0 + i, y: 0 })), done: true });
+      s.handle(id, { type: "placement", objects: spots(offer.slice(0, 3), x0), done: true });
     };
-    place("a", 3);
+    place("a", 4);
     place("b", 10);
     const placed = io.last("countdown", "a")!.objects;
     // Nobody finishes: straight to the next round.
@@ -359,9 +376,9 @@ describe("GameSession", () => {
     // A erases one of B's objects; B tries to erase one of its own (refused).
     // Round 2 still needs 3 cards: the eraser plus two objects in harmless cells.
     const rest = (offer: CardKind[], x0: number) =>
-      offer.filter((k) => k !== "eraser").slice(0, 2).map((kind, i) => ({ kind, x: x0 + i, y: 1 }));
-    s.handle("a", { type: "placement", objects: [{ kind: "eraser", x: bobs.x, y: bobs.y }, ...rest(offerA, 3)], done: true });
-    s.handle("b", { type: "placement", objects: [{ kind: "eraser", x: bobs.x + 1, y: bobs.y }, ...rest(offerB, 10)], done: true });
+      spots(offer.filter((k) => k !== "eraser").slice(0, 2), x0, 1, 16);
+    s.handle("a", { type: "placement", objects: [{ kind: "eraser", x: bobs.x, y: bobs.y }, ...rest(offerA, 7)], done: true });
+    s.handle("b", { type: "placement", objects: [{ kind: "eraser", x: bobs.x + 1, y: bobs.y }, ...rest(offerB, 12)], done: true });
     const cd = io.last("countdown", "a")!;
     expect(cd.objects.some((o) => o.id === bobs.id)).toBe(false);
     expect(cd.objects.some((o) => o.id === alices.id)).toBe(true);
@@ -428,7 +445,7 @@ describe("GameSession", () => {
       s.addPlayer("c", "Chloé", "cccccccc-key");
       toPlacement(io, s, ["a", "b", "c"]);
       const offer = io.last("placement", "a")!.offer;
-      s.handle("a", { type: "placement", objects: offer.map((kind, i) => ({ kind, x: 3 + i, y: 0 })), done: true });
+      s.handle("a", { type: "placement", objects: spots(offer, 4), done: true });
       s.handle("b", { type: "placement", objects: [], done: true });
       s.handle("c", { type: "placement", objects: [], done: true });
       (s as unknown as { scores: Map<string, number> }).scores.set("a", 4);

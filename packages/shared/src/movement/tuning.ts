@@ -61,6 +61,14 @@ export interface MovementTuning {
   // --- Objects and other players -------------------------------------------------
   /** Height a spring throws the character, cells (always the full height). */
   springHeight: number;
+  /** Sideways spring (on a wall): horizontal speed it throws the character at, cells/s. */
+  springSideSpeed: number;
+  /** Sideways spring: small hop given with the throw, cells. */
+  springSideHeight: number;
+  /** Sideways spring: left/right input is ignored this long so the throw carries, seconds. */
+  springSideLock: number;
+  /** Spring on a ceiling: downward speed it throws the character at, cells/s. */
+  springDownSpeed: number;
   /** Bounce after landing on another player's head, cells (jump held: full; released: cut like a jump). */
   stompBounceHeight: number;
   /** Downward speed given to a player who gets stomped on, cells/s. */
@@ -106,6 +114,10 @@ export const DEFAULT_MOVEMENT: MovementTuning = {
   cornerCorrection: 0.25,
 
   springHeight: 7,
+  springSideSpeed: 16,
+  springSideHeight: 1.5,
+  springSideLock: 0.25,
+  springDownSpeed: 16,
   stompBounceHeight: 4.2,
   stompSlamSpeed: 18,
   stunTime: 0.55,

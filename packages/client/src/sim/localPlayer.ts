@@ -199,10 +199,15 @@ export class LocalPlayer {
       w: t.bodyWidth - 2 * HAZARD_INSET,
       h: t.bodyHeight - 2 * HAZARD_INSET,
     };
-    const killer = findKiller(objects, box, c.vy, this.time, {
-      victimId: this.selfId,
-      pusherIds: this.recentPushers(),
-    });
+    // vx too: spikes facing sideways spare a body moving away from their points.
+    const killer = findKiller(
+      objects,
+      box,
+      c.vy,
+      this.time,
+      { victimId: this.selfId, pusherIds: this.recentPushers() },
+      c.vx,
+    );
     if (killer) return { kind: "died", killer, fell: false };
     const f = this.level.finish;
     if (f && c.x < f.x + 1 && c.x + t.bodyWidth > f.x && c.y < f.y + 1 && c.y + t.bodyHeight > f.y) {
