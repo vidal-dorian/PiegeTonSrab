@@ -284,8 +284,8 @@ not computed, unless marked.
    too hard.
 3. The spikes at the bottom of shaft B: the whole team going in (or three stepping off together).
 
-Beat 1 does not kill in the order the team stands in. While somebody stands on the raised floor,
-the one lowered hangs safely in the catch pit (too deep or too high) and his anchor fixes it; the
+Beat 1 does not kill in the order the team stands in. While somebody stands on the raised floor
+(and does something within about 18 s: see the last item below), the one lowered hangs safely in the catch pit (too deep or too high) and his anchor fixes it; the
 last one, who steps off with nobody left up there, lands on the tile if the one in the slot is slow
 to haul. What still kills in beat 1:
 
@@ -295,6 +295,18 @@ to haul. What still kills in beat 1:
   him first), or the last two stepping off together at 3 players. Measured: hauled within 2.5 s
   (Ruben) or 2 s (the pair), they come in; standing still 3 s, both fall. Without the tile that
   window was 2.0 s for Ruben.
+- **Open (integration skeptic, 2026-11-27): an anchor who does nothing while the one lowered does
+  not lean in.** Ruben steps off shaft A without leaning (a newcomer), F0 stands still anywhere on
+  the raised floor: F0 slides at 0.3 cells/s to the lip's corner (25.00, about 11 s), the wrap is
+  let go there and he keeps sliding over the void (the engine fact in "Engine notes", here at the
+  lip itself) until his centre reaches 25.40 and he loses the floor; both fall, Ruben's 2 breaks
+  the tile. Measured at 2 players (anchor at 20.0-23.8, 4 step-off speeds): 8 of 156 runs die,
+  18-27 s after the step (anchor at 21.6-22.0 or 23.5; at 22.5 or 23.0 he ends in a standoff with
+  0.02 of floor under him). At 3 players with everyone idle: 4 of 156, 31-34 s after the step; at
+  4-5: none. With Ruben leaning in: no death. So "beat 1 never kills" holds only for a team that
+  acts within about 18 s; the slide is slow and visible (and the sign says « Recule : il
+  remonte »). A raised end on the lip would stop it but moves the pivot and every depth of the
+  beat; not done.
 
 ## Ruben's active moments
 

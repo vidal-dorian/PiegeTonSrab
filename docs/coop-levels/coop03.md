@@ -112,7 +112,8 @@ W = players + 1 (friends 1, Ruben 2).
 | f (= 1, in the cellar) | one friend alone | same | same | same |
 
 "W-1" always leaves exactly one player free, and that player is a friend: without Ruben the
-friends weigh W-2 at most.
+friends weigh W-2 at most. (Open finding at 4-5 players: Ruben hanging taut from his neighbour on
+the tower counts on the bench too; see "Ruben hanging from the bench" in the shortcuts.)
 
 ## Beats and the exact solution (bots)
 
@@ -253,7 +254,7 @@ Rope reach, measured along the path (rest 4.5, hard stop 5.4):
 | F0 at the key to his neighbour on w (round the aisle's edge) | 4.30-4.34 (measured, every team size) |
 | F0 walking for the key, Ruben holding his seat / F1 on a head (4, 5 players) | at the stop: F0 gets to 31.4 / 31.7, the key needs 29.25 |
 | F0 on f to his neighbour on w / on r (through e) | 2.95-2.99 / 4.59-4.60 |
-| Ruben on w to his neighbour against gate x, with 0 / 1 / 2 friends under him | 3.3 / 3.7 / 4.2 (measured in the shortcut: 3.81 / 3.66 / 4.22; slack: never taut) |
+| Ruben on w to his neighbour against gate x, with 0 / 1 / 2 friends under him | 3.3 / 3.7 / 4.2 (measured in the shortcut, hopping from x 32.4: 3.81 / 3.66 / 4.22, slack; from further left on the aisle, x 30.0-30.4 at 4-5 players, up to 4.76: taut, see the shortcuts) |
 | Longest link in the bots' runs | 4.97 (2 players) / 4.91 (3) / 4.93 (4) / 4.91 (5) |
 
 ## Variants by team size
@@ -292,7 +293,7 @@ every shortcut fails in that phase at 2, 3, 4 and 5 players.
 | Ruben jumps off the bench into the trapdoor | the same, Ruben jumping | the same: m is shut at the bench's height while w is open |
 | the free friend drags his neighbour off the bench into the trapdoor (new, critic) | F0 drops in and walks for the key while his neighbour sits idle (dragged to the bench's end), then the neighbour hops on the spot again and again | dragged onto m, he is off the bench; w shuts long before he is past m |
 | Ruben as the free one | all the friends on the bench, Ruben on the trapdoor | without Ruben the bench is short |
-| Ruben hanging from his neighbour on the bench | the same, his neighbour on top of a tower against gate x (one under him at 3 players, two from 4), Ruben hops on w's far side | a body in the air under a taut rope weighs on its holder's support, so his 2 would count; but the link is never taut there (4.22 at most) |
+| Ruben hanging from his neighbour on the bench | the same, his neighbour on top of a tower against gate x (one under him at 3 players, two from 4), Ruben hops on w's far side | a body in the air under a taut rope weighs on its holder's support, so his 2 would count; from x 32.4 the link is never taut there (4.22 at most). Open at 4-5 from further left: see below |
 | freeing the others before taking the key | F0 drops in and goes straight to f (n shuts), the team goes out onto tier 1 and keeps to its places, F0 goes back for the key | the rope holds F0 within a link of the team outside |
 | the free friend lets himself out with s (new) | F0, key in hand, steps on s and runs for e | s is 3 cells from e: e has shut before he gets there |
 | a tower over gate g | nobody on a; Ruben's neighbour climbs on Ruben at g and jumps | g reaches the ceiling |
@@ -322,8 +323,18 @@ yank beats that fall, which is what the critic found and m closes.
   seat (or sits on a head) keeps F0 short; an idle one on a seat is dragged onto m and drops onto
   the shut trapdoor, and F0 reaches the key. That is the intended order (key first) and the
   intended place (over w), only less comfortable. Accepted.
-- **Ruben hanging from the bench** (the weight of a hanging body goes to its holder): closed, see the
-  table. It is the reason the bench is short with a low ceiling: a seat further right, or a fourth
+- **Ruben hanging from the bench** (the weight of a hanging body goes to its holder): closed from
+  x 32.4 (the table), **open at 4-5 players from further left** (integration skeptic, 2026-11-27,
+  re-measured on the integrated branch). Same setup, but Ruben stands at x 30.0 (4 players) or
+  30.4 (5) on the aisle and hops once, holding right a little later: 9 of 4800 runs put him in the
+  cellar (5 at 4 players, 4 at 5). In the air at 30.6 the link reaches 4.60-4.76, taut from 4.48:
+  he counts as hanging from his neighbour, the bench load goes from 3 to 6 against a need of 5,
+  w opens and m shuts; the link goes slack at 31.46 but the plate's 0.15 s hold keeps w open, he
+  is in w's cell by then and a gate never closes on a body. Impact is limited: with the tower up,
+  Ruben in the cellar stands at 33.7 and cannot reach the key (29.25), f still needs a lone
+  friend, and no faster finish or soft-lock was found; the team needs another hang to get a friend
+  down. The fix would make the tower shorter (a lower bench ceiling) or keep it further from the
+  aisle; the shortcut's ATTEMPT should then sweep Ruben's start from 30 to 32.4. It is the reason the bench is short with a low ceiling: a seat further right, or a fourth
   body in the tower, would make the link taut (a seat further right with one under the holder: 4.6).
 - **Hauls and pulleys past the gates**: h, g and x reach a ceiling or a lintel, and a closed gate
   stops bodies even though the rope goes through it, so nobody is hauled past one. Nothing to probe
@@ -367,7 +378,8 @@ Every way to be locked in has a way out:
 - **A friend left below at the seat:** someone above stands on d. **Ruben left below:** he sits on
   c.
 - **Ruben** never gets through the trapdoor w from the bench, walking, jumping or dragged by the
-  rope (see the shortcuts): leaving the bench towards w he stands on m, and lands on w once it has
+  rope (see the shortcuts; the one exception, at 4-5 players, is a taut hop from the aisle onto w
+  while his neighbour tops a tower, still open, and it soft-locks nothing): leaving the bench towards w he stands on m, and lands on w once it has
   shut. He can get into the cellar only through e, from tier 1, and gets out the same way. The
   escape of two shut in the cellar was probed again with m (2 players, the tightest case): it works.
 

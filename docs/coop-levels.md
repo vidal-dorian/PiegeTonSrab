@@ -116,6 +116,44 @@ A death restarts the whole level for everyone, things included.
 - No thing exists only to sabotage: the betrayals are the natural ones (walking away with a friend
   on your head, leaving a plate).
 
+### Designing with the wrapped rope
+
+What the redesign of levels 2-4 taught (2026-11-27). The physics is in the table above; these are
+the consequences for a map.
+
+- **There is no rope-transparent scenery.** The rope wraps every static solid cell (terrain, glass,
+  team-size walls, `=`, springs). A puzzle that needs the rope through something bodies cannot pass
+  uses a thing (a gate, a fragile floor, a still mover); `coopRopeWrap.test.ts` enforces it. Do not
+  bring `=` back as a rope hole.
+- **A corner is a pivot.** Over a lip the hanging depth is set by the anchor's distance to the
+  corner, measured along the path (Le Labo Réseau: feet about anchor x - 13.6). Design depths from
+  that corner, not from the anchor, and give the window at least 0.3 on each side of the dip.
+- **The wrap holds the hanging body against the wall below the corner.** A slot or a ledge under a
+  lip is reached by leaning in under it (the rope then wraps the lower corner too), not by swinging:
+  allow for the body pressing on the wall below, and give it a floor to be set down on.
+- **Idle anchors slide, and slide off ends.** An anchor who does nothing slides towards his friend
+  at 0.15 cells/s per hanging mass, and at a floor's end the wrap is let go once his centre passes
+  the corner: he goes over. Any beat where an idle team could stand with somebody hanging needs a
+  stop (an overhang over the hanging one, something under him, a fragile tile like Le Labo
+  Réseau's), or it kills a team that waits about 20 s. Probe idle teams, with and without the
+  hanging one leaning.
+- **A taut link carries weight.** A body in the air under a taut rope weighs on its holder's
+  support (plates, benches). A plate that counts a team needs the longest possible link measured
+  from every place a hanging body can start, not just one (L'Amphi's open 4-5 finding came from a
+  shortcut that hopped from a single x).
+- **Wraps can drag.** A body climbing back over a solid step drags its neighbour by the wrap round
+  that step; a still mover leaves a pocket under it that bodies walk into. L'Amphi used a gate
+  inverted on the bench's own link (m) as a step that exists only while it is needed.
+- **Links climb as well as hold.** A friend standing on a head near a corridor mouth shortens the
+  path round a lip by as much as a duct does (La Salle de TP's open 4-5 finding). When a beat forces
+  someone to a place because of rope length, probe every place of the same height, towers included.
+- **Plates read what stands on them, and the rope through things.** A crate weighs on plates (set
+  `weight: 0` when it is a step, not a weight); a closed gate stops bodies but not the rope, so no
+  haul passes one.
+- **Prove the mistakes too.** `recoveries` in a solution file are played to the end at every size: a
+  mistake players will make and the way back. A trap that can bury a body (a crate pushed onto
+  someone in a pit) needs one.
+
 ### Test bots (bots.ts)
 
 A solution is a function of the team size returning phases. In each phase every bot has a goal,
@@ -125,7 +163,8 @@ other bot). A phase ends when `until` holds (or when every goal is done) and fai
 
 Goals: `walk(x, { tol, jump: "auto" | "never", drop })`, `jumpTo(x, { rise, holdFor })`,
 `mount(role)` (climb onto a friend's head), `hold(dir)` (push, brace, walk away),
-`use()` (↓ once), `enter()` (through the door), `wait(s)`, `idle()`, `seq(...)`,
+`use()` (↓ once), `enter()` (through the door), `takeKeyFrom(role)` (↓ whenever that role carries
+the key within reach), `wait(s)`, `idle()`, `seq(...)`,
 `when(condition, goal)`. Conditions: `cond.near`, `cond.on`, `cond.standsAbove`,
 `cond.allBetween`, `cond.allAbove`, `cond.inside`, `cond.won`, `cond.keyTaken`, `cond.doorOpen`,
 `cond.gateOpen(char)`, `cond.plateActive(char)`, `cond.all`, `cond.any`. Helpers: `friends(n)`,
@@ -149,3 +188,43 @@ closed and accepted, deadly moments, Ruben's moment, communication moment.
 | 3 | L'Amphi | [coop03.md](coop-levels/coop03.md) |
 | 4 | La Salle de TP | [coop04.md](coop-levels/coop04.md) |
 | 5 | La Salle | [coop05.md](coop-levels/coop05.md) |
+
+### What the designers of levels 2-4 returned (redesign for the wrapped rope, 2026-11-27)
+
+- **Le Labo Réseau.** The critic's "beat 1 kills at 2 players when Ruben, in the slot, hesitates"
+  was real: F0 hanging below the slot floor's end (centre 24.40) made Ruben's idle slide stop at
+  exactly the point where he loses the floor (haul within 1.0 s: fine; 1.5 s or later: both die).
+  Fixed by the fragile tile `f` across shaft A at row 14 (x 24-27, 4 below the slot's floor): the
+  hanging friend rests on it (feet 14.00) so nobody slides, and it breaks under 2, so nobody towers
+  from it and a team that falls in still dies. Row 15 was too low. Rejected: an undercut (the
+  hauled friend jams under it), a plate-and-hatch on the floor's end (the mantle reads terrain
+  only), a solid pit floor (a 3-tower climbs out at 4-5, and a fallen team is stuck), a crawl over
+  the raised floor (spawns need two rows; F0 still got past Ruben in 378 of 648). The last stage's
+  hauler starts once the last one hangs or stands below the floor; `patience` (four variants) and
+  `coop02Patience.test.ts` win at 2-5 with 0 deaths, and die at 2 without the tile. Left open by
+  the integration's skeptic: an idle anchor whose friend does not lean in slides off the lip itself
+  (see coop02.md, "Deadly moments").
+- **L'Amphi.** The critic's "an idle bench sitter is dragged to the lip and one jump drops him
+  through the trapdoor" was real (won in 15.4 s at 2 players). Fixed by gate m at the bench's end
+  (x 33, row 9), inverted on the bench's link: shut (a step) while the bench holds W-1, open (a
+  1-deep pit) otherwise; w is now 2 wide. Leaving the bench towards w, one stands on m and weighs
+  nothing on the bench, and dropping in before w shuts would take about 12 c/s (run speed 7).
+  Rejected: a solid step (the wrap round its face drags F0 off f), a still mover (a 0.6-high pocket
+  under it). The bench has 2 seats; the bot solution seats with a queue, orders its exit line as it
+  goes and passes the key forward in arrival order. New shortcut "the free friend drags his
+  neighbour off the bench into the trapdoor"; with m removed it gets through at 2, 3 and 5. All 12
+  shortcuts fail at every size. Left open by the integration's skeptic: "Ruben hanging" from
+  further left on the aisle at 4-5 players (see coop03.md, shortcuts).
+- **La Salle de TP.** Finding 1 (a pit under the rail at 4-5 players buried Ruben under the
+  tower): real, fixed. A 2-deep pit would still trap (the tower's top is 4 above it), so J's floor
+  is a second "≥ 4" sensor `q` at M's height, the rail and the pit are gone (54 x 16), and the PC
+  tower weighs 0 on plates; a tower pushed on into J stops against a body (at 14.19). New shortcut
+  "a human tower in J beside the tower left one cell short" (fails at every size; with the J
+  sensor off the top gets up at 4-5) and the first `recoveries` entry ("into J before the tower,
+  and back out": 22.7 / 24.3 / 25.6 / 28.3 s). Side effect: the "tower one cell short" route now
+  works at 4-5 too (accepted). Finding 2 (a friend alone on the bare PC tower with a buffered
+  jump): real, accepted, because the tower's top and Ruben's head both give exactly 3.0 of rise and
+  the grid cannot put the lip between them with 0.3 to spare. New shortcut "a friend alone on the
+  bare PC tower" with a standing jump (best feet exactly at the lip, 9.000). Left open by the
+  integration's skeptic: the duct skipped at 4-5 players by a rider at the corridor mouth, and
+  Ruben's own buffered climb (accepted, numbers in coop04.md).

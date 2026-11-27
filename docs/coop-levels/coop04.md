@@ -199,7 +199,8 @@ players, to the next friend. Measured along its path, round the shaft's lip:
   measured during the jump. Up from x 12.0 in the duct the climber gets up; from x 11.6 and deeper
   it does not.
 
-So from 3 players someone must wait in the duct, at its mouth. That is the leg-up (a coop move on
+So from 3 players someone must wait in the duct, at its mouth, or (open finding at 4-5, below)
+higher than M's floor. That is the leg-up (a coop move on
 its own: « Fais-moi la courte échelle ! »), and the sign at the duct says why. The others are then
 hauled over the lip like everyone in beat 1 of La Rentrée; they come up through M and J, Ruben
 first (M is 5 high, so whoever comes up M passes Ruben in J instead of getting stuck under M's
@@ -228,7 +229,8 @@ ceiling. J's right side is solid from the floor to the lip.
 ## Ruben's active moments
 
 - Beat 1: he leads the queue and pushes the PC tower (« il pousse comme deux »: at 2 players the
-  friend alone could not), then is the base of the tower.
+  friend alone could not), then is the base of the tower (in the intended route; the accepted
+  bare-tower cases skip that).
 - Beat 2: he leads the queue; his 2 counts in the rack's W.
 - Beat 3: he leads the queue into the lab, is first up, takes the key and opens the door. His
   weight is why the rule is "everyone else on the plate" while he is up.
@@ -311,6 +313,23 @@ the pull of a haul into a room under the lip (the reason there is none).
   haul once Ruben is hauled up first. Capping M's right cell at 4 closes the case beside Ruben (0
   of 420) but not the bare tower, and makes the haul jam (a friend coming up M sticks under that
   ceiling while Ruben rises in J), so M stays 5 high.
+  - Ruben himself on the bare tower (integration skeptic, 2026-11-27): with his neighbour waiting
+    at the duct's mouth after a leg-up, Ruben jumps from M onto the bare tower and re-presses jump
+    just before landing: he gets up in 60 of 288 tries at 3-5 players (best feet 9.013), then
+    hauls everyone: the level finishes in 22.7 / 25.4 / 28.1 s. With his neighbour on M's floor or
+    in the corridor: 0 of 288. Same cause and same reason to keep it as the bare-tower case; the
+    jump onto Ruben's head is then skipped by Ruben, and he is not the base. Untested at 2
+    players (the bots could not give F0 the leg-up into the duct).
+- **Open (integration skeptic, 2026-11-27): the duct skipped at 4-5 players.** The climber's other
+  neighbour does not go into the duct but rides a friend's head at the corridor mouth (base at x
+  12.55-12.75, the rider leaning to 13.2-13.9, its feet 0.9 up) and jumps with the climber or up
+  to 10 frames after: the climber gets up in 26 of 48 tries at 4 players and 78 of 144 at 5 (best
+  feet 8.1, 0.9 above the lip; without the rider's jump 1 of 12 and 3 of 36), and the level
+  finishes (24.1 s at 4, 26.8 s at 5; re-measured on the integrated branch). From M's floor the
+  same synced jump never works (0 of 81). This makes the duct, its leg-up and the sign
+  « Corde courte ? Attends dans la gaine » optional at 4-5. Not fixed: closing it needs the
+  corridor mouth to be lower or further from the shaft, which moves the duct's measured rope
+  lengths. No shortcut covers it yet.
 - The tower pushed one cell short, into M's right cell: Ruben on it and a friend on his head (or
   dropping from the duct's mouth onto it, the old « je te descends sur la tête ») lean into J and
   get up at 2-3 players. The tower is pushed and used. At 4-5 it stands on M's sensor, where it

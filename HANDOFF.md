@@ -871,6 +871,60 @@ Rope wraps placed blocks (2026-11-27, owner's decision; supersedes the `=` passt
 - Guard: `coopRopeWrap.test.ts` checks, for every co-op level and team size, that every cell that stops bodies
   also stops the rope, and that a `=` block is wrapped like terrain.
 
+Levels 2-4 redesigned for the wrapped rope (2026-11-27; three level lanes, each through a critic round,
+integrated on one branch; notes in `docs/coop-levels/coop02.md`, `coop03.md`, `coop04.md`, rope rules for
+designers in `docs/coop-levels.md`, "Designing with the wrapped rope"). No engine change; no `=` in any of the
+three. All five levels pass `check-coop-level --all` at 2-5 players, every shortcut fails in its attempt,
+`npm test` passes in full (613), and `check-level --all` (race) prints the same as before but for timings.
+
+- Le Labo Réseau (coop02): beat 1 now plays on the wrap. The lip's corner is the pivot: the anchor's
+  distance to it sets the depth; the one lowered hangs in the slot's mouth, leans in under the lip (the rope
+  wraps its lower corner) and is set down by his anchor walking to the edge, or waits against the floor's side
+  until his anchor walks back. Then a train, the last one hauled up by the one in the slot. A low cable duct
+  over the floor's end and the shaft closes a ride-on-Ruben's-head way in (77 of 780 probed runs without
+  it). A fragile tile across shaft A, 4 below the slot's floor (the first fragile floor in the campaign),
+  catches the last one if his catcher is slow (an idle anchor slides off a floor's end towards the friend
+  below), and breaks under Ruben or two. `patience` variants and `coop02Patience.test.ts` prove the waits.
+  Bot times 14.5 / 25.6 / 30.7 / 35.9 s.
+- L'Amphi (coop03): redesigned around the wrap (the aisle's edge, the bench). New gate m at the bench's
+  end, inverted on the bench's link: a step while the bench holds W-1, a 1-deep pit otherwise, so an idle
+  sitter dragged to the trapdoor stands on m and weighs nothing on the bench, and w shuts before he can drop
+  in (closed the critic's "dragged sitter" case: 37 of 576 before, 0 of 5292 after). The bench has 2 seats;
+  the bots pass the key forward in arrival order. `takeKeyFrom` was added to `bots.ts` for this lane and is now
+  unused by coop03 (kept as a shared helper; La Salle keeps its own copy). Bot times 16.6 / 17.9 / 19.5 /
+  22.0 s.
+- La Salle de TP (coop04): beat 1 redesigned for the wrap: the climber's rope is measured round the shaft's
+  lip, so from 3 players its other neighbour must wait at the duct's mouth (the leg-up, « Corde courte ?
+  Attends dans la gaine »). At 4-5 players J's floor is now a second "≥ 4" sensor at M's height (no rail,
+  no pit, level 54 x 16): a tower pushed into J stops against a body instead of burying it. The PC tower
+  weighs 0 on plates. New `recoveries` list in `solutions.ts` (a mistake and the way back, played to the end,
+  checked by `coopLevels.test.ts`); its entry "into J before the tower, and back out" finishes at 2-5. The
+  client predictor keeps a rider's carrier under a ceiling (a 0.74 cell lift seen in the bench on the new
+  2-high corridor). Bot times 20.9 / 22.6 / 23.8 / 26.6 s.
+
+Accepted shortcuts (details in the level notes): coop02, another order in beat 1, an idle anchor's slide as
+the lowering (if the one below leans in), the last one dropped onto the tile on purpose, two stepping off
+together; coop03, trains over plate a, door wedges, walking into the cellar from tier 1, the key from the
+bench round the aisle; coop04, the PC tower's free corner and the bare tower with a buffered jump (a friend,
+or Ruben himself: 60 of 288 tries at 3-5), the tower pushed one cell short (now open at every size), other
+ways into the duct.
+
+Open after the integration's skeptic round (not fixed; each is in the level's notes, marked "Open"):
+
+- coop02, beat 1 can kill an idle team: Ruben steps off without leaning and his anchor stands still; the
+  anchor slides to the lip's corner and then off it (8 of 156 probed runs at 2 players, 18-27 s after the
+  step; 4 of 156 at 3; none at 4-5). This breaks "the first beats never kill" for a team that does nothing
+  for 18 s. Fix idea: a raised end on the lip (moves the pivot and every depth of the beat).
+- coop03, "Ruben hanging from the bench" is open at 4-5 players from further left on the aisle (x 30.0-30.4):
+  the link gets taut (4.76), Ruben's 2 counts on the bench, w opens and he drops into the cellar (9 of 4800
+  probed runs). No faster finish or soft-lock found (he cannot reach the key from there). Fix idea: a
+  shorter tower (lower bench ceiling) or the tower further from the aisle, and the shortcut's attempt should
+  sweep Ruben's start x.
+- coop04, the duct can be skipped at 4-5 players: the climber's other neighbour rides a head at the corridor
+  mouth instead of waiting in the duct, and they jump together (26 of 48 tries at 4, 78 of 144 at 5,
+  re-measured on this branch; the level then finishes in 24.1 / 26.8 s). No shortcut covers it yet.
+- coop04, the Ruben solo climb is accepted with the bare-tower family but is untested at 2 players.
+
 Status at the end of M4 (2026-11-26):
 
 - Done: step B is wired into the online screen (opt-in, `?predict=1`; step A stays the default because the
@@ -893,7 +947,9 @@ Status at the end of M4 (2026-11-26):
   is the stretch cue (thinner, orange to red, all red at the stop) clear, does a hanging friend bounce too
   much or too little (`ropeDamping`)? Decided: the rope wraps placed blocks `=` too, and levels 2 to 4 get
   redesigned around the wraps (see "Rope wraps placed blocks"). La Salle can now be climbed by hauling from 3
-  players (accepted).
+  players (accepted). Done for levels 2-4 (see "Levels 2-4 redesigned for the wrapped rope"); three skeptic
+  findings are left open there: decide whether Le Labo Réseau's idle-anchor death in beat 1 and La Salle de
+  TP's duct skip at 4-5 players are worth a map change.
 
 - Co-op "Réactivité": playtest the setting. Auto predicts under a 60 ms round trip and draws step A over
   80 ms (bench: the worst player's corrections start crossing 0.1 cell at about 78 ms, and always do by
