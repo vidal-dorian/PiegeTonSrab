@@ -234,6 +234,77 @@ describe("rope v2 review: an anchor between a walker and a hanging chain", () =>
     }
   });
 
+  it("in coop02, an anchor between a walker who stands still (or hauls, then holds) and the chain in the shaft stays still", () => {
+    const coop02 = COOP_LEVELS.find((l) => l.id === "coop02")!;
+    // The walker on the raised floor, the anchor on the row-10 floor, Ruben's chain hanging in the
+    // right shaft over (24, 10); the chain walks into the shaft for 0.75 s, then, if `haul`, the
+    // walker hauls for that many steps; then nobody presses a key.
+    for (const [n, walkerX, anchorX, haul] of [
+      [3, 19.5, 21.5, 0],
+      [3, 20.0, 21.0, 0],
+      [4, 19.5, 21.5, 0],
+      [5, 19.5, 21.0, 0],
+      [3, 20.9, 21.8, 60],
+      [4, 20.9, 21.8, 60],
+      [5, 20.9, 21.8, 120],
+    ] as const) {
+      const label = `${n} players, walker ${walkerX}, anchor ${anchorX}, haul ${haul}`;
+      const w = new CoopWorld(parseCoopLevel(coop02, n), team(n, n - 1));
+      w.placeBody(0, walkerX, 5.1);
+      w.placeBody(1, anchorX, 9.1);
+      for (let i = 2; i < n; i++) w.placeBody(i, 23.0 - 0.6 * (n - 1 - i), 9.1);
+      const still = 240 + haul + 120;
+      let largest = 0;
+      for (let s = 0; s < still + 15 * 120; s++) {
+        const bits = new Array<number>(n).fill(0);
+        if (s < 90) for (let i = 2; i < n; i++) bits[i] = BIT_RIGHT;
+        if (s >= 240 && s < 240 + haul) bits[0] = BIT_LEFT;
+        const x1 = w.bodies[1]!.x;
+        w.step(bits);
+        if (s >= still) largest = Math.max(largest, Math.abs(w.bodies[1]!.x - x1));
+      }
+      expect(w.dying, label).toBe(0);
+      expect(w.bodies[1]!.grounded, label).toBe(true);
+      // Before the fix, over those 15 s: the drag switched on as the anchor's steep end segment crossed
+      // 72° (MIN_DRAG_COS) and threw it 0.21-0.30 cell back towards the walker in one step, every
+      // 0.4-1 s (the anchor crept back to the shaft in between); after a haul, 0.12-0.24 (a7c458a:
+      // at most 0.006). Measured after: at most 0.003 standing still, 0.056-0.072 after a haul (the
+      // anchor let down onto the floor glides in at walking speed).
+      expect(largest, label).toBeLessThan(haul > 0 ? 0.1 : 0.05);
+    }
+  }, 60_000);
+
+  it("a chain placed past the stop stays held: the anchor holds its ground and the chain is hauled back up", () => {
+    for (const [n, anchorX] of [
+      [3, 22.6],
+      [3, 22.0],
+      [4, 22.6],
+    ] as const) {
+      const label = `${n} players, anchor ${anchorX}`;
+      const w = world(rows, n, n - 1);
+      w.placeBody(0, 20.9, 5.1);
+      w.placeBody(1, anchorX, 9.1);
+      for (let i = 2; i < n; i++) w.placeBody(i, 24.2, 10.5 + 4.6 * (i - 1));
+      // Placed 1.0-1.5 past the stop (Ruben's link 6.39-6.94).
+      expect(w.rope[1]!.length, label).toBeGreaterThan(MAX + 0.9);
+      let late = 0;
+      for (let s = 0; s < 960; s++) {
+        w.step(new Array<number>(n).fill(0));
+        if (s >= 120) for (const l of w.rope) late = Math.max(late, l.length);
+      }
+      // Before the fix the stop yanked the anchor 0.3 cell a step towards the shaft (its link to the
+      // walker could not hold it: no drag into a link past its stop), off the edge within 40 steps;
+      // then the walker slid off the upper floor and the whole chain fell to the bottom.
+      // Measured after: walker 20.90 / 5.10, anchor 22.79-22.81 / 9.10, links back within the stop.
+      expect(w.dying, label).toBe(0);
+      expect(w.bodies[0]!.grounded && w.bodies[0]!.y + H, label).toBeCloseTo(6, 6);
+      expect(w.bodies[1]!.grounded && w.bodies[1]!.y + H, label).toBeCloseTo(10, 6);
+      expect(w.bodies[1]!.x, label).toBeLessThan(23.2);
+      for (let i = 2; i < n; i++) expect(w.bodies[i]!.grounded, `${label}: body ${i} still hangs`).toBe(false);
+      expect(late, label).toBeLessThanOrEqual(MAX + 0.01);
+    }
+  });
+
   it("random play in coop02 (3-5 players) keeps every link within the stop + 0.1", () => {
     const coop02 = COOP_LEVELS.find((l) => l.id === "coop02")!;
     // Seeds that reached 5.78-6.10 before the fix.
@@ -289,6 +360,40 @@ describe("rope v2 review: no endless bouncing", () => {
       expect(r.speed, label).toBeLessThan(0.3);
     }
   });
+
+  it("Ruben in the middle of a chain, held against a block's face just under its corner, settles", () => {
+    // The same block, 3 players with Ruben second: he hangs against the far face just under the
+    // corner (18, 8), the last friend hangs below the ledge's lip (20, 10).
+    const ledge = room(60, 90, (x, y) => (x <= 19 && y >= 10) || (x >= 15 && x <= 17 && y >= 8) || y >= 88, 3, 9);
+    const cases: Array<[number, number, number, number, number]> = [];
+    for (const anchorX of [12.5, 13.0, 13.6]) for (const gap of [0.82, 1.2]) for (const walk of [90, 120, 180]) cases.push([3, anchorX, gap, walk, 18]);
+    // And 5 players (Ruben second), watched later: it took longer to settle.
+    for (const walk of [60, 120, 240]) cases.push([5, 13.6, 0.82, walk, 28]);
+    for (const [n, anchorX, gap, walk, from] of cases) {
+      const label = `${n} players, anchor ${anchorX}, gap ${gap}, walk ${walk}`;
+      const w = world(ledge, n, 1);
+      w.placeBody(0, anchorX, 9.1);
+      for (let i = 1; i < n; i++) w.placeBody(i, 15.0 + gap * (i - 1), 7.1);
+      const lo = new Array<number>(n).fill(Number.MAX_VALUE);
+      const hi = new Array<number>(n).fill(-Number.MAX_VALUE);
+      for (let s = 0; s < (from + 2) * 120; s++) {
+        w.step(Array.from({ length: n }, (_, i) => (i > 0 && s < walk ? BIT_RIGHT : 0)));
+        if (s < from * 120) continue;
+        w.bodies.forEach((b, i) => {
+          lo[i] = Math.min(lo[i]!, b.cy);
+          hi[i] = Math.max(hi[i]!, b.cy);
+        });
+      }
+      expect(w.ropeWraps[0]!.filter((_, i) => i % 3 !== 2), label).toEqual([15, 8, 18, 8]);
+      expect(w.bodies[1]!.grounded, label).toBe(false);
+      // Before the fix: at 3 players, in 11 of these 18 setups, Ruben 0.165 up and down for ever (2.4 Hz)
+      // and the friend below 0.110; at 5 players, Ruben 0.016 from 28 to 30 s. His hanging flag
+      // switched the air brake on and off, which left him a hair (1.3e-3) off the face or pressed on
+      // it, and the spring's wall rule switched with that contact. Measured after: 0.000.
+      const range = Math.max(...hi.map((h, i) => h - lo[i]!));
+      expect(range, label).toBeLessThan(0.01);
+    }
+  }, 60_000);
 
   it("two friends on either side of the sandbox's pillar stop seesawing", () => {
     for (const [delay, x0] of [

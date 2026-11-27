@@ -64,6 +64,12 @@ export const COOP = {
    */
   anchorSlide: 0.15,
   /**
+   * A standing anchor whose friend hangs past the hard stop (more than his haul speed can take
+   * back) gives ground towards him at most this fast, cells/s, on top of giving back its own move
+   * of the step: it holds its ground instead of being yanked 0.3 cell a step off an edge.
+   */
+  anchorGive: 2.5,
+  /**
    * Largest rope correction applied to one body in one step, cells: enough to catch a fall at full
    * speed (0.18 per step) or a catapulted friend, small enough that a stretched link never snaps back.
    */

@@ -793,6 +793,28 @@ they were found in):
   lifting the lower one hovered it off the floor (see above). Moving either player ends it.
 - Bots: coop05's shortcut "a tower from the seesaw to the mezzanine" lands the base on the cap within
   0.1 (it could sit on the edge of F0's head and block the climb); the shortcut still fails at its attempt.
+- Second round (the rechecks found two fixes incomplete; three more tests in `coopRopeV2Regression.test.ts`):
+  - coop02's anchor with the walker standing still, or after a haul: the drag switched on as its steep end
+    segment crossed 72° (`MIN_DRAG_COS`) and threw it 0.21-0.30 cell in one step every 0.4-1 s (anchorSlide
+    crept it back: a sawtooth). The drag now fades in from cos 0.3 to 0.5 (`FULL_DRAG_COS`) and never goes
+    faster than walking on top of undoing the body's own move (a body let down onto the floor glides in).
+    Largest anchor step over 15 s: 0.000-0.003 standing still (a7c458a 0.001-0.004), 0.056-0.072 after a haul
+    (was 0.12-0.24).
+  - A chain placed past the stop: no drag into a link past its stop, so nothing held the anchor, and the stop
+    yanked it 0.3 cell a step off the edge; the chain fell. A standing anchor held the other way by another
+    taut link now only gives back its own move of the step, plus `anchorGive` 2.5 cells/s (`anchorGiveBack`,
+    `stepBeginX`): the friend is hauled back within the stop in 0.3-0.5 s, everyone stays put.
+  - Ruben second in a chain, against the block's face just under its corner: 0.165 up and down for ever
+    (2.4 Hz), 0.016 at 5 players. His hanging flag switched the air brake, which left him 1.3e-3 off the face
+    or pressed on it, and the spring's wall rule switched with that contact (TOUCH 1e-3). The rule now fades
+    out over 0.02 off the wall (`WALL_FADE`), and spring pulls into a wall are applied after the others (one
+    link's pull into the wall left another's pull away from it unopposed: a kick off the wall at 5 players).
+    All settle (0.000). A hysteresis on the hanging flag was tried and dropped: it started a 0.064 bob of
+    its own (2 players, Ruben against the face).
+  - Unchanged: drag 3.500, tug 0.000 / Ruben 2.333, drift 0.150 / 0.300, haul caps 2.5 / 1.2 (onto the
+    ledge 1.49 s / 3.23 s). Random play coop01-05 (seeds 101-116, 3-5 players) stays at 5.499 or under; the
+    wider coop02 sample (seeds 201-240) touches 5.500-5.509 for 1-2 steps in 4 of 120 runs (1afe822: 5.498):
+    a walker hauling an all-air chain faster than its haul speed, where the stop's passes end either way.
 
 Drawing (`render/ropeLayout.ts`, `ropeView.ts`): each link goes through its wrap points; the parts between
 two corners are straight, the two end parts share the slack and sag. Near the rest length the orange cue fades

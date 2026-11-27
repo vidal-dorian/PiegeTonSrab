@@ -162,6 +162,8 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
   private startY: number[] = [];
   /** ... and its x (the rope never moves a friend back past it: bodies never push each other). */
   private startX: number[] = [];
+  /** ... and its x when the step began, before its support carried it. */
+  private beginX: number[] = [];
   /** Body centres when the step began, then before the rope's solve: where the rope's wraps sweep from. */
   private ropeX: number[] = [];
   private ropeY: number[] = [];
@@ -268,6 +270,10 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
 
   stepStartX(i: number): number {
     return this.startX[i] ?? this.bodies[i]!.x;
+  }
+
+  stepBeginX(i: number): number {
+    return this.beginX[i] ?? this.bodies[i]!.x;
   }
 
   pileBase(i: number): number {
@@ -640,6 +646,7 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
     const c = this.colliders[i]!;
     this.startY[i] = b.y;
     this.startX[i] = b.x;
+    this.beginX[i] = b.x;
     b.headCollider = -1;
     if (this.inside[i]) {
       c.dx = 0;

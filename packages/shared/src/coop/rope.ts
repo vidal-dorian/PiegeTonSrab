@@ -16,24 +16,29 @@
  *   damped spring's pull on its speed (stiffness per unit of mass, so Ruben stretches it twice as
  *   much); a body standing on something is pulled by position, a share of the stretch per step (it
  *   keeps its own speed: dragging a friend is a smooth half speed; never past the hard stop of its
- *   other link). The tension is the same all along the path, but for a little viscous friction of the
- *   rope sliding round its wrap points between two ends in the air (COOP.ropePulleyDamping).
+ *   other link, never faster than walking; faded in as its end segment flattens past 72°). The
+ *   tension is the same all along the path, but for a little viscous friction of the rope sliding
+ *   round its wrap points between two ends in the air (COOP.ropePulleyDamping).
  * - Hard stop: a link longer than ROPE_MAX_LENGTH is shortened back to it. The error is shared by
  *   "how easily the rope moves each end" (grip / mass): in the air 1, standing 0.35. A body holding a
  *   friend who hangs below it does not move for that link when it is held itself: standing (an
  *   anchor: it only slides, see below), or hanging from a friend higher up the rope. What one end
  *   cannot take (a wall, its haul budget) goes to the other end, so a link only stays past its stop
- *   when both ends are stuck. Sweeps go both ways along the chain, so a pull passes through a friend
- *   standing still in the middle (dragged like any idle friend). Moves go through collisions and
- *   carry whoever stands on the moved body; a body standing on a friend in the air (a jumping base)
- *   is pulled down with its whole pile. A player inside the door is a fixed point. Then the speed
- *   that stretches a link at its stop is removed from the bodies in the air.
+ *   when both ends are stuck; but an anchor held the other way by another taut link only gives back
+ *   its own move of the step, and ground beyond it at COOP.anchorGive. Sweeps go both ways along
+ *   the chain, so a pull passes through a friend standing still in the middle (dragged like any idle
+ *   friend). Moves go through collisions and carry whoever stands on the moved body; a body standing
+ *   on a friend in the air (a jumping base) is pulled down with its whole pile. A player inside the
+ *   door is a fixed point. Then the speed that stretches a link at its stop is removed from the
+ *   bodies in the air.
  * - Hanging: "below" and "above" are measured from the pivot, so a friend hanging over a corner
  *   hangs from that corner, whoever holds the other end and wherever.
  * - Walls: a body in the air pulled into a wall slides along it as far as the rope needs, when its
  *   end segment is steep enough (30°) to hold it there (the spring's lift fades out below that), and
- *   the spring's press into the wall brakes it along the wall (COOP.ropeWallFriction). A friend hanging against a wall below a lip
- *   is pulled straight up the wall towards the corner, then climbs over it with the mantle (world.ts).
+ *   the spring's press into the wall brakes it along the wall (COOP.ropeWallFriction); the spring's
+ *   wall rule fades out over WALL_FADE off the wall, and its pulls into a wall are applied after the
+ *   others (the wall takes the net press). A friend hanging against a wall below a lip is pulled
+ *   straight up the wall towards the corner, then climbs over it with the mantle (world.ts).
  * - Nobody outruns the rope: a body pulled back against friends right behind it, or standing on a
  *   friend, takes them back too (a train), each never further than where it stood when the step
  *   began: the rope undoes this step's moves, it never pushes anyone.
@@ -47,7 +52,7 @@
  *   faster the more hang below it.
  */
 import type { CoopController } from "./coopController";
-import { COOP, ROPE_MAX_LENGTH } from "./coopTuning";
+import { COOP, COOP_MOVEMENT, ROPE_MAX_LENGTH } from "./coopTuning";
 import { dist } from "./detMath";
 
 export interface RopeHost {
@@ -62,6 +67,8 @@ export interface RopeHost {
   stepStartY(i: number): number;
   /** Body i's x when it started its own move this step (after being carried by its support). */
   stepStartX(i: number): number;
+  /** Body i's x when this step began (before its support carried it). */
+  stepBeginX(i: number): number;
   /** The body at the bottom of the pile body i stands in (i itself when it stands on anything else or nothing). */
   pileBase(i: number): number;
   /** Whether body `rider` stands on body `base`, directly or not (moving the base carries it). */
@@ -109,8 +116,21 @@ const HOLD_SLACK = 0.005;
 const MIN_SLIDE = 0.5;
 /** A standing body is dragged by a stretched link only when its end segment is at least this flat (cosine): straight below, it is lifted at the hard stop. */
 const MIN_DRAG_COS = 0.3;
+/**
+ * The drag fades in from MIN_DRAG_COS to full at this cosine (linear in it): a drag that switched on
+ * at MIN_DRAG_COS moved a standing anchor by want / cos (0.2-0.3 cell) in one step as its end
+ * segment crossed it, then the anchor crept back (anchorSlide) and it fired again, a sawtooth.
+ */
+const FULL_DRAG_COS = 0.5;
 /** Side contact between two bodies (a train), or with a wall, cells. */
 const TOUCH = 1e-3;
+/**
+ * The spring's wall rule fades out from a body touching a wall (TOUCH) to this far off it, cells.
+ * A body the air brake leaves a hair off the wall (1.3e-3) while the swing of a hanging body
+ * closes it: with an on/off contact, the hanging flag switched the spring's lift along the wall
+ * on and off, and a body held just under a corner bobbed for ever.
+ */
+const WALL_FADE = 0.02;
 /** Longest grid walk of a segment (cells crossed): far more than any link ever spans. */
 const MAX_TRACE = 64;
 /** Events (wraps and unwraps) one end can go through in one sweep. */
@@ -150,15 +170,32 @@ function hangsBelow(other: CoopController, px: number, py: number): boolean {
   return drop > COOP.hangHeight && (!standing(other) || drop >= Math.abs(other.cx - px));
 }
 
+/**
+ * How far body b is from solid terrain on the side its pull direction `ux` points to, when that is
+ * under WALL_FADE (0 when touching); else Infinity.
+ */
+function wallGap(host: RopeHost, b: CoopController, ux: number): number {
+  if (ux === 0) return Number.POSITIVE_INFINITY;
+  const edge = ux > 0 ? b.x + b.width : b.x;
+  const line = ux > 0 ? Math.ceil(edge - TOUCH) : Math.floor(edge + TOUCH);
+  const gap = Math.max(0, (line - edge) * (ux > 0 ? 1 : -1));
+  if (gap >= WALL_FADE) return Number.POSITIVE_INFINITY;
+  const col = ux > 0 ? line : line - 1;
+  for (let r = Math.floor(b.y); r < b.y + b.height - 1e-6; r++) if (host.solidCell(col, r)) return gap;
+  return Number.POSITIVE_INFINITY;
+}
+
 /** Whether body b touches solid terrain on the side its pull direction `ux` points to. */
 function againstWall(host: RopeHost, b: CoopController, ux: number): boolean {
-  if (ux === 0) return false;
-  const edge = ux > 0 ? b.x + b.width : b.x;
-  const line = Math.round(edge);
-  if (Math.abs(edge - line) > TOUCH) return false;
-  const col = ux > 0 ? line : line - 1;
-  for (let r = Math.floor(b.y); r < b.y + b.height - 1e-6; r++) if (host.solidCell(col, r)) return true;
-  return false;
+  return wallGap(host, b, ux) <= TOUCH;
+}
+
+/** How much the spring's wall rule applies to body b pulled along `ux`: 1 touching, fading to 0 at WALL_FADE. */
+function wallWeight(host: RopeHost, b: CoopController, ux: number): number {
+  const gap = wallGap(host, b, ux);
+  if (gap <= TOUCH) return 1;
+  if (gap >= WALL_FADE) return 0;
+  return (WALL_FADE - gap) / (WALL_FADE - TOUCH);
 }
 
 // --- Geometry of the wraps ------------------------------------------------------------------
@@ -732,14 +769,14 @@ export function solveRope(host: RopeHost, chain: readonly number[], wraps: reado
    * shortens the link by k per cell moved, at most `max` cells; (ex, ey) is the direction towards
    * its pivot. Within its budgets and through collisions. Returns how much shorter the link got.
    */
-  const pull = (i: number, want: number, ux: number, uy: number, k: number, max: number, ex: number, ey: number, by: number): number => {
+  const pull = (i: number, want: number, ux: number, uy: number, k: number, max: number, ex: number, ey: number, by: number, maxX = Number.MAX_VALUE): number => {
     if (want <= 1e-9 || host.isFixed(i)) return 0;
     const b = bodies[i]!;
     const grounded = b.grounded;
     const a = Math.min(want / k, max, corrLeft[i]!);
     if (a <= 1e-9) return 0;
     // The haul speed only limits how high the rope brings it, not how far it swings it sideways.
-    let wantX = ux * a;
+    let wantX = Math.max(-maxX, Math.min(maxX, ux * a));
     let wantY = uy < 0 ? Math.max(uy * a, -riseRoom(i)) : uy * a;
     const share = riderShare(i, wantX, wantY);
     wantX *= share;
@@ -801,12 +838,16 @@ export function solveRope(host: RopeHost, chain: readonly number[], wraps: reado
     if (wa + wb <= 0) return;
     const drag = (i: number, share: number, ux: number, uy: number, seg: number, wrapped: boolean, by: number): void => {
       const c = Math.abs(ux);
-      if (c < MIN_DRAG_COS) return;
+      if (c <= MIN_DRAG_COS) return;
+      const fade = Math.min(1, (c - MIN_DRAG_COS) / (FULL_DRAG_COS - MIN_DRAG_COS));
       const dir = ux > 0 ? 1 : -1;
       // Never past the hard stop of the body's other link: an anchor between a walker and a
       // friend hanging below it is not dragged into that link's stop (the stop would throw it back).
       const room = otherLinkRoom(k, i, dir);
-      pull(i, want * share, dir, 0, c, Math.min(wrapped ? seg * c : Number.MAX_VALUE, room), ux, uy, by);
+      // Never faster than walking, on top of giving back its own move of the step (a tug of war):
+      // a body let down onto the floor with its link stretched glides in instead of snapping.
+      const glide = Math.max(0, (host.stepBeginX(i) - bodies[i]!.x) * dir) + COOP_MOVEMENT.runSpeed * dt;
+      pull(i, want * share * fade, dir, 0, c, Math.min(wrapped ? seg * c : Number.MAX_VALUE, room, glide), ux, uy, by);
     };
     const wrapped = wraps[k]!.length > 0;
     if (A.grounded && wa > 0) {
@@ -835,6 +876,32 @@ export function solveRope(host: RopeHost, chain: readonly number[], wraps: reado
     return room;
   };
 
+  const back = newMeasure();
+  /**
+   * How far along x (its pull direction `ux`) the hard stop of link k may move body i, the anchor
+   * of `other`. A standing body holding a friend in the air below it (pivot (opx, opy)), and held
+   * the other way by another taut link, takes what the friend cannot (his haul budget) only as far
+   * as it moved away from him this step (its walk, its support's carry, a drag), and gives ground
+   * beyond that at most at COOP.anchorGive: its grip and its other link hold it. Anything else: no
+   * limit. Without it, a chain past the stop (placed there) yanked its anchor 0.3 cell a step
+   * against the walker's link, off the edge, and the whole chain fell.
+   */
+  const anchorGiveBack = (k: number, i: number, other: number, opx: number, opy: number, ux: number): number => {
+    const b = bodies[i]!;
+    const o = bodies[other]!;
+    if (ux === 0 || !standing(b) || standing(o) || host.isFixed(other) || !hangsBelow(o, opx, opy)) return Number.MAX_VALUE;
+    let held = false;
+    for (let j = 0; j < links.length && !held; j++) {
+      if (j === k) continue;
+      const [a, c] = links[j]!;
+      if (a !== i && c !== i) continue;
+      measure(j, back);
+      held = back.len >= REST - TAUT_SLACK && (a === i ? back.ax : back.bx) * ux < 0;
+    }
+    if (!held) return Number.MAX_VALUE;
+    return Math.max(0, (host.stepBeginX(i) - b.x) * (ux > 0 ? 1 : -1) + COOP.anchorGive * dt);
+  };
+
   /** The hard stop: shorten a link longer than MAX back to it. */
   const solveLink = (k: number): void => {
     const [ia, ib] = links[k]!;
@@ -845,10 +912,12 @@ export function solveRope(host: RopeHost, chain: readonly number[], wraps: reado
     const wa = mobility(ia, ib, pbx, pby);
     const wb = mobility(ib, ia, pax, pay);
     const shareA = wa + wb > 0 ? wa / (wa + wb) : 0.5;
+    const xa = anchorGiveBack(k, ia, ib, pbx, pby, ax);
+    const xb = anchorGiveBack(k, ib, ia, pax, pay, bx);
     // A moves towards its pivot, B towards its own. What one end cannot take goes to the other.
-    let ga = pull(ia, err * shareA, ax, ay, 1, ma, ax, ay, ib);
-    const gb = pull(ib, err - ga, bx, by, 1, mb, bx, by, ia);
-    if (ga + gb < err - 1e-9) ga += pull(ia, err - ga - gb, ax, ay, 1, Math.max(0, ma - ga), ax, ay, ib);
+    let ga = pull(ia, err * shareA, ax, ay, 1, ma, ax, ay, ib, xa);
+    const gb = pull(ib, err - ga, bx, by, 1, mb, bx, by, ia, xb);
+    if (ga + gb < err - 1e-9) ga += pull(ia, err - ga - gb, ax, ay, 1, Math.max(0, ma - ga), ax, ay, ib, xa);
   };
 
   // Alternate the sweep direction: a pull travels the whole chain in a few passes either way.
@@ -913,25 +982,38 @@ export function solveRope(host: RopeHost, chain: readonly number[], wraps: reado
     let dvx = ux * q;
     let dvy = uy * q;
     let press = 0;
-    if (dvx !== 0 && againstWall(host, b, dvx)) {
+    const w = dvx !== 0 ? wallWeight(host, b, dvx) : 0;
+    if (w > 0) {
       const side = dvx > 0 ? 1 : -1;
       const x = Math.min(Math.abs(dvx), Math.max(0, -b.vx * side)) * side;
-      press = Math.abs(dvx - x);
-      dvx = x;
       // Along the wall as far as the rope needs (as speedUp), fading out below MIN_SLIDE instead
-      // of stopping there: a jump in the lift as the end segment crosses 30° drove a bob.
-      dvy = ((q - x * ux) * uy) / Math.max(uy * uy, MIN_SLIDE * MIN_SLIDE);
+      // of stopping there: a jump in the lift as the end segment crosses 30° drove a bob. And
+      // blended in by how close the wall is (wallWeight), not switched by a contact test.
+      const lift = ((q - x * ux) * uy) / Math.max(uy * uy, MIN_SLIDE * MIN_SLIDE);
+      press = w * Math.abs(dvx - x);
+      dvx += w * (x - dvx);
+      dvy += w * (lift - dvy);
     }
     b.vx += dvx;
     b.vy += dvy;
     if (press > 0) b.vy *= 1 - Math.min(1, COOP.ropeWallFriction * press);
   };
 
+  /** Spring pulls into a wall, applied after the others: [body, q, ux, uy]. */
+  const wallPulls: Array<[CoopController, number, number, number]> = [];
+  const springOrDefer = (b: CoopController, q: number, ux: number, uy: number): void => {
+    if (ux !== 0 && wallGap(host, b, ux) < WALL_FADE) wallPulls.push([b, q, ux, uy]);
+    else springUp(b, q, ux, uy);
+  };
+
   const vyBefore = bodies.map((b) => b.vy);
 
   // The spring: a stretched link pulls each end in the air towards its pivot, the same tension all
   // along the path, damped by how fast the path gets longer. Ends standing on something were pulled
-  // by position above; they keep their own speed.
+  // by position above; they keep their own speed. A pull into a wall the body is at is applied
+  // after the others: the wall takes what the net pull presses into it, so one link pulling into the
+  // wall does not leave another's pull away from it unopposed (that kicked a body off the wall).
+  wallPulls.length = 0;
   for (let k = 0; k < links.length; k++) {
     const [ia, ib] = links[k]!;
     measure(k, m);
@@ -953,9 +1035,10 @@ export function solveRope(host: RopeHost, chain: readonly number[], wraps: reado
     const slip = wraps[k]!.length > 0 ? PULLEY_DAMPING * ((airA ? rateA : 0) - (airB ? rateB : 0)) : 0;
     const forceA = Math.max(0, tension + slip);
     const forceB = Math.max(0, tension - slip);
-    if (airA && forceA > 0) springUp(A, (forceA * dt) / A.mass, m.ax, m.ay);
-    if (airB && forceB > 0) springUp(B, (forceB * dt) / B.mass, m.bx, m.by);
+    if (airA && forceA > 0) springOrDefer(A, (forceA * dt) / A.mass, m.ax, m.ay);
+    if (airB && forceB > 0) springOrDefer(B, (forceB * dt) / B.mass, m.bx, m.by);
   }
+  for (const [b, q, ux, uy] of wallPulls) springUp(b, q, ux, uy);
 
   // At the hard stop: remove the speed that stretches each link from the bodies in the air (shared
   // by mass when both are), repeated so a whole hanging chain stops.
