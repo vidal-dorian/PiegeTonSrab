@@ -24,8 +24,8 @@ it is useful:
   stays open on the key.
 
 The rope plays its part where it fits: in beat 1 it is measured round the shaft's lip, so from 3
-players the friend tied to the climber must wait up in the cable duct, not on the floor (« Pas
-assez de corde : attends dans la gaine ! »), and everyone else is hauled over that lip; in beat 3
+players the friend tied to the climber must wait up in the cable duct, not on the floor (the sign:
+« Corde courte ? Attends dans la gaine »), and everyone else is hauled over that lip; in beat 3
 the next one up waits on the tower, within reach of the one on the landing.
 
 One deadly spot: the bare cables at the foot of the exit shaft (beat 3). The ditch of beat 2 is
