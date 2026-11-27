@@ -11,17 +11,20 @@
  *    pocket stands on k and weighs nothing on c. The tunnel's ceiling is gate h (over its mouth) and
  *    plate d ("1", the first cells of the upper floor, right over the seat): whoever goes up
  *    through h and stands on d holds h for Ruben, with the rope straight through d to him.
- * 3. Le contrôle surprise (x 26-41): plate "W-1" (p, the bench, one cell above the aisle) opens the
- *    1-cell trapdoor w just left of it; the one friend left free drops into the cellar under the
- *    bench. The rope runs down through w and round the aisle's edge, so the team must come over w
- *    for him to reach the key (behind gate n, under the aisle). Plate f ("= 1", in the cellar floor)
+ * 3. Le contrôle surprise (x 26-41): plate "W-1" (p, the bench, one cell above the aisle, two seats)
+ *    opens the 2-cell trapdoor w just left of it; the one friend left free drops into the cellar
+ *    under the bench. The bench's end m, over w's right half, is an inverted gate on the same link:
+ *    shut (a step at the bench's height) while w is open, a pit the rest of the time. Whoever leaves
+ *    the bench towards w stands on m, which the bench lets go of, and w shuts before he is past it,
+ *    even dragged there by the rope. The rope runs down through w and round the aisle's edge, so the
+ *    team must come over w for him to reach the key (behind gate n, under the aisle). Plate f ("= 1", in the cellar floor)
  *    opens gate x, which stands on the bench's last cell, and shuts n: the team goes out onto the
  *    first tier and the rope keeps the free friend far from the key, so take it first. Plate r
  *    ("1", on the first tier) opens e, the cellar's side door onto that tier, for him.
  * 4. The tiers (gradins) down to the stage (estrade) and the door.
  *
- * The cellar's ceiling from w to e is things only (w, the bench, e is a door in its side wall): the
- * rope from the team to the free friend goes through it wherever he walks under the bench.
+ * The cellar's ceiling from w to e is things only (w, m over it, the bench, e is a door in its side
+ * wall): the rope from the team to the free friend goes through it wherever he walks under the bench.
  */
 import type { CoopLevelDef } from "../levelFormat";
 
@@ -39,8 +42,8 @@ export const coop03: CoopLevelDef = {
     "#######################.............#...............................#",
     "#.............g.......h.............x...............................#",
     "#.............g.......h.............x...............................#",
-    "#.............g.......h..........pppp...............................#",
-    "#.............g.......hddd######w....e..............................#",
+    "#.............g.......h..........mppp...............................#",
+    "#.............g.......hddd######ww...e..............................#",
     "#.S...........g...........##K..n.....e..............................#",
     "#########aa####bbb######kc######s##f###rrr##........................#",
     "############################################........................#",
@@ -68,6 +71,9 @@ export const coop03: CoopLevelDef = {
     x: { kind: "gate", link: "libre" },
     p: { kind: "plate", need: "W-1", link: "controle" },
     w: { kind: "gate", link: "controle" },
+    // The bench's end m, over the trapdoor's right half: shut while the bench holds W-1 (the trapdoor
+    // open), so that nobody leaving the bench falls straight in; open the rest of the time (a pit).
+    m: { kind: "gate", link: "controle", inverted: true },
     e: { kind: "gate", link: "sortie" },
     r: { kind: "plate", need: 1, link: "sortie" },
     // The door's inside plate, 3 cells from it: nobody opens e from inside alone and gets out, but

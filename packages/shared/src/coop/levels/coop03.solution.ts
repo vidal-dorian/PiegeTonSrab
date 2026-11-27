@@ -4,9 +4,9 @@
  * Roles: R is Ruben, F0..F3 the friends in seat order; the last friend is Ruben's neighbour in the
  * chain, F0 the free end of the chain. Map, beats and numbers: docs/coop-levels/coop03.md.
  */
-import { BIT_JUMP, BIT_JUMP_PRESS, BIT_LEFT, BIT_RIGHT } from "../inputBits";
+import { BIT_DOWN, BIT_DOWN_PRESS, BIT_JUMP, BIT_JUMP_PRESS, BIT_LEFT, BIT_RIGHT } from "../inputBits";
 import { COOP_DT } from "../coopTuning";
-import { cond, enter, friends, jumpTo, mount, roleIndex, seq, takeKeyFrom, walk, type CoopSolution, type Goal, type Phase, type Role } from "../bots";
+import { cond, enter, friends, jumpTo, mount, roleIndex, seq, walk, type CoopSolution, type Goal, type Phase, type Role } from "../bots";
 import type { CoopWorld } from "../world";
 
 // --- Helpers (goals and conditions the toolbox does not have) --------------------------------
@@ -19,14 +19,12 @@ const feetBelow = (role: Role, y: number) => (w: CoopWorld) => {
 /** The role's centre is right of x. */
 const pastX = (role: Role, x: number) => (w: CoopWorld) => w.bodies[roleIndex(role, w.bodies.length)]!.cx > x;
 const not = (c: (w: CoopWorld) => boolean) => (w: CoopWorld) => !c(w);
-/** The key is carried by one of these roles. */
-const carriedBy = (roles: Role[]) => (w: CoopWorld) => roles.some((r) => w.props.keyCarrier === roleIndex(r, w.bodies.length));
 /** Every listed role stands near its x. */
 const allNear = (spots: Array<[Role, number]>, tol = 0.35) => cond.all(...spots.map(([r, x]) => cond.near(r, x, tol)));
 /** Goals walking each role to its spot. */
 const goTo = (spots: Array<[Role, number]>, o: Parameters<typeof walk>[1] = never): Phase["do"] => Object.fromEntries(spots.map(([r, x]) => [r, walk(x, o)]));
 
-/** Hop on the spot again and again around x (a body trying to hang from the rope). */
+/** Hop on the spot again and again around x (a body trying to hang from the rope); x NaN: no direction at all. */
 function hopAt(x: number, period: number): Goal {
   const every = Math.round(period / COOP_DT);
   return {
@@ -44,6 +42,31 @@ function hopAt(x: number, period: number): Goal {
 
 const never = { jump: "never" as const };
 
+/**
+ * Walk the roles to the spots, right to left in the order they stand now (the rightmost one to the
+ * first spot): a line that reorders itself on a drop keeps its spots apart.
+ */
+function inLine(roles: Role[], spots: number[], o: Parameters<typeof walk>[1]): Phase["do"] {
+  const goals: Phase["do"] = {};
+  for (const r of roles) {
+    let x = Number.NaN;
+    let g: Goal | null = null;
+    goals[r] = {
+      label: `in line (${r})`,
+      step(c) {
+        const me = c.w.bodies[c.i]!.cx;
+        const rank = roles.filter((o2) => o2 !== r && c.w.bodies[roleIndex(o2, c.w.bodies.length)]!.cx > me).length;
+        if (spots[rank] !== x || !g) {
+          x = spots[rank]!;
+          g = walk(x, o);
+        }
+        return g.step(c);
+      },
+    };
+  }
+  return goals;
+}
+
 // --- Places (x of body centres, in cells) --------------------------------------------------
 
 /** Beat 1: plate a at 9-10, gate g at 14, plate b at 15-17. Ruben waits against the gate. */
@@ -56,10 +79,17 @@ const SEAT = 25.5;
 const ON_D = 25.15;
 const D_B = 23.95;
 const D_A = 23.0;
-/** Beat 3: key 28 behind gate n 31 (under the aisle), trapdoor w 32, bench p 33-36 (x stands on 36), plate f 35 (cellar floor), door e 37 onto tier 1 (38-43, plate r 39-41). */
+/**
+ * Beat 3: key 28 behind gate n 31 (under the aisle), trapdoor w 32-33, the bench's end m 33 over
+ * it (shut at the bench's height while w is open, a pit otherwise), bench p 34-36 (x stands on 36:
+ * two seats), plate f 35 (cellar floor), door e 37 onto tier 1 (38-43, plate r 39-41).
+ */
 const ON_W = 32.45;
 const AISLE_W = 31.4;
-const BENCH = [35.15, 34.3, 33.45];
+/** The bench's two seats, right then left. */
+const BENCH = [35.45, 34.45];
+/** In the pit of the bench's end m (open while the bench is short), between the trapdoor and the bench. */
+const PIT = 33.5;
 const KEY = 28.9;
 const PF = 35.5;
 const ON_R = 39.4;
@@ -83,12 +113,16 @@ function lineAfterSeat(n: number): Role[] {
   return ["F0", "F1", nb(n), ...[...middle(n)].reverse(), "R"];
 }
 
-/** Who sits where on the bench (everybody but F0), and who rides on whom (5 players). */
-function benchSpots(n: number): { spots: Array<[Role, number]>; rider: [Role, Role] | null } {
+/**
+ * How everybody but F0 sits on the bench, in order: Ruben on the right seat, the next one on the
+ * left seat; from 4 players the others ride on heads (at 5 players the middle friend on Ruben's,
+ * before the left seat is taken; F1 last, on the left seat's head, next to m).
+ */
+function benchPlan(n: number): Array<{ role: Role; seat: number } | { role: Role; on: Role }> {
   const team = lineAfterSeat(n).slice(1).reverse(); // right to left: Ruben first
-  if (n <= 4) return { spots: team.map((r, i) => [r, BENCH[i]!] as [Role, number]), rider: null };
-  // 5 players: Ruben, the middle friend, Ruben's neighbour on the bench; F1 on the neighbour's head.
-  return { spots: [["R", BENCH[0]!], [team[1]!, BENCH[1]!], [team[2]!, BENCH[2]!]], rider: ["F1", team[2]!] };
+  if (n <= 3) return team.map((role, i) => ({ role, seat: BENCH[i]! }));
+  if (n === 4) return [{ role: "R", seat: BENCH[0]! }, { role: team[1]!, seat: BENCH[1]! }, { role: team[2]!, on: team[1]! }];
+  return [{ role: "R", seat: BENCH[0]! }, { role: team[1]!, on: "R" }, { role: team[2]!, seat: BENCH[1]! }, { role: team[3]!, on: team[2]! }];
 }
 
 /** F0's neighbour in the chain: the one who gives him rope over w. */
@@ -171,16 +205,30 @@ function place(n: number): Phase[] {
  * edge reaches the key; F0 takes the key.
  */
 function controle(n: number): Phase[] {
-  const { spots, rider } = benchSpots(n);
   const phases: Phase[] = [];
-  const sit: Phase["do"] = { ...goTo(spots, {}) };
-  if (rider) {
-    phases.push({ name: "3. contrôle surprise: the bench fills up", do: sit, until: allNear(spots, 0.3), timeout: 12 });
-    phases.push({ name: `3. ${rider[0]} sits on ${rider[1]}'s head`, do: { [rider[0]]: mount(rider[1]), ...sit }, until: cond.on(rider[0], rider[1]), timeout: 8 });
-  }
+  const sit: Phase["do"] = {};
+  const plan = benchPlan(n);
+  // The ones still to sit queue up behind, from the trapdoor back along the aisle (the rope stays short).
+  const queue = (j: number): Phase["do"] => goTo([...plan.slice(j + 1).map((s) => s.role), "F0" as Role].map((r, i) => [r, ON_W - 0.85 * i] as [Role, number]));
+  // Up onto the bench from the queue: a hop over the pit (a mount starts from the bench, next to its friend's left).
+  const onto = (x: number): Goal => seq(jumpTo(x, { rise: 0.1 }), walk(x, { tol: 0.12 }));
+  plan.forEach((s, j) => {
+    // The last one sits together with F0 walking onto the trapdoor (below).
+    if (j === plan.length - 1 && "seat" in s) return;
+    if ("seat" in s) {
+      sit[s.role] = s.role === "R" ? walk(s.seat, {}) : onto(s.seat);
+      phases.push({ name: `3. contrôle surprise: ${s.role} sits on the bench (${s.seat})`, do: { ...queue(j), ...sit }, until: cond.all(cond.near(s.role, s.seat, 0.3), cond.standsAbove(s.role, 9)), timeout: 12 });
+    } else {
+      // Onto Ruben's head (on the right seat) from the left seat; onto the left seat's head from the pit.
+      sit[s.role] = s.on === "R" ? seq(onto(BENCH[1]!), mount(s.on)) : mount(s.on);
+      if (j < plan.length - 1) phases.push({ name: `3. ${s.role} sits on ${s.on}'s head`, do: { ...queue(j), ...sit }, until: cond.on(s.role, s.on), timeout: 8 });
+    }
+  });
+  const last = plan[plan.length - 1]!;
+  if ("seat" in last) sit[last.role] = last.role === "R" ? walk(last.seat, {}) : onto(last.seat);
   phases.push({
     name: "3. contrôle surprise: everybody but F0 sits (W-1), the trapdoor opens under F0",
-    do: { ...sit, F0: walk(ON_W, never), ...(rider ? { [rider[0]]: mount(rider[1]) } : {}) },
+    do: { ...sit, F0: walk(ON_W, never) },
     until: cond.all(cond.plateActive("p"), feetBelow("F0", 11.95)),
     timeout: 15,
   });
@@ -200,30 +248,59 @@ function sortie(n: number): Phase[] {
   const out: Array<[Role, number]> = [...team.map((r, j) => [r, TIER1[j]!] as [Role, number]), [g, ON_R]];
   return [
     { name: "3. F0 onto plate f (= 1): gate x opens, the key's gate n shuts", do: { F0: walk(PF, never) }, until: cond.all(cond.plateActive("f"), cond.gateOpen("x"), not(cond.gateOpen("n"))), timeout: 10 },
-    { name: "3. the team goes out through x onto the first tier", do: goTo(out, { drop: true, jump: "auto" }), until: allNear(out, 0.3), timeout: 15 },
+    // Those on the bench walk out in line (no hopping over each other); F0's neighbour climbs up from the trapdoor.
+    {
+      name: "3. the team goes out through x onto the first tier",
+      do: { ...inLine(team, TIER1.slice(0, team.length), { drop: true, jump: "never" }), ...goTo([[g, ON_R]], { drop: true, jump: "auto" }) },
+      until: cond.all(cond.near(g, ON_R, 0.3), (w) => team.every((r) => TIER1.some((x) => cond.near(r, x, 0.3)(w)))),
+      timeout: 15,
+    },
     { name: "3. F0 walks out through e (r is held)", do: { F0: walk(OUT_E, never) }, until: cond.all(cond.near("F0", OUT_E, 0.3), cond.standsAbove("F0", 12)), timeout: 6 },
   ];
 }
 
-/** Beat 4: down the tiers onto the stage, the key passed to the front of the line, the door. */
-function estrade(q: Role[]): Phase[] {
-  const spots = q.map((r, j) => [r, DOOR_FRONT - 0.8 * j] as [Role, number]);
-  const phases: Phase[] = [{ name: "4. down the tiers onto the stage", do: goTo(spots, { drop: true }), until: allNear(spots, 0.3), timeout: 25 }];
-  for (let j = q.length - 2; j >= 0; j--) {
-    phases.push({ name: `4. ${q[j]} takes the key from ${q[j + 1]}`, do: { [q[j]!]: takeKeyFrom(q[j + 1]!) }, until: carriedBy(q.slice(0, j + 1)), timeout: 3 });
-  }
-  phases.push({ name: "4. everyone through the door", do: { "*": () => enter() }, until: cond.won, timeout: 20 });
-  return phases;
+/** The one standing right in front of the key's carrier (the next one towards the door) takes the key from him. */
+function keyForward(): Goal {
+  let pressedAt = -100;
+  return {
+    label: "take the key from the one behind",
+    step(c) {
+      const j = c.w.props.keyCarrier;
+      if (j < 0) return 0;
+      const bs = c.w.bodies;
+      const front = bs.reduce((k, b, i) => (b.cx > bs[j]!.cx && (k < 0 || b.cx < bs[k]!.cx) ? i : k), -1);
+      if (front !== c.i) return 0;
+      const dx = bs[c.i]!.cx - bs[j]!.cx;
+      const dy = bs[c.i]!.cy - bs[j]!.cy;
+      if (Math.sqrt(dx * dx + dy * dy) <= 1.35 && c.t - pressedAt > 8) {
+        pressedAt = c.t;
+        return BIT_DOWN | BIT_DOWN_PRESS;
+      }
+      return 0;
+    },
+  };
 }
 
-/** The line on the stage, front to back. */
-function stageLine(n: number): Role[] {
-  const g = f0Nb(n);
-  const team = lineAfterSeat(n).slice(1).reverse().filter((r) => r !== g);
-  return [...team, g, "F0"];
+/** The key's carrier is the one nearest the door. */
+const keyInFront = (w: CoopWorld) => w.props.keyCarrier >= 0 && w.bodies.every((b) => b.cx <= w.bodies[w.props.keyCarrier]!.cx);
+
+/** Beat 4: down the tiers onto the stage in line (in the order they come), the key passed to the front of the line, the door. */
+function estrade(n: number): Phase[] {
+  const all: Role[] = [...friends(n), "R"];
+  const spots = all.map((_, j) => DOOR_FRONT - 0.8 * j);
+  return [
+    {
+      name: "4. down the tiers onto the stage",
+      do: inLine(all, spots, { drop: true }),
+      until: (w) => all.every((r) => spots.some((x) => cond.near(r, x, 0.3)(w))),
+      timeout: 25,
+    },
+    { name: "4. the key passed to the front of the line", do: { "*": () => keyForward() }, until: keyInFront, timeout: 3 * n },
+    { name: "4. everyone through the door", do: { "*": () => enter() }, until: cond.won, timeout: 20 },
+  ];
 }
 
-export const solution: CoopSolution = (n) => [...relais(n), ...place(n), ...controle(n), ...sortie(n), ...estrade(stageLine(n))];
+export const solution: CoopSolution = (n) => [...relais(n), ...place(n), ...controle(n), ...sortie(n), ...estrade(n)];
 
 // --- Shortcuts that must fail --------------------------------------------------------------
 //
@@ -303,27 +380,36 @@ function followUp(n: number, front: number, skip: Role[]): Phase["do"] {
   return goTo(fs.map((f, j) => [f, front - 0.85 * (j + 1)] as [Role, number]));
 }
 
-/** Where a friend sits in a set-up: a place on the bench, or on another one's head (who sits at x). */
-type Seat = number | { on: Role; x: number };
+/**
+ * Where a friend goes in a set-up: a place on the bench, onto another one's head (who sits at x) in
+ * the same hop, or (`mount`) up onto a friend's head from where he waits on the bench.
+ */
+type Seat = number | { on: Role; x: number } | { mount: Role };
 
 /**
- * Beat 3 set-up: Ruben stops at `rx` (the trapdoor, or the bench's left end); then the friends of
+ * Beat 3 set-up: Ruben stops at `rx` (the trapdoor, or the bench's left seat); then the friends of
  * `who`, front of the line first, walk to `launch` and hop over him onto their seats (the later
- * ones over the heads of those already seated), the line behind closing up each time; F0 (if he
+ * ones onto the heads of those already seated), the line behind closing up each time; F0 (if he
  * does not sit) then waits at `f0` on the aisle.
  */
 function friendsOverRuben(rx: number, launch: number, who: Array<[Role, Seat]>, f0: number | null): Phase[] {
   const stay = walk(rx, { tol: 0.12 });
   const phases: Phase[] = [{ name: `Ruben stops at ${rx}`, do: { R: stay }, until: cond.all(cond.near("R", rx, 0.15), cond.standsAbove("R", 10)), timeout: 8 }];
-  const queue: Role[] = [...who.map(([r]) => r), ...(f0 !== null ? ["F0" as Role] : [])];
-  who.forEach(([f, seat], j) => {
+  const queue: Role[] = [...who.filter(([, seat]) => !(typeof seat === "object" && "mount" in seat)).map(([r]) => r), ...(f0 !== null ? ["F0" as Role] : [])];
+  const placed: Phase["do"] = {};
+  who.forEach(([f, seat]) => {
+    const behind = queue.slice(queue.indexOf(f) + 1).map((r, i) => [r, launch - 0.85 * (i + 1)] as [Role, number]);
+    if (typeof seat === "object" && "mount" in seat) {
+      phases.push({ name: `${f} climbs onto ${seat.mount}'s head`, do: { ...placed, [f]: mount(seat.mount), R: stay }, until: cond.on(f, seat.mount), timeout: 8 });
+      placed[f] = mount(seat.mount);
+      return;
+    }
     const x = typeof seat === "number" ? seat : seat.x;
-    const behind = queue.slice(j + 1).map((r, i) => [r, launch - 0.85 * (i + 1)] as [Role, number]);
     const hop = seq(walk(launch, { ...never, tol: 0.15 }), jumpTo(x, { rise: 0.12 }));
     phases.push({
       name: typeof seat === "number" ? `${f} hops over Ruben onto the bench (${x})` : `${f} hops over Ruben onto ${seat.on}'s head`,
       do: { [f]: typeof seat === "number" ? seq(hop, walk(x, { tol: 0.12 })) : hop, R: stay, ...goTo(behind) },
-      until: typeof seat === "number" ? cond.all(cond.standsAbove(f, 10), cond.near(f, x, 0.15)) : cond.on(f, seat.on),
+      until: typeof seat === "number" ? cond.all(cond.standsAbove(f, 9), cond.near(f, x, 0.15)) : cond.on(f, seat.on),
       timeout: 8,
     });
   });
@@ -331,21 +417,47 @@ function friendsOverRuben(rx: number, launch: number, who: Array<[Role, Seat]>, 
   return phases;
 }
 
-/** The friends who sit with Ruben at the bench's left end (everybody but F0, front of the line first) and their seats. */
+/**
+ * The friends who sit with Ruben on the bench's left seat (everybody but F0, front of the line
+ * first): the right seat, then that one's head, then (5 players) Ruben's own head.
+ */
 function besideRuben(n: number): Array<[Role, Seat]> {
   const s = lineAfterSeat(n).slice(1, -1).reverse();
-  // From 5 players: the first one in the middle, the next one past him to the right end, the third on the first one's head.
-  if (n >= 5) return [[s[0]!, BENCH[1]!], [s[1]!, BENCH[0]!], [s[2]!, { on: s[0]!, x: BENCH[1]! }]];
-  return s.map((r, j) => [r, BENCH[j]!] as [Role, Seat]);
+  const spots: Seat[] = [BENCH[0]!, { on: s[0]!, x: BENCH[0]! }, { on: "R", x: BENCH[1]! }];
+  return s.map((r, j) => [r, spots[j]!] as [Role, Seat]);
 }
 
-/** All the friends on the bench, front of the line first, with Ruben on the trapdoor; `far`: Ruben's neighbour at the very right end. */
-function allFriendsSeated(n: number, far = false): Array<[Role, Seat]> {
+/** The far end of the right seat, against gate x. */
+const FAR = 35.55;
+
+/** All the friends on the bench, front of the line first, with Ruben on the trapdoor: both seats, then their heads. */
+function allFriendsSeated(n: number): Array<[Role, Seat]> {
   const s = lineAfterSeat(n).slice(0, -1).reverse();
-  const end = far ? 35.55 : BENCH[0]!;
-  // From 5 players: the first one at the left end, Ruben's neighbour past him to the right end, the next one to the middle, F0 on the first one's head.
-  if (n >= 5) return [[s[0]!, BENCH[2]!], [s[1]!, end], [s[2]!, BENCH[1]!], [s[3]!, { on: s[0]!, x: BENCH[2]! }]];
-  return s.map((r, j) => [r, j === 0 ? end : BENCH[j]!] as [Role, Seat]);
+  const spots: Seat[] = [BENCH[0]!, BENCH[1]!, { on: s[0]!, x: BENCH[0]! }, { on: s[1]!, x: BENCH[1]! }];
+  return s.map((r, j) => [r, spots[j]!] as [Role, Seat]);
+}
+
+/**
+ * All the friends on the bench with Ruben's neighbour as high and as far from the trapdoor as he
+ * can be: the others make a tower on the right seat (two at most, under the bench's ceiling), he
+ * waits on the left seat and climbs on top; a fourth friend then takes the left seat. Then the
+ * tower moves right against gate x.
+ */
+function nbOnTower(n: number): { who: Array<[Role, Seat]>; tower: Role[] } {
+  const N = nb(n);
+  if (n === 2) return { who: [[N, BENCH[0]!]], tower: [N] };
+  const s = lineAfterSeat(n).slice(0, -1).reverse();
+  const others = s.filter((r) => r !== N);
+  const tower = others.slice(0, 2);
+  const who: Array<[Role, Seat]> = [];
+  for (const r of s) {
+    if (r === N) who.push([r, BENCH[1]!]);
+    else if (r === tower[0]) who.push([r, BENCH[0]!]);
+    else if (r === tower[1]) who.push([r, { on: tower[0]!, x: BENCH[0]! }]);
+  }
+  who.push([N, { mount: tower[tower.length - 1]! }]);
+  if (others[2]) who.push([others[2], BENCH[1]!]);
+  return { who, tower: [...tower, N] };
 }
 
 export const shortcuts: Record<string, CoopSolution> = {
@@ -398,12 +510,15 @@ export const shortcuts: Record<string, CoopSolution> = {
     { name: "ATTEMPT: Ruben runs out of the tunnel and jumps for d", do: { R: dashUp() }, until: cond.all(cond.standsAbove("R", 10), pastX("R", 22.9)), timeout: 6 },
   ],
 
-  /** Beat 3: everyone who sits with Ruben on the bench, Ruben at its left end (the trapdoor open); Ruben walks off towards the trapdoor. */
+  /**
+   * Beat 3: everyone who sits with Ruben on the bench, Ruben on its left seat (the trapdoor open, the
+   * bench's end m shut); Ruben walks off towards the trapdoor.
+   */
   "Ruben walks off the bench into the trapdoor": (n) => [
     ...relais(n),
     ...place(n),
-    ...friendsOverRuben(BENCH[2]!, ON_W, besideRuben(n), AISLE_W),
-    { name: "the bench has W-1: the trapdoor is open", do: {}, until: cond.all(cond.plateActive("p"), cond.gateOpen("w")), timeout: 4 },
+    ...friendsOverRuben(BENCH[1]!, ON_W, besideRuben(n), AISLE_W),
+    { name: "the bench has W-1: the trapdoor is open, the bench's end shut", do: {}, until: cond.all(cond.plateActive("p"), cond.gateOpen("w"), not(cond.gateOpen("m"))), timeout: 4 },
     { name: "ATTEMPT: Ruben walks off the bench into the trapdoor", do: { R: walk(ON_W, never) }, until: feetBelow("R", 11.95), timeout: 5 },
   ],
 
@@ -411,31 +526,66 @@ export const shortcuts: Record<string, CoopSolution> = {
   "Ruben jumps off the bench into the trapdoor": (n) => [
     ...relais(n),
     ...place(n),
-    ...friendsOverRuben(BENCH[2]!, ON_W, besideRuben(n), AISLE_W),
-    { name: "the bench has W-1: the trapdoor is open", do: {}, until: cond.all(cond.plateActive("p"), cond.gateOpen("w")), timeout: 4 },
+    ...friendsOverRuben(BENCH[1]!, ON_W, besideRuben(n), AISLE_W),
+    { name: "the bench has W-1: the trapdoor is open, the bench's end shut", do: {}, until: cond.all(cond.plateActive("p"), cond.gateOpen("w"), not(cond.gateOpen("m"))), timeout: 4 },
     { name: "ATTEMPT: Ruben jumps from the bench into the trapdoor", do: { R: jumpTo(ON_W, { rise: 0.05 }) }, until: feetBelow("R", 11.95), timeout: 5 },
   ],
+
+  /**
+   * Beat 3 (critic, round 2): F0 has dropped in and walks for the key while his neighbour sits idle
+   * on the bench; the rope, round the aisle's edge, drags the neighbour along the bench to its end.
+   * There he hops (no direction: the taut rope cancels the jump and yanks him down towards the
+   * trapdoor), hoping to fall in before it shuts. The bench's end m is shut while the trapdoor is
+   * open: he lands on it, the bench lets go, and the trapdoor shuts long before he is over it.
+   */
+  "the free friend drags his neighbour off the bench into the trapdoor": (n) => {
+    const ctl = controle(n);
+    const g = f0Nb(n);
+    let t0 = -1;
+    return [
+      ...relais(n),
+      ...place(n),
+      ...ctl.slice(0, ctl.length - 3), // up to F0 dropping into the cellar
+      {
+        name: `F0 walks for the key, ${g} sits idle (dragged towards the bench's end)`,
+        do: { F0: walk(KEY, never) },
+        until: (w) => {
+          if (t0 < 0) t0 = w.tick;
+          return w.tick - t0 >= Math.round(1.2 / COOP_DT);
+        },
+        timeout: 3,
+      },
+      { name: `ATTEMPT: ${g} hops again and again, F0 still walking for the key`, do: { F0: walk(KEY, never), [g]: hopAt(Number.NaN, 0.5) }, until: feetBelow(g, 11.95), timeout: 5 },
+    ];
+  },
 
   /** Beat 3 with Ruben as the free one: all the friends on the bench, Ruben on the trapdoor. */
   "Ruben as the free one": (n) => [
     ...relais(n),
     ...place(n),
-    ...friendsOverRuben(ON_W, AISLE_W, allFriendsSeated(n), null),
+    ...friendsOverRuben(PIT, ON_W, allFriendsSeated(n), null),
     { name: "ATTEMPT: the trapdoor opens under Ruben (all the friends on the bench)", do: { R: walk(ON_W, { ...never, tol: 0.1 }) }, until: feetBelow("R", 11.95), timeout: 6 },
   ],
 
   /**
    * Beat 3, Ruben hanging: all the friends on the bench, his neighbour as high and as far from the
-   * trapdoor as he can be (on top of a tower at the bench's right end, under its low ceiling), Ruben
+   * trapdoor as he can be (on top of a tower against gate x, under the bench's low ceiling), Ruben
    * hops on the trapdoor. A body in the air under a taut rope weighs on what its holder stands on:
-   * his 2 would make W-1. The link stays slack (3.7 at most here; 4.25 with two under the holder).
+   * his 2 would make W-1. The link stays slack (3.3 / 3.6 / 4.1 with 0 / 1 / 2 under the holder).
    */
-  "Ruben hanging from his neighbour on the bench": (n) => [
-    ...relais(n),
-    ...place(n),
-    ...friendsOverRuben(ON_W, AISLE_W, allFriendsSeated(n, true), null),
-    { name: "ATTEMPT: Ruben hops on the trapdoor", do: { R: hopAt(ON_W, 0.6) }, until: cond.any(feetBelow("R", 11.95), cond.gateOpen("w")), timeout: 8 },
-  ],
+  "Ruben hanging from his neighbour on the bench": (n) => {
+    const { who, tower } = nbOnTower(n);
+    const up: Phase["do"] = { [tower[0]!]: walk(FAR, { ...never, tol: 0.06 }) };
+    tower.slice(1).forEach((r, j) => (up[r] = mount(tower[j]!)));
+    return [
+      ...relais(n),
+      ...place(n),
+      ...friendsOverRuben(PIT, ON_W, who, null),
+      { name: "the tower moves right against gate x", do: up, until: cond.all(...tower.map((r) => cond.near(r, FAR, 0.1))), timeout: 6 },
+      // Ruben hops on the trapdoor's far side from the tower.
+      { name: "ATTEMPT: Ruben hops on the trapdoor", do: { ...up, R: hopAt(32.4, 0.6) }, until: cond.any(feetBelow("R", 11.95), cond.gateOpen("w")), timeout: 8 },
+    ];
+  },
 
   /** Beat 3 in the wrong order: F0 drops in and stands on f first (the team goes out), then goes back for the key. */
   "freeing the others before taking the key": (n) => {
