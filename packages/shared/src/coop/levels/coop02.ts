@@ -10,7 +10,10 @@
  *    in the slot's mouth and leans in under the lip (the rope wraps its lower corner too), then
  *    the anchor walks towards the edge and sets him down on the slot's floor. Too close to the
  *    edge, he drops below the floor's top against its side: walking back brings him up and in.
- *    Then the others do the same, the ones already in making way, and the last one is hauled up.
+ *    Then the others do the same, the ones already in making way, and the last one, who has nobody
+ *    left to hold him, steps off and is hauled up by the one in the slot. A fragile tile across the
+ *    shaft, 4 below the slot's floor, catches him if that one is slow to haul (an idle anchor slides
+ *    towards the friend hanging below him, and off the floor's end); it breaks under Ruben or two.
  * 2. Les câbles dénudés (left): Ruben's key hangs on the near wall of a second shaft, stripped
  *    cables right below it and on the far wall, spikes at the bottom (deeper than the rope). Whoever
  *    entered the server room first (Ruben) is nearest it and goes down; the rope runs over the
@@ -41,7 +44,7 @@ export const coop02: CoopLevelDef = {
     "#c..####################....##",
     "#c.k####################....##",
     "#c.a####################....##",
-    "#c.a####################....##",
+    "#c.a####################ffff##",
     "#c.a####################....##",
     "#cja####################....##",
     "#c..####################....##",
@@ -64,6 +67,10 @@ export const coop02: CoopLevelDef = {
     // Stripped cables on its far wall, and spikes at its bottom.
     c: { kind: "spikes", dir: "right" },
     d: { kind: "spikes", dir: "up" },
+    // A fragile ceiling tile across shaft A, 4 below the slot's floor: it holds one friend (the last
+    // one down, who steps off with nobody left to hold him and drops below the one waiting in the
+    // slot) and breaks under Ruben or two bodies, so the pit stays a catch pit for everyone else.
+    f: { kind: "fragile" },
   },
   cells: {
     // The key: on the near wall with 2 players (one row above the cables: a narrow window), deeper

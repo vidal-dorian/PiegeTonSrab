@@ -10,7 +10,8 @@
  * wraps the lip's lower corner) until he is over the slot's floor; then his neighbour walks
  * towards the edge and sets him down. Each next one does the same, lowered by the one behind him;
  * the one before him waits at the floor's end and makes way. F0, last, has nobody behind him: he
- * falls against the side of the slot's floor and the one before him hauls him up over its end.
+ * drops below the slot's floor (onto the fragile tile across the shaft, if nobody hauls him before)
+ * and the one before him hauls him up over its end.
  * Beat 2 (shaft B, left): Ruben entered first, so he is nearest shaft B. With 2 players F0 stops
  * about 3 cells from the edge and Ruben steps off: he hangs against the wall at the key, one row
  * above the stripped cables. With 3 or more, Ruben's neighbour lowers him first, then steps off
@@ -20,7 +21,7 @@
  * The lowering, leaning and swinging goals are below (on the exported bot API), so other levels
  * can copy them.
  */
-import { cond, enter, friends, idle, roleIndex, seq, walk, when, type CoopSolution, type Goal, type Phase, type Role } from "../bots";
+import { cond, enter, friends, idle, roleIndex, seq, wait, walk, when, type CoopSolution, type Goal, type Phase, type Role } from "../bots";
 import { BIT_JUMP, BIT_JUMP_PRESS, BIT_LEFT, BIT_RIGHT } from "../inputBits";
 import type { CoopWorld } from "../world";
 
@@ -256,14 +257,64 @@ const CATCH_X = 23.75;
 const MAKE_ROOM = 22.4;
 
 /**
+ * Where the one in the slot can wait for the last one at most (as far in as the rope lets him, with
+ * the last one at the lip's very end): 1.1 cells from the floor's end.
+ */
+const CATCH_FAR = 23.3;
+
+/** How the last one into the slot leaves the lip, and how long the ones in the slot then stand still. */
+interface LastOne {
+  /** Step off leaning back in under the lip (the bots' way, the default), step off straight, or run off. */
+  leave?: "lean" | "step" | "run";
+  /** Seconds the ones in the slot stand still once he has left the lip, before hauling (default 0). */
+  wait?: number;
+  /** He first walks to the lip's very end, so that the one waiting for him stands as far in as the rope lets him. */
+  far?: boolean;
+}
+
+/** The last one leaves the lip of shaft A (see LastOne), then, once hauled over the slot floor's end, walks in. */
+function leaveLip(how: "lean" | "step" | "run"): Goal {
+  if (how === "lean") return stepOffAndLean(EDGE_A, 1, SLOT_FLOOR_X - 0.6);
+  const off = stepOff(EDGE_A, 1, how === "run" ? 99 : 1.5);
+  const settle = walk(SLOT_FLOOR_X - 0.6, { tol: 0.15, jump: "never" });
+  let flew = false;
+  return {
+    label: `${how} off the lip`,
+    step(c) {
+      const b = c.w.bodies[c.i]!;
+      if (!b.grounded) flew = true;
+      if (!flew) return off.step(c);
+      return b.grounded && Math.abs(feetOf(c.w, c.i) - ROOM) < 0.05 ? settle.step(c) : 0;
+    },
+  };
+}
+
+/** Before the last stage: the last one walks to the lip's very end, the one in the slot as far in as the rope lets him. */
+function farApart(n: number): Phase {
+  const o = order(n);
+  const last = o[n - 1]!;
+  const catcher = o[n - 2]!;
+  const li = roleIndex(last, n);
+  const ci = roleIndex(catcher, n);
+  return {
+    name: `beat 1: ${last} to the lip's end, ${catcher} as far in as the rope lets him`,
+    do: { [last]: walk(EDGE_A - 0.42, { tol: 0.05, jump: "never" }), [catcher]: walk(CATCH_FAR, { tol: 0.1, jump: "never" }), "*": idle() },
+    until: (w) => Math.abs(w.bodies[li]!.cx - (EDGE_A - 0.42)) < 0.08 && Math.abs(w.bodies[ci]!.cx - CATCH_FAR) < 0.15 && w.bodies[ci]!.grounded,
+    timeout: 8,
+  };
+}
+
+/**
  * Beat 1, the train into the server room: the body at place k of the order (Ruben, place 0, is
  * already in) steps off the lip while the one behind him on the raised floor holds him at the
  * slot's height, leans in under the lip and is set down on the slot's floor, as Ruben was. The one
  * before him waits at the floor's end and makes way once he is in the air; the ones further in
- * close up. The last one (F0) has nobody behind him: he falls against the side of the slot's floor
- * and the one before him hauls him up over its end, the ones further in walking on with him.
+ * close up. The last one (F0) has nobody behind him: he falls below the slot's floor, onto the
+ * fragile tile across the shaft (it holds one friend), and the one before him hauls him up over the
+ * floor's end, the ones further in walking on with him. `lastOne` changes how the last one leaves the
+ * lip and how long the ones in the slot stand still before hauling (the patience variants below).
  */
-function trainStage(k: number, n: number): Phase {
+function trainStage(k: number, n: number, lastOne: LastOne = {}): Phase {
   const o = order(n);
   const mover = o[k]!;
   const catcher = o[k - 1]!;
@@ -271,38 +322,44 @@ function trainStage(k: number, n: number): Phase {
   const mi = roleIndex(mover, n);
   const ci = roleIndex(catcher, n);
   const last = anchor === undefined;
+  const far = last && lastOne.far === true;
   const ahead = o.slice(0, k - 1);
   const catcherAtEnd = (w: CoopWorld) => {
     const b = w.bodies[ci]!;
-    return b.grounded && b.cx > CATCH_X - 0.2;
+    return b.grounded && (far ? Math.abs(b.cx - CATCH_FAR) < 0.2 : b.cx > CATCH_X - 0.2);
   };
   const moverLeft = (w: CoopWorld) => !w.bodies[mi]!.grounded;
-  const moverHangs = (w: CoopWorld) => !w.bodies[mi]!.grounded && w.bodies[mi]!.hanging;
-  const toEnd = walk(CATCH_X, { tol: 0.15, jump: "never" });
+  // The last one is down: hanging below the slot's floor, or standing on the fragile tile under it.
+  const moverDown = (w: CoopWorld) => feetOf(w, mi) > ROOM + 1 && (w.bodies[mi]!.grounded || w.bodies[mi]!.hanging);
+  const toEnd = walk(far ? CATCH_FAR : CATCH_X, { tol: 0.15, jump: "never" });
+  // The ones in the slot stand still for `wait` s once the last one has left the lip.
+  const patient = (g: Goal): Goal => (lastOne.wait ? when(moverLeft, seq(wait(lastOne.wait), g)) : g);
   return {
     name: last ? `beat 1: the last one (${mover}) steps off and is hauled in` : `beat 1: ${anchor} lowers ${mover} into the slot`,
     do: {
       // Hold him, then haul him up the side of the slot's floor (last), or make way (the others).
-      [catcher]: last ? seq(toEnd, when(moverHangs, walk(18, { jump: "never" }))) : seq(toEnd, when(moverLeft, walk(MAKE_ROOM, { tol: 0.15, jump: "never" }))),
-      [mover]: when(catcherAtEnd, stepOffAndLean(EDGE_A, 1, SLOT_FLOOR_X - 0.6)),
+      [catcher]: last
+        ? seq(toEnd, patient(when(moverDown, walk(18, { jump: "never" }))))
+        : seq(toEnd, when(moverLeft, walk(MAKE_ROOM, { tol: 0.15, jump: "never" }))),
+      [mover]: when(catcherAtEnd, last ? leaveLip(lastOne.leave ?? "lean") : stepOffAndLean(EDGE_A, 1, SLOT_FLOOR_X - 0.6)),
       ...(anchor ? { [anchor]: lowerOnto(mover, { at: ANCHOR_A, edgeDir: 1, over: overSlot(mi), floor: ROOM, maxX: EDGE_A - 0.6 }) } : {}),
       ...Object.fromEntries(
         ahead.map((r, j) => [
           r,
           last
-            ? when(moverLeft, walk(18 - 1.1 * (k - 1 - j), { tol: 0.3, jump: "never" }))
+            ? when(moverLeft, patient(walk(18 - 1.1 * (k - 1 - j), { tol: 0.3, jump: "never" })))
             : walk(MAKE_ROOM - 1.1 * (k - 1 - j), { tol: 0.2, jump: "never" }),
         ]),
       ),
       "*": idle(),
     },
     until: (w) => (last ? inRoom(w, mi) : onSlotFloor(w, mi)),
-    timeout: 20,
+    timeout: 20 + (last ? (lastOne.wait ?? 0) : 0),
   };
 }
 
-/** Beat 1: Ruben lowered into the slot, then the train. */
-function beat1(n: number): Phase[] {
+/** Beat 1: Ruben lowered into the slot, then the train (`lastOne`: see trainStage). */
+function beat1(n: number, lastOne: LastOne = {}): Phase[] {
   const o = order(n);
   const phases: Phase[] = [
     {
@@ -319,7 +376,10 @@ function beat1(n: number): Phase[] {
       timeout: 15,
     },
   ];
-  for (let k = 1; k < n; k++) phases.push(trainStage(k, n));
+  for (let k = 1; k < n; k++) {
+    if (k === n - 1 && lastOne.far) phases.push(farApart(n));
+    phases.push(trainStage(k, n, lastOne));
+  }
   phases.push({
     name: "beat 1: everyone walks into the server room",
     do: Object.fromEntries(o.map((r, k) => [r, walk(20 - 1.1 * (n - 1 - k), { tol: 0.25, jump: "never" })])),
@@ -595,4 +655,25 @@ export const shortcuts: Record<string, CoopSolution> = {
   "drop at the key without stopping at the right depth": dropAtTheKey,
   "the deep key on one rope (held at the edge, a swing)": oneRopeToTheDeepKey,
   "everyone drops into shaft B (the key from below)": allDropIntoShaftB,
+};
+
+// --- Patience: the last one into the slot, with the ones in the slot standing still -----------
+//
+// Variants of the solution that must succeed like it: the last one leaves the lip of shaft A (leaning
+// in, straight, or at a run) and the ones in the slot stand still for 10 s before hauling him. At 2
+// players the one waiting for him is alone, and an idle anchor slides towards the friend hanging
+// below him: with nothing under that friend, he was pulled off the floor's end about 1.1 s after the
+// step and both fell out of the level. The fragile tile 4 below the slot's floor takes the last one's
+// weight (he stands on it, nobody hangs), so a slow hauler costs time, never the level.
+
+/** The solution, with the last one of beat 1 leaving the lip as `lastOne` says. */
+function withLastOne(lastOne: LastOne): CoopSolution {
+  return (n) => [...beat1(n, lastOne), ...solution(n).slice(beat1(n).length)];
+}
+
+export const patience: Record<string, CoopSolution> = {
+  "the last one steps off leaning in, the slot waits 10 s": withLastOne({ leave: "lean", wait: 10 }),
+  "the last one steps off straight, the slot waits 10 s": withLastOne({ leave: "step", wait: 10 }),
+  "the last one runs off, the slot waits 10 s": withLastOne({ leave: "run", wait: 10 }),
+  "the one in the slot stands as far in as he can, the last one steps off, the slot waits 10 s": withLastOne({ leave: "step", wait: 10, far: true }),
 };

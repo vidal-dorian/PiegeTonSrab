@@ -5,7 +5,9 @@
 Files: `packages/shared/src/coop/levels/coop02.ts` (the level),
 `packages/shared/src/coop/levels/coop02.solution.ts` (bot solution, shortcuts, and the bot goals
 `lowerTo`, `lowerOnto`, `stepOff`, `stepOffAndLean` and `swingTo`, written on the exported bot API
-so other levels can reuse them). Check: `npx tsx packages/shared/scripts/check-coop-level.ts coop02`.
+so other levels can reuse them; `patience`, variants that must win too: the last one into the slot
+leaves the lip and the ones in the slot stand still for 10 s), `packages/client/src/coop/coop02Patience.test.ts`
+(runs them). Check: `npx tsx packages/shared/scripts/check-coop-level.ts coop02`.
 
 ## Idea
 
@@ -20,7 +22,9 @@ it sets the depth, cell for cell.
   someone held at the slot's height, who leans in under the lip (the rope then wraps the lip's
   lower corner as well) and is set down on the slot's floor by his anchor walking towards the
   edge. Then the role turns around: the ones already in make way for the next ones, and the last
-  one, who has nobody behind him, is hauled up from below.
+  one, who has nobody behind him, is hauled up from below. A fragile tile across the shaft, 4 below
+  the slot's floor, catches him while the one in the slot is slow to haul (it holds a friend, not
+  Ruben or two).
 - Beat 2 (deadly) asks for it precisely: the key hangs one row above stripped cables, in a window
   0.65 cell wide for the anchor. Too deep is death, and the anchor slides towards the void if he
   stands still. With 3 players or more the key is deeper: two go down, one below the other, and the
@@ -55,7 +59,7 @@ hangs deep.
 #c..####################....## 11
 #c.k####################....## 12
 #c.a####################....## 13
-#c.a####################....## 14
+#c.a####################ffff## 14
 #c.a####################....## 15
 #cja####################....## 16
 #c..####################....## 17
@@ -71,7 +75,8 @@ hangs deep.
 |---|---|---|
 | `S` | spawns | x 16-20 on the raised floor (F0 on the left, Ruben on the right, nearest shaft A) |
 | the duct | the raised floor's ceiling drops to one row of headroom | x 22-27, rows 1-4 solid (over the last three cells of the raised floor and over shaft A) |
-| shaft A | catch pit, bottomless | x 25-27 from the duct down, plus x 24 (the recess) under the lip |
+| shaft A | catch pit, bottomless (under the tile) | x 25-27 from the duct down, plus x 24 (the recess) under the lip |
+| `f` | fragile tile (`fragile`): holds one friend, breaks under a weight of 2 (Ruben, or two), back at the restart | x 24-27, row 14: across shaft A, 4 below the slot's floor |
 | the lip | the raised floor's right end, 1 cell thick | x 24, row 6; its corners (25, 6) and (25, 7) are the ones the rope wraps |
 | the slot | the server room's mouth, 3 rows high | rows 7-9; its floor (row 10) ends at x = 24, one cell short of the lip |
 | `D` | door | x 12, rows 8-9, in the server room |
@@ -100,6 +105,12 @@ and his anchor slides fast).
 - **The lip as a pulley (beat 1, the train).** Once Ruben is in, his link to the one above runs
   over both corners of the lip: the next one steps off between the one holding him on the raised
   floor and the one waiting in the slot, each link wrapped round the lip.
+- **The idle catcher and the tile (beat 1).** The last one hangs from the one in the slot against
+  the side of the slot's floor, his centre 0.4 past its end (x 24.40). An idle anchor slides
+  towards the friend below him (towards the corner he hangs over while the rope wraps it, but the
+  wrap is let go once the anchor's centre passes the corner, since the friend hangs past it), so
+  the one in the slot slides to x 24.40, exactly where he loses the floor, and both fall. The tile
+  4 below the floor is where the last one ends up: he stands on it, nobody hangs, nobody slides.
 - **The rim's corner sets the depth (beat 2).** Same rule over shaft B's rim: depth is linear in
   the anchor's distance, hence the narrow, honest window.
 
@@ -119,9 +130,10 @@ Order of descent: Ruben, then his neighbour F(n-2), ..., F0 last (the order the 
   leaning in while the one behind him on the raised floor stands at 22.7, the one waiting makes
   way (x 22.4) once he is in the air, the ones further in close up, and the one behind sets him
   down.
-- F0 has nobody behind him: the one before him waits at the floor's end, F0 steps off, falls
-  against the side of the slot's floor (feet about 15) and is hauled up and over its end; the
-  others walk on with the hauler.
+- F0 has nobody behind him: the one before him waits at the floor's end, F0 steps off, drops
+  against the side of the slot's floor and touches the tile (feet 14.00) in the catch's dip, and is
+  hauled up and over the floor's end as soon as he hangs or stands there; the others walk on with
+  the hauler. If they stand still instead, F0 stands on the tile until they haul (`patience`).
 
 The anchor goal (`lowerOnto`) waits for the rope to hold the friend, then lowers him only while he
 hangs over the slot's floor and has settled (under 1 cell/s up or down), and walks back (« Recule
@@ -146,10 +158,15 @@ hangs over the slot's floor and has settled (under 1 cell/s up or down), and wal
 
 | Players | Total | Beat 1: Ruben | Beat 1: the others | Beat 2 | Door |
 |---|---|---|---|---|---|
-| 2 | 14.8 s | 4.4 s | 3.7 s (F0 hauled in) | 5.6 s (line up 2.4, lower 0.9, haul 2.3) | 1.1 s |
-| 3 | 25.7 s | 5.4 s | 8.0 s (4.6, 3.4) | 11.3 s (line up 2.2, lower 0.8, swing 1.7, haul 6.6) | 1.1 s |
-| 4 | 30.8 s | 5.2 s | 13.8 s (5.9, 4.5, 3.4) | 10.8 s | 1.1 s |
-| 5 | 36.1 s | 4.8 s | 19.5 s (5.8, 5.8, 4.5, 3.4) | 10.5 s | 1.3 s |
+| 2 | 14.5 s | 4.4 s | 3.4 s (F0 hauled in) | 5.6 s (line up 2.4, lower 0.9, haul 2.3) | 1.1 s |
+| 3 | 25.6 s | 5.4 s | 7.7 s (4.6, 3.1) | 11.4 s (line up 2.2, lower 0.8, swing 1.7, haul 6.7) | 1.1 s |
+| 4 | 30.7 s | 5.2 s | 13.6 s (5.9, 4.5, 3.2) | 10.9 s | 1.1 s |
+| 5 | 35.9 s | 4.8 s | 19.3 s (5.8, 5.8, 4.5, 3.2) | 10.5 s | 1.3 s |
+
+With the ones in the slot standing still 10 s once the last one has left the lip (`patience`:
+leaning in, straight, at a run, or with the one waiting as far in as the rope lets him), every team
+size wins: 23.3-24.0 s at 2 players, 34.5-35.0 at 3, 39.5-40.0 at 4, 44.8-45.4 at 5; the last one
+stands on the tile 9.6-9.7 s, its load never above 1.
 
 The bots know the depths; players have to find them (and fight the anchor's slide), so a known
 replay is longer than the bots' run.
@@ -176,6 +193,18 @@ not computed, unless marked.
   deeper). Walking back brings him up, and he climbs onto the floor's end as soon as his feet clear
   its top (measured: in on the first try, 1.2 s after the anchor turns back). Not deadly: shaft A
   is a catch pit and Ruben is held.
+- **Beat 1, the last one (2 players: one catcher alone in the slot).** Without the tile (the
+  critic's probes, confirmed): with Ruben on the floor's end (x 24.33, as far in as F0 on the lip
+  lets him) and F0 stepping off, an idle Ruben is pulled off the end about 1.1 s after the step and
+  both fall: hauling within 1.0 s gets F0 in, 1.5 s or later is death, leaning in or not, stepping
+  or running off. Further in (F0 first walks to the lip's end, Ruben at 23.2-23.6) he only gains
+  time: dead 7.5-8.7 s after the step. At 3-5 the ones behind the catcher hold him: no death at any
+  wait. With the tile (row 14): F0 hanging from Ruben rests at feet 14.50-14.65 (Ruben from 23.6 to
+  the end) and dips below that when caught, so he stands on the tile (feet 14.00) within the first
+  second, and nobody slides: Ruben idle up to 30 s (at the end or at 23.6, F0 leaning in or not),
+  or 10 s with F0 first at the lip's end and Ruben at 23.2-23.9, then hauling: in every time.
+  A tile one row lower (top 15) did not do it: from 23.6, F0 hung 0.35 above it until Ruben slid
+  off (7.5 s). Hauled from the tile, he is in 2.0-3.0 s after the hauler sets off, as from the wall.
 - **Beat 1, the other order.** A friend lowered by Ruben lands from every anchor place between
   22.0 and 23.8 (1.7-6.1 s with the bots' lowering); the depth is the same (geometry), the slide
   half as fast.
@@ -220,9 +249,13 @@ not computed, unless marked.
   one link at its stop 14.66, two ropes about 19 at most, so even two stepping off together,
   anchored at the very edge, stay above them. (Computed: two links both at the stop over the rim
   reach feet about 20.7, 0.9 above them.) Three stepping off together reach the spikes.
-- **Shaft A's depth.** Bottomless: the kill line is at y 29, 19 below the slot's floor and 23 below
-  the raised floor (checker: ≥ 6). The deepest body in the bot runs reached feet 15.0 (the last one,
-  caught from the slot); chains of 4 hanging (18 cells) still stay above the kill line.
+- **Shaft A's depth.** Bottomless under the tile: the kill line is at y 29, 19 below the slot's
+  floor and 23 below the raised floor (checker: ≥ 6; the tile is a thing, not terrain). The deepest
+  body in the bot runs reached feet 14.00 (the last one, on the tile); chains of 4 hanging
+  (18 cells) still stay above the kill line once the tile has broken under them.
+- **The tile's height.** 4 below the slot's floor top: a lone jump reaches 3, and a tower needs two
+  bodies on it (weight 2: it breaks). Above it, F0's resting depth from the slot (14.50-14.65), so
+  that he always lands on it.
 - **Longest link** in the bot runs: 5.40 at 2 players, 5.42 at 3-5 (the last one's catch from the
   slot, at the stop); at most 2 wraps per link (the lip's two corners).
 - **Room to haul.** Behind the slot's floor end: the server room floor, x 4-23, 20 flat free
@@ -242,7 +275,7 @@ not computed, unless marked.
 | Key | row 12 against the wall (`k`), cables right below (`a`, rows 13-16) | row 16, one cell out (`j`), cables rows 18-20 (`b`) |
 | Who goes down in beat 2 | Ruben, held by F0 | Ruben and his neighbour, held by the next one |
 
-## Deadly moments (beat 2 only)
+## Deadly moments (beat 2)
 
 1. The near-wall cables under the key: an anchor too close to the edge, or one who stands still
    (he slides towards the void at 0.15 cells/s per unit hanging: 0.3 with Ruben, 0.45 with Ruben
@@ -251,9 +284,17 @@ not computed, unless marked.
    too hard.
 3. The spikes at the bottom of shaft B: the whole team going in (or three stepping off together).
 
-Beat 1 cannot kill a team where somebody stands on the raised floor: too deep or too high, the one
-lowered hangs safely in the catch pit and his anchor fixes it. The only death there is the whole
-team going into shaft A at once.
+Beat 1 does not kill in the order the team stands in. While somebody stands on the raised floor,
+the one lowered hangs safely in the catch pit (too deep or too high) and his anchor fixes it; the
+last one, who steps off with nobody left up there, lands on the tile if the one in the slot is slow
+to haul. What still kills in beat 1:
+
+- the whole team going into shaft A at once (nobody holds; the tile breaks under two);
+- a lone body in the slot standing still while a weight of 2 hangs below him, since that weight
+  breaks the tile: Ruben as the last one at 2 players (the other order, a friend having jumped over
+  him first), or the last two stepping off together at 3 players. Measured: hauled within 2.5 s
+  (Ruben) or 2 s (the pair), they come in; standing still 3 s, both fall. Without the tile that
+  window was 2.0 s for Ruben.
 
 ## Ruben's active moments
 
@@ -297,7 +338,13 @@ succeeded, the rest of the intended solution follows and would finish the level)
 | The deep key on one rope: the neighbour holds at the very edge, Ruben swings | 2 players: onto the cables. 3+: feet 14.66 at most, the key starts at 16.23: timeout |
 | Everyone drops into shaft B to grab the key from below | killed by the cables and the spikes at the bottom |
 
-Probed and not possible: reaching the slot without a lowering (see "Why nobody can drop into
+Probed and not possible: getting anything from the tile. Nobody climbs from it into the slot (4
+cells up, a lone jump reaches 3; a tower is two bodies on it, and it breaks), and it holds nobody
+stuck: 192 runs of the whole team leaving the lip (2-5 players; together or 0.15-1.2 s apart in
+chain order; stepping or running off; leaning in at once, after 0.1 or 0.25 s, or not at all) all
+end in a death, but for one at 5 players (0.5 s apart: a lowering by accident, with the next one
+still standing when Ruben dropped; the same run without the tile gets in too). None leaves the team
+alive with nobody in the slot. Reaching the slot without a lowering (see "Why nobody can drop into
 the slot"), hauling over a block or a pulley past a gate (this level has neither), the stretch
 reaching a ledge (one link at its stop: 14.66 in shaft B; in shaft A the stretch only takes the one
 lowered deeper, below the slot). Not possible by construction: reaching a key from below (shaft B
@@ -312,8 +359,11 @@ walls).
   7 s, if Ruben leans in): the slide is the lowering, slowly.
 - In the train, the one waiting in the slot hauling the next one in instead of his anchor setting
   him down: the same crossing, the role turned around.
+- The last one dropping onto the tile on purpose (or a friend stepping off with somebody in the
+  slot and nobody holding him): he is hauled up from it, as from the wall.
 - At 3+, two stepping off together in beat 2 (it is the intended move), or in beat 1 (the pit is
-  deep enough, and the ones in the slot then haul them in).
+  deep enough, and the ones in the slot then haul them in; with only one in the slot, at 3
+  players, he must start within about 2 s: see "Deadly moments").
 
 ## Deviations from the plan, and why
 
@@ -367,12 +417,32 @@ walls).
   floor's end with the rope drawn over both corners of the lip, F0 stepping towards the edge sets
   him down, and Ruben walking on pulls F0 off the lip and hauls him in: beat 1 at 2 players in
   about 7 s.
+- Fix after review (2026-11-27): the last one into the slot at 2 players died if the one in the
+  slot did not haul within about 1.1 s (an idle anchor slides towards the friend below him, and
+  that friend hangs past the floor's end). Probed and rejected: an undercut under the slot's floor
+  (the wrap then holds the catcher at the corner, but the hauled friend is pulled into the
+  overhang's underside and stays there), a plate on the floor's end closing a hatch in the shaft
+  (the hatch holds him, but nobody climbs over a plate cell: the mantle reads terrain only), a
+  solid floor in the shaft (by the tower table a 3-tower of friends climbs out of it at 4-5, and a
+  team that falls in is stuck alive), and a crawl over the whole raised floor to force the order
+  (spawns need two rows of headroom, and a friend still gets past Ruben there in 378 of 648
+  probes). The fragile tile at row 14 holds the last friend and breaks under anything that could
+  tower or stay stuck. The haul of the last one now starts once he hangs or stands below the
+  floor; `patience` and its test prove the wait at 2-5 players, and that the same waits die at 2
+  players without the tile.
 
 ## Engine notes
 
-- Nothing in the engine was changed. The findings above (pump strength, pockets under overhangs,
-  sliding off Ruben's head with no fall speed) are limits or rules of the current tuning, not
-  bugs.
+- Nothing in the engine was changed. An idle anchor standing at a floor's end, with its friend
+  hanging against the wall below that end, always slides off it: the wrap round the corner is let
+  go once its centre passes the corner, and then it aims at the friend, half a body past the edge,
+  exactly where it loses its footing. Only an overhang (the friend under the corner, as under this
+  level's lip) or something under the friend stops it. Any level that hauls a last one up from
+  below with a single catcher meets this.
+- The fragile floor appears here first; by the plan's rule its family has to come back in another
+  level.
+- The findings above (pump strength, pockets under overhangs, sliding off Ruben's head with no
+  fall speed) are limits or rules of the current tuning, not bugs.
 - An anchor bot that does not wait for the rope to hold its friend (it acted while he was still
   falling) walks to the edge and kills him: `lowerTo` and `lowerOnto` react only to a body whose
   `hanging` flag is set (`lowerTo`: and whose chain to the anchor hangs too).
