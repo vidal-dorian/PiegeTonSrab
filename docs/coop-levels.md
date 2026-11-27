@@ -146,8 +146,10 @@ the consequences for a map.
   that step; a still mover leaves a pocket under it that bodies walk into. L'Amphi used a gate
   inverted on the bench's own link (m) as a step that exists only while it is needed.
 - **Links climb as well as hold.** A friend standing on a head near a corridor mouth shortens the
-  path round a lip by as much as a duct does (La Salle de TP's open 4-5 finding). When a beat forces
-  someone to a place because of rope length, probe every place of the same height, towers included.
+  path round a lip by as much as a duct does, and a body in the air is a weak anchor: a neighbour
+  jumping with the climber gives it the slack a duct would (La Salle de TP, closed with a terminal
+  that opens a trap). When a beat forces someone to a place because of rope length, probe every
+  place of the same height, towers included, and jumps timed with the climber's.
 - **Plates read what stands on them, and the rope through things.** A crate weighs on plates (set
   `weight: 0` when it is a step, not a weight); a closed gate stops bodies but not the rope, so no
   haul passes one.
@@ -230,4 +232,6 @@ closed and accepted, deadly moments, Ruben's moment, communication moment.
   the grid cannot put the lip between them with 0.3 to spare. New shortcut "a friend alone on the
   bare PC tower" with a standing jump (best feet exactly at the lip, 9.000). Left open by the
   integration's skeptic: the duct skipped at 4-5 players by a rider at the corridor mouth, and
-  Ruben's own buffered climb (accepted, numbers in coop04.md).
+  Ruben's own buffered climb (accepted, numbers in coop04.md). Fix round: the duct skip (also a
+  jump timed with the climber's from M's floor, at 3-5) is closed by a trap over the shaft that
+  opens at a terminal in the duct, from 3 players.

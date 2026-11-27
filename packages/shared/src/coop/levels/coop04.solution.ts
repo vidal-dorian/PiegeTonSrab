@@ -5,8 +5,9 @@
  * the right). The chain is F0 - F1 - ... - the last friend - R. Map, beats and numbers:
  * docs/coop-levels/coop04.md.
  */
-import { cond, enter, friends, hold, jumpTo, mount, roleIndex, seq, wait, walk, type CoopSolution, type Goal, type Phase, type Role } from "../bots";
+import { cond, enter, friends, hold, jumpTo, mount, roleIndex, seq, use, wait, walk, type CoopSolution, type Goal, type Phase, type Role } from "../bots";
 import { BIT_JUMP, BIT_JUMP_PRESS, BIT_LEFT, BIT_RIGHT } from "../inputBits";
+import { COOP_DT } from "../coopTuning";
 import type { CoopWorld } from "../world";
 
 // --- Helpers (goals and conditions the toolbox does not have) --------------------------------
@@ -20,6 +21,8 @@ const feetBelow = (role: Role, y: number) => (w: CoopWorld) => {
 const crateAt = (char: string, x: number) => (w: CoopWorld) => w.crates.some((c) => c.thing.char === char && c.x >= x - 1e-3);
 /** Crate `char` has fallen with its top to y or below. */
 const crateDown = (char: string, y: number) => (w: CoopWorld) => w.crates.some((c) => c.thing.char === char && c.y >= y - 1e-3);
+/** The trap over the shaft J is open (from 3 players it opens at the terminal in the duct). */
+const trapOpen = (w: CoopWorld) => w.props.gates.some((g) => g.thing.char === "h" && g.open);
 /** Every listed role stands near its x. */
 const allNear = (spots: Array<[Role, number]>, tol = 0.35) => cond.all(...spots.map(([r, x]) => cond.near(r, x, tol)));
 
@@ -93,14 +96,17 @@ function shiftOn(base: Role, x: number): Goal {
 
 /**
  * Beat 1: the corridor x 1-12 (floor row 14, 2 high), the duct above its end x 9-12 (floor row
- * 11, 1 high, its mouth at x 13), M x 13-14 (5 high), the shaft J x 15, the upper floor from x 16
- * (row 9). Ruben pushes the tower from M (M_SPOT); on it he stands under the shaft, clear of M
- * (ON_TOWER: a friend jumping in M under his overhang would bump into him).
+ * 11, 1 high, 2 high at x 10-12 from 3 players where the terminal stands; its mouth at x 13), M
+ * x 13-14 (5 high), the shaft J x 15, the upper floor from x 16 (row 9). Ruben pushes the tower
+ * from M (M_SPOT); on it he stands under the shaft, clear of M (ON_TOWER: a friend jumping in M
+ * under his overhang would bump into him).
  */
 const M_SPOT = 14.6;
 const M_FRIEND = 14.45;
 const M_LEFT = 13.45;
 const DUCT_MOUTH = 12.55;
+/** Touching the terminal (x 11, in the recess over the duct's mouth). */
+const TERMINAL = 11.6;
 const CORRIDOR_END = 11.4;
 const ON_TOWER = 15.5;
 /** Beat 2: the rack at x 27-29 in the 1-high tunnel (row 8), the ditch at 32-34, its stop at 35. */
@@ -136,8 +142,9 @@ function queue(n: number): Role[] {
 /**
  * Ruben pushes the PC tower along the corridor into the shaft J (the friends come along behind)
  * and climbs on it. From 3 players the friend behind his neighbour climbs into the duct, from the
- * neighbour's head in M (the leg-up): left on the floor, its rope would hold the climber back.
- * Then the neighbour steps under the shaft, the others wait in the corridor.
+ * neighbour's head in M (the leg-up), opens the trap over J at the terminal there and waits at the
+ * duct's mouth (left on the floor, its rope would hold the climber back). Then the neighbour steps
+ * under the shaft, the others wait in the corridor.
  */
 function marchepiedPush(n: number): Phase[] {
   const fs = [...friends(n)].reverse(); // nearest Ruben first
@@ -154,11 +161,46 @@ function marchepiedPush(n: number): Phase[] {
     phases.push(
       { name: `1. ${top} gives ${next} a leg up in M`, do: { ...rest, [top!]: walk(M_LEFT, never), [next]: mount(top!) }, until: cond.all(cond.on(next, top!), cond.near(top!, M_LEFT, 0.15), (w) => Math.abs(w.bodies[roleIndex(next, w.bodies.length)]!.cx - M_LEFT) < 0.15), timeout: 6 },
       { name: `1. ${next} climbs into the duct`, do: { ...rest, [next]: seq(wait(0.15), jumpOnto(DUCT_MOUTH, 12), walk(DUCT_MOUTH, never)) }, until: cond.all(cond.standsAbove(next, 11), cond.near(next, DUCT_MOUTH, 0.25)), timeout: 4 },
+      ...openTrap(n, next, rest),
     );
   }
   phases.push({ name: "1. his neighbour steps under Ruben", do: { ...rest, [top!]: walk(M_FRIEND, never) }, until: cond.near(top!, M_FRIEND, 0.2), timeout: 4 });
   return phases;
 }
+
+/**
+ * In the duct: to the terminal, ↓ (the trap over J opens and stays open: a latch), then back to
+ * `spot` (the duct's mouth: from there its rope gives the climber enough). No trap at 2 players.
+ */
+function openTrap(n: number, who: Role, keep: Phase["do"] = {}, spot = DUCT_MOUTH): Phase[] {
+  if (n < 3) return [];
+  return [
+    { name: `1. ${who} opens the trap at the terminal («Ouvre la trappe»)`, do: { ...keep, [who]: seq(walk(TERMINAL, { jump: "never", tol: 0.15 }), use()) }, until: trapOpen, timeout: 4 },
+    { name: `1. ${who} waits in the duct at x ${spot}`, do: { ...keep, [who]: walk(spot, never) }, until: cond.near(who, spot, 0.25), timeout: 4 },
+  ];
+}
+
+/**
+ * Shortcuts of beat 1 that test another guard than the trap: the trap is opened at once, as if a
+ * friend had gone to the terminal and come back down (no trap at 2 players). This only makes the
+ * attempt easier than in a real game.
+ */
+const trapAlreadyOpen: Phase = {
+  name: "the trap is open (as if a friend had used the terminal and come back down)",
+  do: {
+    R: {
+      label: "open the trap",
+      step(c) {
+        const k = c.w.props.latchLinks.indexOf("trappe");
+        if (k >= 0) c.w.props.latches[k] = true;
+        return 0;
+      },
+      done: () => true,
+    },
+  },
+  until: (w) => w.props.gates.every((g) => g.thing.char !== "h" || g.open),
+  timeout: 1,
+};
 
 /**
  * Ruben's neighbour jumps from M onto his head (2.9: it rises along his side and slides over at
@@ -272,7 +314,7 @@ export const solution: CoopSolution = (n) => [...beats12(n), ...pushIntoShaft(),
 function towerWithoutCrate(n: number): Phase[] {
   const order = (["R", ...[...friends(n)].reverse()] as Role[]).slice(0, 4); // bottom to top
   const top = order[order.length - 1]!;
-  const phases: Phase[] = [marchepiedPush(n)[0]!];
+  const phases: Phase[] = [marchepiedPush(n)[0]!, trapAlreadyOpen];
   const rest = Object.fromEntries([...friends(n)].reverse().slice(order.length - 1).map((f, k) => [f, walk(CORRIDOR_END - 0.86 * k, never)]));
   order.slice(1).forEach((r, k) => {
     const base = order[k]!;
@@ -310,6 +352,7 @@ function towerInJ(n: number): Phase[] {
   const rest = Object.fromEntries([...friends(n)].reverse().slice(order.length - 1).map((f, k) => [f, walk(CORRIDOR_END - 0.86 * k, never)]));
   const phases: Phase[] = [
     pushOneShort(n),
+    trapAlreadyOpen,
     { name: "Ruben hops over the tower into J", do: { ...rest, R: seq(walk(M_LEFT, never), jumpTo(15.6)) }, until: inJ("R"), timeout: 5 },
   ];
   order.slice(1).forEach((r, k) => {
@@ -338,11 +381,14 @@ function bareTower(n: number): Phase[] {
   const duct: Array<[Role, Role, number]> =
     n === 3 ? [["F1", "F0", DUCT_MOUTH]] : n === 4 ? [["F2", "F1", 9.45], ["F1", "F0", DUCT_MOUTH]] : n === 5 ? [["F2", "F3", 11.7], ["F1", "F3", DUCT_MOUTH]] : [];
   const keep: Phase["do"] = {};
+  const opener = duct.reduce<[Role, Role, number] | null>((a, d) => (!a || Math.abs(d[2] - TERMINAL) < Math.abs(a[2] - TERMINAL) ? d : a), null)?.[0];
   for (const [c, h, spot] of duct) {
     const [cx, hx] = n === 5 ? [M_LEFT, M_FRIEND] : [M_FRIEND, M_LEFT];
     phases.push({ name: `${c} and ${h} in M`, do: { ...keep, [c]: walk(cx, never), [h]: walk(hx, never) }, until: cond.all(cond.near(c, cx, 0.45), cond.near(h, hx, 0.25)), timeout: 6 });
     phases.push({ name: `${c} mounts ${h} (leg-up)`, do: { ...keep, [c]: mount(h) }, until: cond.on(c, h), timeout: 6 });
     phases.push({ name: `${c} climbs into the duct, to x ${spot}`, do: { ...keep, [c]: seq(wait(0.15), jumpOnto(DUCT_MOUTH, 12), walk(spot, never)) }, until: cond.all(cond.standsAbove(c, 11), cond.near(c, spot, 0.25)), timeout: 5 });
+    // The one waiting closest to the terminal (over the duct's mouth) opens the trap.
+    if (c === opener) phases.push(...openTrap(n, c, keep, spot));
     // At 5 players the ones in the duct keep their places (F3 gives both leg-ups); at 4, F2 in the
     // duct must stay free to follow Ruben's rope.
     if (n === 5) keep[c] = walk(spot, never);
@@ -485,7 +531,91 @@ function keyWithOneOff(n: number): Phase[] {
   ];
 }
 
+/**
+ * Beat 1 without the duct: nobody goes to the terminal. Where the climber's other neighbour waits
+ * instead, and when it jumps (its jump gives the rope slack: a body in the air is a weak anchor).
+ */
+export interface DuctSkip {
+  /**
+   * "floor": the neighbour stands on the floor at x (the corridor's end or M). "head": it rides a
+   * friend's head, the friend (the base) standing at x and the rider leaning `lean` towards J.
+   */
+  mode: "floor" | "head";
+  x: number;
+  lean?: number;
+  /** The neighbour jumps this many steps after the climber (before it when negative), or not at all (null). */
+  sync: number | null;
+  /** Open the trap first (as if someone had used the terminal): shows that the trap, not the rope, closes this. */
+  trapOpen?: boolean;
+}
+
+/**
+ * The attempt, by team size. 2 players: there is no other neighbour, so this degenerates into
+ * Ruben as the base at x (off the PC tower) and F0 riding him, which jumps for the upper floor
+ * itself. 3 players: there is nobody to be the base, "head" is played as "floor" at the base's x.
+ * 4-5 players: as described, the climber jumping from Ruben's head on the PC tower as in the
+ * solution. The ATTEMPT is the climber's jump (with the neighbour's, if any).
+ */
+function ductSkip(n: number, p: DuctSkip): Phase[] {
+  const fs = [...friends(n)].reverse(); // nearest Ruben first
+  const phases: Phase[] = [marchepiedPush(n)[0]!];
+  if (p.trapOpen) phases.push(trapAlreadyOpen);
+  const lean = p.lean ?? 0;
+  if (n === 2) {
+    phases.push(
+      { name: "F0 steps back into the corridor", do: { F0: walk(p.x - 1, never), R: walk(M_SPOT, never) }, until: cond.near("F0", p.x - 1, 0.15), timeout: 6 },
+      { name: "Ruben steps back to be the base", do: { R: walk(p.x, { jump: "never", tol: 0.08 }) }, until: cond.near("R", p.x, 0.1), timeout: 6 },
+      { name: "F0 climbs onto Ruben's head", do: { F0: mount("R", { side: -1 }) }, until: cond.all(cond.on("F0", "R"), cond.near("F0", p.x, 0.15)), timeout: 6 },
+      { name: "F0 leans towards J", do: { F0: shiftOn("R", p.x + lean) }, timeout: 2 },
+      { name: "ATTEMPT: F0, on Ruben's head off the PC tower, jumps for the upper floor", do: { F0: jumpTo(17.2, { rise: 0.25 }) }, until: cond.standsAbove("F0", 9), timeout: 3 },
+    );
+    return phases;
+  }
+  const [climber, nb] = [fs[0]!, fs[1]!];
+  const base = p.mode === "head" ? fs[2] : undefined;
+  const rest: Phase["do"] = {};
+  fs.slice(base ? 3 : 2).forEach((f, k) => (rest[f] = walk(10.6 - 0.86 * k, never)));
+  phases.push(
+    marchepiedPush(n)[1]!,
+    { name: `1. ${climber} under Ruben`, do: { ...rest, [climber]: walk(M_FRIEND, never), [nb]: walk(Math.min(p.x, M_LEFT), never), ...(base ? { [base]: walk(Math.min(p.x, 12.2) - 0.9, never) } : {}) }, until: cond.near(climber, M_FRIEND, 0.2), timeout: 4 },
+    { name: `1. ${climber} jumps onto Ruben's head`, do: { ...rest, [climber]: jumpTo(ON_TOWER) }, until: cond.on(climber, "R"), timeout: 4 },
+  );
+  if (base) {
+    // The rider gets on from the shaft's side (the queue keeps its order in the corridor).
+    phases.push(
+      { name: `${base} to x ${p.x}, ${nb} beside it`, do: { ...rest, [base]: walk(p.x, { jump: "never", tol: 0.06 }), [nb]: walk(p.x + 1, never) }, until: cond.all(cond.near(base, p.x, 0.08), cond.near(nb, p.x + 1, 0.3)), timeout: 6 },
+      { name: `${nb} climbs onto ${base}'s head`, do: { ...rest, [nb]: p.x < 12.7 ? seq(wait(0.1), jumpTo(p.x - 0.15, { holdFor: 0.12 })) : mount(base, { side: 1 }) }, until: cond.on(nb, base), timeout: 4 },
+      { name: `${nb} leans towards J`, do: { ...rest, [nb]: shiftOn(base, p.x + lean) }, timeout: 2 },
+    );
+  } else {
+    phases.push({ name: `${nb} to x ${p.x}`, do: { ...rest, [nb]: walk(p.x, { jump: "never", tol: 0.08 }) }, until: cond.near(nb, p.x, 0.1), timeout: 4 });
+  }
+  const s = p.sync;
+  const climb = jumpTo(17.2, { rise: 0.25 });
+  phases.push({
+    name: `ATTEMPT: ${climber} jumps for the upper floor, ${nb} ${base ? `on ${base}'s head` : "on the floor"}${s === null ? "" : ` jumping ${s} steps after it`}`,
+    do: { ...rest, [climber]: s !== null && s < 0 ? seq(wait(-s * COOP_DT), climb) : climb, ...(s === null ? {} : { [nb]: seq(wait(Math.max(0, s) * COOP_DT), jumpTo(15)) }) },
+    until: cond.standsAbove(climber, 9),
+    timeout: 3,
+  });
+  return phases;
+}
+
+/** The duct skipped, played on: had the climber got up, it hauls the others and the level goes on. */
+export function skipDuct(p: DuctSkip): CoopSolution {
+  return (n) => [...ductSkip(n, p), ...haulAndLineUp(n, n === 2 ? "F0" : friends(n)[n - 2]!), ...fosse(n), ...pushIntoShaft(), ...exitUp(n)];
+}
+
 export const shortcuts: Record<string, CoopSolution> = {
+  /**
+   * Beat 1 without the duct: the climber's other neighbour stays on M's floor and jumps with the
+   * climber (its rope then gives). The trap is shut: nobody used the terminal.
+   */
+  "the duct skipped: its rope neighbour jumps with the climber from M's floor": skipDuct({ mode: "floor", x: M_LEFT, sync: 0 }),
+
+  /** Beat 1 without the duct: the climber's other neighbour on a friend's head at the corridor's mouth. */
+  "the duct skipped: its rope neighbour on a friend's head at the corridor's mouth": skipDuct({ mode: "head", x: 12.75, lean: 0.7, sync: 0 }),
+
   /** Beat 1 without the PC tower: a human tower in the shaft. */
   "a human tower under the upper floor": (n) => [
     ...towerWithoutCrate(n),

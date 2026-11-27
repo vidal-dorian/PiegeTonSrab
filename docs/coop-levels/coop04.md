@@ -7,7 +7,9 @@ Files: `packages/shared/src/coop/levels/coop04.ts` (the level),
 Check: `npx tsx packages/shared/scripts/check-coop-level.ts coop04`.
 
 Redesigned on 2026-11-27 for the wrapping rope (rope v2, placed blocks `=` wrapped like terrain):
-beat 1 is new, beats 2 and 3 are unchanged. See "Why beat 1 changed" at the end.
+beat 1 is new, beats 2 and 3 are unchanged. See "Why beat 1 changed" at the end. Fix round
+(2026-11-27): from 3 players a trap over the shaft opens at a terminal in the duct, because the
+rope alone did not make the duct needed (see "The rope in beat 1" and the History).
 
 ## Idea
 
@@ -23,10 +25,12 @@ it is useful:
   weight (2) stands in for whoever is up, so the plate still carries the whole class and the cage
   stays open on the key.
 
-The rope plays its part where it fits: in beat 1 it is measured round the shaft's lip, so from 3
-players the friend tied to the climber must wait up in the cable duct, not on the floor (the sign:
-« Corde courte ? Attends dans la gaine »), and everyone else is hauled over that lip; in beat 3
-the next one up waits on the tower, within reach of the one on the landing.
+From 3 players the way up the shaft is shut by a trap that opens at a Claude terminal in the cable
+duct (« Ouvre la trappe »; it stays open): someone needs a leg-up into the duct first. The rope
+plays its part where it fits: in beat 1 it is measured round the shaft's lip, so the friend tied
+to the climber waits up at the duct's mouth, not standing on the floor (the sign: « Corde courte ?
+Attends dans la gaine »), and everyone else is hauled over that lip; in beat 3 the next one up
+waits on the tower, within reach of the one on the landing.
 
 One deadly spot: the bare cables at the foot of the exit shaft (beat 3). The ditch of beat 2 is
 not one (see Deadly moments).
@@ -49,9 +53,9 @@ Cells `1`-`3` are team-size variants (see the table).
           ###############............#####################.#####  5
           ###############............#############.........#####  6
           ###############............#############t.......s#####  7
-          ###############............rrr.....|....t.......s#####  8
-          #############..2################^^^########wwwwww#####  9
-          #########.......######################################  10
+          ###############6...........rrr.....|....t.......s#####  8
+          ##########444..2################^^^########wwwwww#####  9
+          #########..5....######################################  10
           #############...######################################  11
           #.......a.......######################################  12
           #S......a.......######################################  13
@@ -65,6 +69,9 @@ Cells `1`-`3` are team-size variants (see the table).
 | `1` → `p` | plate (floor sensor) | M's floor x 13-14 | ≥ 4, `plancher` | 4-5 (floor at 2-3) |
 | `2` → `l` | gate, inverted (hatch) | top of the shaft J, x 15 row 9 | `plancher` | 4-5 (open at 2-3) |
 | `3` → `q` | plate (floor sensor) | J's floor, x 15 row 14 | ≥ 4, `plancher` | 4-5 (floor at 2-3) |
+| `4` | recess over the duct's mouth | x 10-12 row 9 (the duct is 2 high there) | room for the terminal | 3-5 (wall at 2) |
+| `5` → `y` | Claude terminal « Ouvre la trappe » | in the recess, x 11 row 10 | ↓ sets `trappe` on for good (Ruben's ↓ sets it off) | 3-5 (empty at 2) |
+| `6` → `h` | gate (the trap) | over J, x 15 row 8 | `trappe` | 3-5 (open at 2) |
 | `r` | crate, server rack 3x1 | tunnel, x 27-29 row 8 | W | all |
 | `^` | bare cables (spikes) | ditch x 32-34, row 9 | kills | all |
 | `\|` | crate stop | x 35 row 8 | holds the rack over the ditch | all |
@@ -78,7 +85,8 @@ Cells `1`-`3` are team-size variants (see the table).
 W is the team's weight, friends 1 and Ruben 2: 3, 4, 5, 6 at 2, 3, 4, 5 players.
 
 Places used below: the corridor = x 1-12 rows 12-13 (2 high); the duct = x 9-12 row 10 (1 high,
-over the corridor's end, its mouth at x 13); M = x 13-14 rows 9-13 (5 high: ceiling at height 5);
+over the corridor's end, its mouth at x 13; from 3 players 2 high at x 10-12, the recess with the
+terminal); M = x 13-14 rows 9-13 (5 high: ceiling at height 5);
 J = x 15 (the shaft, open from the floor up to the upper floor's room); the upper floor from x 16
 at height 5, its lip at (16, 9); the lab = x 40-47 rows 6-8 (3 high: ceiling row 5), T = x 48 (the
 exit shaft, 1 wide, open from row 1 to row 8), the landing = x 49-52, rows 1-4.
@@ -96,8 +104,8 @@ anybody in a 2-high corridor).
    floor sensor, where it weighs nothing.
 2. Ruben, in M, jumps onto the tower and stands on it under the shaft (x 15.5), clear of M.
 3. From 3 players: his neighbour gives the next friend a leg up in M (it climbs onto the
-   neighbour's head, jumps and slides into the duct, 1.0 s); it waits at the duct's mouth. The
-   other friends wait in the corridor.
+   neighbour's head, jumps and slides into the duct, 1.0 s); it steps back to the terminal, opens
+   the trap over J (0.3 s) and waits at the duct's mouth. The other friends wait in the corridor.
 4. His neighbour, in M, jumps onto Ruben's head (« Ruben, bouge pas ! »).
 5. From Ruben's head (feet 2.9) it jumps up J onto the upper floor (apex 5.9).
 6. The one up walks right and hauls the others over the lip (3.2 s at 2 players, 6.7 s at 5).
@@ -132,12 +140,12 @@ anybody in a 2-high corridor).
 | Players | Total | Beat 1 | Beat 2 | Beat 3 | Longest link (beat 1 / 2 / 3) |
 |---|---|---|---|---|---|
 | 2 | 20.9 s | 8.9 s | 6.1 s | 6.1 s | 5.40 / 4.52 / 4.73 |
-| 3 | 22.6 s | 9.8 s | 6.0 s | 6.9 s | 5.40 / 4.52 / 4.73 |
-| 4 | 23.8 s | 10.9 s | 5.3 s | 7.7 s | 5.41 / 4.49 / 4.77 |
-| 5 | 26.6 s | 12.9 s | 5.2 s | 8.5 s | 5.41 / 3.57 / 4.77 |
+| 3 | 22.8 s | 10.1 s | 6.0 s | 6.9 s | 5.40 / 4.52 / 4.73 |
+| 4 | 24.1 s | 11.1 s | 5.3 s | 7.7 s | 5.41 / 4.49 / 4.77 |
+| 5 | 26.8 s | 13.1 s | 5.2 s | 8.5 s | 5.41 / 3.57 / 4.77 |
 
 (Beat 2 includes the queue's reorder on the upper floor. The longest links of beat 1 are the
-haul, at the hard stop. The previous beat 1 took 9.0-11.4 s.)
+haul, at the hard stop. The previous beat 1 took 9.0-11.4 s; the terminal adds 0.2 s.)
 
 Players who know the level should take 40-55 s (the leg-up and the talking at the shaft, the
 reorder before the rack, the talking at the plate).
@@ -158,7 +166,8 @@ because the apex is exactly 3.0, and a change of jump tuning would move them.
 | 4-tower in M (4-5 players) | 5 | top feet 2.7, apex 5.7 | would reach: it stands on the sensor, the hatch is shut (its top bonks at 3.1) |
 | Human tower in J, the PC tower left one cell short (in M's right cell) | 5 | 2-3 players: top feet 0.9 / 1.8, apex 3.9 / 4.8; 4-5: 4 bodies, top feet 2.7 | 2-3: 1.1 / 0.2 short (the shortcut's best feet at 3 players: 0.2 under the lip). 4-5: they stand on J's sensor (weight 4 or more), the hatch is shut; with the sensor ignored the top gets up at 4 and 5. Three friends in J at 4-5 weigh 3 (hatch open) and are 0.2 short like at 3 |
 | Ruben + 2 friends stacked on the PC tower in J (4-5) | 5 | top feet 3.8 | would reach, but they weigh 4 on J's sensor: the hatch is shut. Ruben and one friend (the solution) weigh 3 |
-| Into the duct from M's floor, alone | 3 | apex 3.0 | **0.0, pinned**: it takes a leg-up. From a head (feet 0.9, apex 3.9) the jumper is held against the duct floor's side, slides in once its feet clear it, and the duct's ceiling (4) stops it: 119 of 126 tries (7 misses with a short jump steered late) |
+| Into the duct from M's floor, alone | 3 | apex 3.0 | **0.0, pinned**: it takes a leg-up (0 of 480 with a buffered jump, the recess included). From a head (feet 0.9, apex 3.9) the jumper is held against the duct floor's side and slides in once its feet clear it: 144 of 144 from the solution's pose at 3-5, re-measured with the recess (the same without it) |
+| Into the duct from the bare PC tower in J | 1 | a jump from the tower's top (2) to the left | the tower is the leg-up: 11 of 72 tries at 3 players, with or without the recess (accepted: the duct is still used) |
 | Corridor, 2 high | | no tower stands in it; a jump bonks at 1.1 | |
 | Duct, 1 high | | no jump at all | |
 | The duct's mouth to the upper floor (a friend walking off it and jumping in coyote time) | 5 | M's ceiling (5) caps the feet at 4.1 until it is in J, 1.75 cells away | 0 of 255 at 3-5 players (best feet 0.88 under the lip); at 2 players 3 of 255, all of them the "free corner" case below |
@@ -183,6 +192,10 @@ stays open for the solution. J has no hole: whoever gets into J before the tower
 floor, M's height, and jumps back out onto the tower (2 up), and a tower pushed on into J stops
 against a body standing there instead of covering it.
 
+Beat 1's guard from 3 players is the trap h: shut until someone in the duct uses the terminal,
+and the duct takes a leg-up (a friend's head, or the PC tower). The rope's own rule (the
+climber's other neighbour within reach) does not make the duct needed on its own: see below.
+
 Beat 3's guard is geometry, not a rule: the only way up is from inside T, T is deadly below
 height 2, and the lab, 3 high, holds no human tower whose top stands at 2 or more. Only the PC
 tower stands in T (crates cover spikes).
@@ -199,12 +212,24 @@ players, to the next friend. Measured along its path, round the shaft's lip:
   measured during the jump. Up from x 12.0 in the duct the climber gets up; from x 11.6 and deeper
   it does not.
 
-So from 3 players someone must wait in the duct, at its mouth, or (open finding at 4-5, below)
-higher than M's floor. That is the leg-up (a coop move on
-its own: « Fais-moi la courte échelle ! »), and the sign at the duct says why. The others are then
-hauled over the lip like everyone in beat 1 of La Rentrée; they come up through M and J, Ruben
-first (M is 5 high, so whoever comes up M passes Ruben in J instead of getting stuck under M's
-ceiling).
+That holds for a neighbour standing still. A neighbour in the air is a weak anchor (the hard stop
+splits the excess between two bodies in the air instead of holding the climber), so a neighbour
+that jumps with the climber, from M's floor or from a friend's head at the corridor's mouth (4-5),
+gives it the rope it needs: before the fix round 31 of 70 tries at 3 players (on the floor, x 12
+to 14.45, the neighbour jumping 10 steps before to 20 after the climber), and at 4 and 5 players
+31 of 70 plus 56 and 59 of 105 on a head (the base at x 11.95-13.45, the rider leaning 0-0.7);
+every one of them then finished the level. The rope cannot be made to tell these apart: the
+climber jumps onto Ruben's head from M's floor, at most about 3 below and 1 beside his head, and
+from his head up to a lip at most 3 higher, so M's floor is always within about 0.3 of the hard
+stop from the landing. So the trap: from 3 players nobody gets up the shaft before someone has
+been into the duct (that is the leg-up, a coop move on its own: « Fais-moi la courte échelle ! »)
+and used the terminal there. The same sweep now gets nobody up (0 of 70 at 3, 0 of 175 at 4 and
+at 5, `coop04Duct.test.ts`); with the trap forced open it does again. The sign at the duct still
+tells the standing rule.
+
+The others are then hauled over the lip like everyone in beat 1 of La Rentrée; they come up
+through M and J, Ruben first (M is 5 high, so whoever comes up M passes Ruben in J instead of
+getting stuck under M's ceiling). The trap latches open, so it never shuts on the haul.
 
 Why there is no room under the upper floor: a body hauled up J is pulled towards the lip's corner.
 Any opening under the upper floor beside J (a room where Ruben could get behind the tower, for
@@ -213,13 +238,14 @@ ceiling. J's right side is solid from the floor to the lip.
 
 ## Variants by team size
 
-- 2 players: no sensors or hatch. Nobody needs the duct (the climber's only other
-  neighbour is Ruben, on the tower).
-- 3 players: same map as 2; the next friend waits in the duct.
-- 4-5 players: beat 1's sensors ("≥ 4", M's floor and J's floor) and hatch exist. Nothing changes
-  for the team when they go the right way: on J's sensor Ruben and the climber on his head weigh 3
-  (the PC tower weighs nothing on it), the climber leaves M's sensor when it jumps onto Ruben, the
-  one in the duct and the others in the corridor are off both. (While Ruben pushes the tower
+- 2 players: no sensors, hatch, trap or terminal (the duct is 1 high all along). Nobody needs the
+  duct (the climber's only other neighbour is Ruben, on the tower).
+- 3 players: the trap over J, the terminal and its recess exist; the next friend opens the trap
+  and waits in the duct.
+- 4-5 players: as at 3, and beat 1's sensors ("≥ 4", M's floor and J's floor) and hatch exist.
+  Nothing changes for the team when they go the right way: on J's sensor Ruben and the climber on
+  his head weigh 3 (the PC tower weighs nothing on it), the climber leaves M's sensor when it jumps
+  onto Ruben, the one in the duct and the others in the corridor are off both. (While Ruben pushes the tower
   through M with friends behind him, M's sensor may carry 4 for a moment and shut the hatch: it
   reopens 0.15 s after, long before anyone climbs.)
 - Beat 3 is the same at every size. The rack's need and plate w's need are W: the rack needs
@@ -240,7 +266,8 @@ He is never parked on a plate.
 ## Communication moments
 
 - Beat 1: « Ruben, bouge pas, je te saute sur la tête ! » at the shaft; from 3 players, before
-  that, « Toi, attends dans la gaine, sinon la corde me retient » and the leg-up.
+  that, the leg-up, « Ouvre la trappe sur la console ! » and « Reste dans la gaine, sinon la corde
+  me retient ».
 - Beat 2: « Poussez ensemble ! 3, 2, 1 » (one player missing and the rack does not move).
 - Beat 3: « Toute la classe sur la plaque ! » (the sign says it too) while Ruben gets the key,
   then « Un par un sur la tour ».
@@ -264,7 +291,14 @@ before the tower jumps back out onto the tower (see the recovery below).
 Each shortcut in `coop04.solution.ts` plays the solution up to the beat it tries to skip, then a
 phase whose name starts with `ATTEMPT`, then what would finish the level had the attempt worked.
 All fail at 2, 3, 4 and 5 players, in their attempt phase (scratch script that runs every
-shortcut at every team size on the committed level):
+shortcut at every team size on the committed level). The shortcuts of beat 1 that test another
+guard than the trap ("a human tower under the upper floor", "a human tower in J beside the tower
+left one cell short") open the trap first, as if a friend had used the terminal and come back
+down, which only makes them easier; "a friend alone on the bare PC tower" opens it for real.
+`coop04Duct.test.ts` plays the two "duct skipped" attempts over a sweep (2 players: 9 tries;
+3: 70; 4 and 5: 175 each, the neighbour on the floor at x 12-14.45 or on a head with the base at
+x 11.95-13.45, leaning 0-0.7, jumping from 10 steps before to 20 after the climber or not at all):
+every one fails in its attempt.
 
 | Shortcut | What the bots try | Why it fails |
 |---|---|---|
@@ -274,13 +308,15 @@ shortcut at every team size on the committed level):
 | a human tower in the exit shaft | the PC tower parked at x 46; Ruben climbs onto it and walks off into T to be the base of a tower there | Ruben dies in the cables |
 | the key with a friend off the plate | Ruben up on the landing, his neighbour on the tower; F0 walks off plate w, then Ruben goes for the key | 4-5: the plate carries W - 1, the cage is shut. 2-3: the rope keeps F0 on the plate (at 2 players F0 is the one on the tower, at 3 its neighbour is), so the key is never taken with F0 off it |
 | a human tower in J beside the tower left one cell short | the PC tower stopped in M's right cell; Ruben hops over it into J, then up to 3 friends, each from the PC tower onto the head below (at 5 players F0 waits on the PC tower, close to the top); the top jumps for the upper floor | 2-3: too short (top feet 0.9 / 1.8). 4-5: the 4 bodies weigh 4 or more on J's sensor, the hatch is shut (with the sensor ignored, the top gets up at 4 and 5) |
-| a friend alone on the bare PC tower | Ruben pushes the tower into J and gets back off it; F0 jumps onto the bare tower, its other neighbour F1 waiting at the duct's mouth from 3 players (at 4, F2 deeper in the duct; at 5, F3 gives the leg-ups and stands on Ruben's head in M's right cell); standing still, F0 jumps for the upper floor | 3-5: the apex is exactly the lip's height (best feet 9.000, the lip at 9). 2: Ruben, on the floor, holds F0 by the rope (best feet 10.26) |
+| a friend alone on the bare PC tower | Ruben pushes the tower into J and gets back off it; F0 jumps onto the bare tower, its other neighbour F1 waiting at the duct's mouth from 3 players (at 4, F2 deeper in the duct; at 5, F3 gives the leg-ups and stands on Ruben's head in M's right cell); the one in the duct nearest the terminal opens the trap; standing still, F0 jumps for the upper floor | 3-5: the apex is exactly the lip's height (best feet 9.000, the lip at 9). 2: Ruben, on the floor, holds F0 by the rope (best feet 10.26) |
+| the duct skipped: its rope neighbour jumps with the climber from M's floor | the solution without the leg-up: the climber's other neighbour stands in M's left cell and jumps with the climber (the same step); nobody uses the terminal. At 2 players (no such neighbour, no trap): Ruben, off the PC tower, is the base in M and F0 on his head jumps for the upper floor | 3-5: the trap is shut. 2: too short (feet 0.9, apex 3.9). With the trap forced open it wins at 3-5 (21.5 / 22.5 / 25.3 s) |
+| the duct skipped: its rope neighbour on a friend's head at the corridor's mouth | as above, but from 4 players the neighbour rides the next friend's head (the base at x 12.75, the rider leaning to 13.45) and they jump together; at 3, on the floor at x 12.75 | 3-5: the trap is shut. 2: as above. With the trap forced open it wins at 4-5 (23.7 / 26.5 s) |
 
 Recoveries (`recoveries` in `coop04.solution.ts`, played to the end at 2-5 players by the tests):
 
 | Recovery | The mistake and the way back | Result |
 |---|---|---|
-| into J before the tower, and back out | Ruben stops the PC tower one cell short (in M's right cell) and hops over it into J; he jumps back onto the tower (2 up from J's floor) and down into M, pushes the tower on into J, and the solution goes on | finishes at 2, 3, 4 and 5 players (22.7, 24.3, 25.6, 28.3 s); getting out takes 1.0 s |
+| into J before the tower, and back out | Ruben stops the PC tower one cell short (in M's right cell) and hops over it into J; he jumps back onto the tower (2 up from J's floor) and down into M, pushes the tower on into J, and the solution goes on | finishes at 2, 3, 4 and 5 players (22.7, 24.6, 25.8, 28.6 s); getting out takes 1.0 s |
 
 Probes on the new beat 1 (scratch scripts, not committed; the numbers are in the tables above):
 the jump onto Ruben's head, the leg-up into the duct, the climber held by a neighbour left on the
@@ -304,7 +340,8 @@ the pull of a haul into a room under the lip (the reason there is none).
     depends on the first jump's length (it sets the landing's phase: 3 of 12 hold times win, then
     re-pressing 1 to 7 frames before landing wins, 9-11 rarely). Ruben's neighbour cannot do it while Ruben
     is off the tower (0 of 600: his rope holds the jumper); at 2 players F0's only neighbour is
-    Ruben, so only with Ruben in the duct (untested: the bots could not give Ruben that leg-up).
+    Ruben, so only with Ruben in the duct (untested: Ruben cannot ride a friend's head, so only
+    a haul or the bare PC tower gets him in).
     Then Ruben is not the base: he pushes the tower (still « il pousse comme deux ») and is hauled
     up like the others; the duct and its leg-up are still needed from 3 players.
   Both skip the jump onto Ruben's head; the tower is pushed and used. We keep them: the only fix is
@@ -314,31 +351,37 @@ the pull of a haul into a room under the lip (the reason there is none).
   of 420) but not the bare tower, and makes the haul jam (a friend coming up M sticks under that
   ceiling while Ruben rises in J), so M stays 5 high.
   - Ruben himself on the bare tower (integration skeptic, 2026-11-27): with his neighbour waiting
-    at the duct's mouth after a leg-up, Ruben jumps from M onto the bare tower and re-presses jump
-    just before landing: he gets up in 60 of 288 tries at 3-5 players (best feet 9.013), then
-    hauls everyone: the level finishes in 22.7 / 25.4 / 28.1 s. With his neighbour on M's floor or
-    in the corridor: 0 of 288. Same cause and same reason to keep it as the bare-tower case; the
-    jump onto Ruben's head is then skipped by Ruben, and he is not the base. Untested at 2
-    players (the bots could not give F0 the leg-up into the duct).
-- **Open (integration skeptic, 2026-11-27): the duct skipped at 4-5 players.** The climber's other
-  neighbour does not go into the duct but rides a friend's head at the corridor mouth (base at x
-  12.55-12.75, the rider leaning to 13.2-13.9, its feet 0.9 up) and jumps with the climber or up
-  to 10 frames after: the climber gets up in 26 of 48 tries at 4 players and 78 of 144 at 5 (best
-  feet 8.1, 0.9 above the lip; without the rider's jump 1 of 12 and 3 of 36), and the level
-  finishes (24.1 s at 4, 26.8 s at 5; re-measured on the integrated branch). From M's floor the
-  same synced jump never works (0 of 81). This makes the duct, its leg-up and the sign
-  « Corde courte ? Attends dans la gaine » optional at 4-5. Not fixed: closing it needs the
-  corridor mouth to be lower or further from the shaft, which moves the duct's measured rope
-  lengths. No shortcut covers it yet.
+    at the duct's mouth after a leg-up (from 3 players, after opening the trap), Ruben jumps from
+    M onto the bare tower and re-presses jump just before landing: he gets up in 60 of 288 tries
+    at 2, 3, 4 and 5 players alike (best feet 9.013), then hauls everyone: the level finishes in
+    18.8 / 23.0 / 25.7 / 28.3 s. At 2 players F0 gets into the duct from Ruben's head (Ruben in
+    M's left cell, F0 climbing on from the corridor's end; fix round). With his neighbour on M's
+    floor or in the corridor: 0 of 288. Same cause and same reason to keep it as the bare-tower
+    case; the jump onto Ruben's head is then skipped by Ruben, and he is not the base. The duct
+    and its leg-up are used all the same.
+- **Closed in the fix round: the duct skipped.** Reported at 4-5 players (the climber's other
+  neighbour on a friend's head at the corridor's mouth, jumping with the climber: 26 of 48 tries
+  at 4, 78 of 144 at 5); the "0 of 81" from M's floor was a probe counting every run as a miss
+  (its runs end after the attempt, and it took that ending for a failure). Re-measured, a
+  neighbour jumping with the climber from M's floor works at 3, 4 and 5 players too. Closed by the
+  trap (numbers in "The rope in beat 1"; shortcuts "the duct skipped: ..." and the sweep in
+  `coop04Duct.test.ts`).
+- Once the trap is open, the climber's other neighbour may still give it the rope from outside
+  the duct by jumping with it (from M's floor, or a friend's head from 4 players): the duct and its
+  leg-up have been used, and « 3, 2, 1, saute ! » is a coop move too.
+- Ruben at the terminal: his ↓ sets the trap's link off (Ruben's prompts do the opposite). He
+  cannot ride a friend's head into the duct (only the PC tower or a haul could get him there, not
+  probed); a friend at the terminal reopens it.
 - The tower pushed one cell short, into M's right cell: Ruben on it and a friend on his head (or
   dropping from the duct's mouth onto it, the old « je te descends sur la tête ») lean into J and
-  get up at 2-3 players. The tower is pushed and used. At 4-5 it stands on M's sensor, where it
+  get up at 2-3 players (from 3 players once the trap is open). The tower is pushed and used. At 4-5 it stands on M's sensor, where it
   weighs nothing: Ruben and the friend weigh 3, the hatch stays open (a fourth body in M shuts it),
   so this is now open at every size (before critic round 4 the tower weighed 2 and shut the hatch
   at 4-5).
-- Other ways into the duct: Ruben gives the leg-up, or one already in the duct hauls the next
-  in over its mouth (the mantle over a wrapped lip). Any order works as long as the climber's
-  other neighbour is at the mouth when the climber jumps.
+- Other ways into the duct: Ruben gives the leg-up, the bare PC tower in J (11 of 72 tries), or
+  one already in the duct hauls the next in over its mouth (the mantle over a wrapped lip). Any
+  order works as long as someone has used the terminal and the climber's other neighbour is at
+  the mouth (or jumps with it) when the climber jumps.
 - Any human tower standing on a PC tower: the tower is used.
 - The friends pushing along behind Ruben (they add their strength): he is in front anyway.
 - A friend first up at beat 3 (only possible if the queue was lined up that way): then one other
@@ -361,6 +404,20 @@ the pull of a haul into a room under the lip (the reason there is none).
   that does not depend on timing.
 - **The duct is where the climber's other neighbour waits** (3+), not the whole team: it is the
   one rope rule of the beat, and it brings a leg-up.
+- **The duct is enforced by a terminal and a trap, not by the rope alone** (fix round). The rope
+  rule holds only for a neighbour standing still (see "The rope in beat 1"). Tried first: plates
+  in the duct opening a trap over J (with a plate on the upper floor to keep it open for the
+  haul) closed everything (0 of 252 floor jumps, 0 of 546 head riders), but a plate is a collider
+  and the rope goes through it: at the duct's mouth it cut the rope's corner and changed the
+  jump past that corner; a plate kept off the mouth cell leaves a window of 0.4 cell where the
+  one waiting is both on it and within reach. A terminal is not solid and latches, so neither
+  the rope nor the haul sees it. It had to sit within rope reach of the duct's mouth (a room at
+  the duct's far end is 6 cells of rope away from the one giving the leg-up), hence the recess
+  over the mouth, where its screen fits.
+- **Signs moved for the name labels** (fix round): « Ruben pousse comme deux » sat in the
+  corridor's top row, on the players' name labels at the spawn; it is now under the corridor's
+  floor. « Gaine technique » moved over the recess (the terminal's screen fills it) and « Corde
+  courte ? » left, clear of the terminal's link badge.
 - **The guard against human towers at 4-5 players is a floor sensor, not overhangs.** From 4
   players a 4-tower reaches 5.7, close to the PC tower's stack (5.9), and towers lean: no ceiling
   tells them apart. Overhangs do their part (the 2-high corridor, M's 5-high ceiling, the PC tower
@@ -391,7 +448,11 @@ the pull of a haul into a room under the lip (the reason there is none).
 - Weight-opened gates leak to jumpers (a plate holds 0.15 s, a gate never closes on a body).
   Beat 3's cage cannot be reached from the plate at all, so that leak does not matter there.
 - The rope decides who can be where: at the exit the next one up waits on the tower or touching
-  it; at the shaft of beat 1 the climber's other neighbour waits in the duct.
+  it; at the shaft of beat 1 the climber's other neighbour waits in the duct. But a body in the
+  air is a weak anchor: a neighbour jumping with the climber gives it slack, so a rope rule
+  never holds against a jump from a place with headroom.
+- The rope goes through every co-op thing, plates included: a plate at a corner the rope wraps
+  cuts that corner. A terminal is not solid and its ↓ latches its link.
 - Plate weight counts riders: whoever stands on the PC tower in T weighs on plate w.
 - A crate's weight on plates is its own setting (`weight`, default its need): beat 1's PC tower
   weighs 0, so a sensor under it counts only who stands on it. That is how one floor sensor tells
@@ -419,3 +480,7 @@ the pull of a haul into a room under the lip (the reason there is none).
   through it. The owner rejected rope-transparent scenery (`=` now wraps like terrain), and beat 1
   was redesigned as above. The beat 3 bot tweak of that repair ("each climber walks to the foot
   of the parked tower before jumping onto it") is kept.
+- Fix round (2026-11-27): the skeptic's "duct skipped at 4-5 players" was real and wider (a
+  synced jump from M's floor at 3-5 too). Added the trap over J and the terminal in a recess over
+  the duct's mouth (3-5 players), two "duct skipped" shortcuts and `coop04Duct.test.ts`; Ruben's
+  solo climb measured at 2 players (60 of 288); signs moved off the name labels.

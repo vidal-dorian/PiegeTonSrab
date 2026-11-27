@@ -907,12 +907,18 @@ three. All five levels pass `check-coop-level --all` at 2-5 players, every short
   checked by `coopLevels.test.ts`); its entry "into J before the tower, and back out" finishes at 2-5. The
   client predictor keeps a rider's carrier under a ceiling (a 0.74 cell lift seen in the bench on the new
   2-high corridor). Bot times 20.9 / 22.6 / 23.8 / 26.6 s.
+  Fix round: from 3 players a trap over the shaft opens only at a Claude terminal in a recess over the duct's
+  mouth (it latches), because a neighbour jumping with the climber (from M's floor at 3-5, a friend's head at
+  4-5) made the duct optional (31 of 70 / 87 of 175 / 90 of 175 swept tries got up and finished; now 0, with
+  two "duct skipped" shortcuts and `coop04Duct.test.ts`). Ruben's solo climb measured at 2 players (60 of
+  288, accepted); « Ruben pousse comme deux » moved under the corridor's floor, off the name labels. Bot times
+  20.9 / 22.8 / 24.1 / 26.8 s.
 
 Accepted shortcuts (details in the level notes): coop02, another order in beat 1, an idle anchor's slide as
 the lowering (if the one below leans in), the last one dropped onto the tile on purpose, two stepping off
 together; coop03, trains over plate a, door wedges, walking into the cellar from tier 1, the key from the
 bench round the aisle; coop04, the PC tower's free corner and the bare tower with a buffered jump (a friend,
-or Ruben himself: 60 of 288 tries at 3-5), the tower pushed one cell short (now open at every size), other
+or Ruben himself: 60 of 288 tries at 2-5), the tower pushed one cell short (now open at every size), other
 ways into the duct.
 
 Open after the integration's skeptic round (not fixed; each is in the level's notes, marked "Open"):
@@ -921,10 +927,8 @@ Open after the integration's skeptic round (not fixed; each is in the level's no
   anchor slides to the lip's corner and then off it (8 of 156 probed runs at 2 players, 18-27 s after the
   step; 4 of 156 at 3; none at 4-5). This breaks "the first beats never kill" for a team that does nothing
   for 18 s. Fix idea: a raised end on the lip (moves the pivot and every depth of the beat).
-- coop04, the duct can be skipped at 4-5 players: the climber's other neighbour rides a head at the corridor
-  mouth instead of waiting in the duct, and they jump together (26 of 48 tries at 4, 78 of 144 at 5,
-  re-measured on this branch; the level then finishes in 24.1 / 26.8 s). No shortcut covers it yet.
-- coop04, the Ruben solo climb is accepted with the bare-tower family but is untested at 2 players.
+- coop04, the duct skipped at 4-5 players, and Ruben's solo climb at 2 players: closed and measured in the fix
+  round (see La Salle de TP above).
 
 Status at the end of M4 (2026-11-26):
 
@@ -949,8 +953,8 @@ Status at the end of M4 (2026-11-26):
   much or too little (`ropeDamping`)? Decided: the rope wraps placed blocks `=` too, and levels 2 to 4 get
   redesigned around the wraps (see "Rope wraps placed blocks"). La Salle can now be climbed by hauling from 3
   players (accepted). Done for levels 2-4 (see "Levels 2-4 redesigned for the wrapped rope"); three skeptic
-  findings are left open there: decide whether Le Labo Réseau's idle-anchor death in beat 1 and La Salle de
-  TP's duct skip at 4-5 players are worth a map change.
+  findings are left open there: decide whether Le Labo Réseau's idle-anchor death in beat 1 is worth a map
+  change (La Salle de TP's duct skip was closed with a terminal and a trap in the fix round).
 
 - Co-op "Réactivité": playtest the setting. Auto predicts under a 60 ms round trip and draws step A over
   80 ms (bench: the worst player's corrections start crossing 0.1 cell at about 78 ms, and always do by
