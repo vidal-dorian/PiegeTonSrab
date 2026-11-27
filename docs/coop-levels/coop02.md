@@ -362,6 +362,11 @@ walls).
   shaft A" never leaned in (its goals never got past the walk); its replacement and the jump
   version lean in for real. Beat 2's 2-player window was measured again (6.6-7.25; the anchor now
   stands at 6.9 instead of 7.2). Two shortcuts added (the jump, one rope to the deep key).
+  Browser (`?coopLocal=2&level=coop02`, Playwright, no console error): the duct and the
+  three-line sign draw whole; played by keys, Ruben stepping off and leaning in hangs at the
+  floor's end with the rope drawn over both corners of the lip, F0 stepping towards the edge sets
+  him down, and Ruben walking on pulls F0 off the lip and hauls him in: beat 1 at 2 players in
+  about 7 s.
 
 ## Engine notes
 
