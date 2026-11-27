@@ -216,7 +216,8 @@ closed and accepted, deadly moments, Ruben's moment, communication moment.
   neighbour off the bench into the trapdoor"; with m removed it gets through at 2, 3 and 5. All 12
   shortcuts fail at every size. The integration's skeptic then found "Ruben hanging" from further
   left on the aisle at 4-5 players; closed by lowering the bench's ceiling to 2 cells (see
-  coop03.md, shortcuts).
+  coop03.md, shortcuts). Its own skeptic found the free friend holding the trapdoor (a gate)
+  open from below; w is now a platform that slides under the bench and back, in one step.
 - **La Salle de TP.** Finding 1 (a pit under the rail at 4-5 players buried Ruben under the
   tower): real, fixed. A 2-deep pit would still trap (the tower's top is 4 above it), so J's floor
   is a second "≥ 4" sensor `q` at M's height, the rail and the pit are gone (54 x 16), and the PC

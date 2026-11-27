@@ -25,6 +25,17 @@ trapdoor and he dropped through it. The bench's ceiling is now one cell lower, 2
 bench (level with gate x's top), so the tallest tower on the bench is a friend on a friend's head at
 every team size, as it was at 3 players (see "Ruben hanging from the bench" in the shortcuts).
 
+Fixed a third time after that fix's skeptic: the trapdoor was a gate, and a gate never shuts on a
+body. Once in the cellar (one row high), the free friend could hop up into the trapdoor's opening
+and hold it open while the one leaving the bench (Ruben at 2 players, a friend from 3) fell in
+after him through the bench's end, which opens the moment the bench lets go. Two in the cellar then
+let each other out with s and e, which skips f and gate x at 2 players (won in 15.4 s, against the
+bots' 16.2). The route existed on the first version too (359 of 86400 probed runs) and the lower
+ceiling had widened it (698). The trapdoor w is now a platform on the bench's link that slides
+under the bench, in one step, while the bench holds W-1, and back in one step the moment it lets
+go: a platform passes through a body from below, so nobody can hold it open (0 of 86400; see "The
+free friend holds the trapdoor open from below" in the shortcuts).
+
 ## Idea
 
 « Ruben pèse deux… mais l'ordre compte. » Every gate is a plate-and-gate pair, and the level is
@@ -86,7 +97,7 @@ down to the stage.
 | `x` | gate | x 36, rows 7-8, standing on the bench's last cell, up to the bench's low ceiling | `libre` |
 | `p` | plate: the bench | x 34-36, row 9: one cell above the aisle, the cellar under it; two seats (x stands on the third cell) | W-1, `controle` |
 | `m` | gate, **inverted**: the bench's end | x 33, row 9, at the bench's height, over w's right half | `controle` |
-| `w` | trapdoor (horizontal gate) | aisle floor, x 32-33, right against the bench | `controle` |
+| `w` | trapdoor: a platform (one-way, 0.4 thick) that slides 2 cells right, under the bench, at 240 cells/s (one step) while its link is on | aisle floor, x 32-33, right against the bench | `controle` |
 | `e` | the cellar's door (vertical gate) | x 37, rows 10-11: the cellar's side wall, onto tier 1 | `sortie` |
 | `r` | plate | tier 1, x 39-41, next to e | 1, `sortie` |
 | `K`, `n` | the key and its locker's gate (inverted) | cellar, under the aisle, x 28 and 31 | `libre` |
@@ -97,11 +108,14 @@ down to the stage.
 The cellar is row 11 from x 28 to 36 (the locker x 28-30 behind n, under the aisle) and row 10 under
 the bench (x 34-36); its floor is level with tier 1. It opens only through w (from the pen, the bench
 holds it) and e (onto tier 1, r or s holds it). Its ceiling from w to e is w and the bench: things,
-which the rope goes through.
+which the rope goes through. Like every platform, w is one-way: someone in the cellar can jump up
+through it into the pen (back towards the start), never fall through it.
 
 While the bench is short of W-1, w is shut and m open: m's cell is a pit one cell deep over w's right
-half, and the bench's side is a step of one, as it always was. Once the bench holds W-1, w opens and
-m shuts: the bench's end becomes a step at its own height, over the open trapdoor.
+half, and the bench's side is a step of one, as it always was. Once the bench holds W-1, w slides
+away under the bench and m shuts: the bench's end becomes a step at its own height, over the open
+trapdoor. The step the bench lets go (its plate's 0.15 s hold over), w is back, whoever is under it:
+it is solid from above in the very next step, as a gate was when nobody stood in its way.
 
 Over the bench the ceiling is 2 cells above the bench's top (rows 7-8, level with gate x's top):
 one body can stand on a friend sitting there, never two.
@@ -163,7 +177,9 @@ lets go 0.15 s after he leaves it.
 left seat; at 4 players F1 sits on that one's head; at 5 players the middle friend sits on Ruben's
 head, Ruben's neighbour takes the left seat and F1 sits on his head. The others queue on w and the
 aisle meanwhile, so the rope stays short. F0 stands on the trapdoor w, one cell lower than the
-bench. It opens when the last of the others sits down (m shuts), and F0 drops into the cellar.
+bench. It slides away under the bench when the last of the others sits down (m shuts), and F0 drops
+into the cellar (standing far right on it, he is carried against m or the bench's side first, and
+drops from there).
 
 **The key.** The key's locker is under the aisle, so the rope goes down through w and round the
 aisle's edge. From the bench it is too short: Ruben holding his seat keeps F0 2.1 short of the key
@@ -237,6 +253,8 @@ and lets the wrap do the work elsewhere:
   could not leave). A one-way platform (a still mover) leaves a 0.6-high pocket under it that bodies
   walk into from the aisle. m is a gate on the bench's own link, inverted: a full step while the
   trapdoor is open, a pit otherwise, and the rope goes through it either way.
+- **The trapdoor w** is a platform, a thing like the gate it replaced: the rope goes through it,
+  open or shut, wherever it is on its slide.
 
 ## Heights and margins
 
@@ -247,6 +265,7 @@ and lets the wrap do the work elsewhere:
 | The aisle to the bench | 1 | a lone jump; under the bench the ceiling stops it at a rise of 2.1 (head 7) | 1.1 to spare in height |
 | Off the bench towards w, w open | m is shut at the bench's height | the bench lets go once he stands on m (centre 34.4); he can drop only past m (centre 32.6), then falls 1 | 1.8 cells and a fall of 1 in 0.15 s: 12 cells/s, the run is 7 |
 | The bench's ceiling | 2 cells over the bench's top | at most 1 body on a friend sitting there | a second would need 0.7 more |
+| Under the trapdoor | 1.6 (the cellar's row and the 0.6 under w's 0.4 board) | one body; nobody on a head | a body under w hopping into it does not hold it: it slides back through him |
 | Out of the cellar | 0: its floor is level with tier 1 | walking through e | |
 | The tiers and the stage | 2 | a lone jump | 1.0 |
 | The tunnel and the seat | 1 high | one body (0.9) | nobody stands on anyone in them |
@@ -258,12 +277,12 @@ Rope reach, measured along the path (rest 4.5, hard stop 5.4):
 |---|---|
 | Ruben in the seat to his neighbour on d (straight through d) | 2.0 |
 | The one on d to the friend waiting below at 21.4 | 4.25 |
-| F0 at the key to his neighbour on w (round the aisle's edge) | 4.34-4.36 (measured, every team size) |
+| F0 at the key to his neighbour on w (round the aisle's edge) | 4.32-4.35 (measured, every team size) |
 | F0 walking for the key, Ruben holding his seat / F1 on a head (4, 5 players) | at the stop: F0 gets to 31.4 / 31.7, the key needs 29.25 |
-| F0 on f to his neighbour on w / on r (through e) | 2.91-3.00 / 4.57-4.63 |
+| F0 on f to his neighbour on w / on r (through e) | at most 2.99-3.04 / 4.61-4.64 |
 | Ruben hopping from x 32.4 to his neighbour against gate x, with 0 / 1 friend under him | 3.58 / 3.64-3.67 (slack) |
-| The same from further left on the aisle (x 29-31): Ruben hangs (taut from 4.48) | up to 5.03-5.40; the hang ends with his body's right edge at 31.34-31.67, and it gets no further than 32.47 while w is open: dropping in needs 32.8 (2-5 players, the shortcut's sweep) |
-| Longest link in the bots' runs | 4.97 (2 players) / 4.91 (3) / 4.91 (4) / 4.91 (5) |
+| The same from further left on the aisle (x 29-31): Ruben hangs (taut from 4.48) | up to 5.03-5.40; the hang ends with his body's right edge at 31.34-31.67, and it gets no further than 32.53 while w is open: dropping in needs 32.8 (2-5 players, the shortcut's sweep, re-measured with w a platform; 32.47 with the gate) |
+| Longest link in the bots' runs | 4.94 (2 players) / 4.91 (3) / 4.91 (4) / 4.91 (5) |
 
 ## Variants by team size
 
@@ -303,6 +322,7 @@ every shortcut fails in that phase at 2, 3, 4 and 5 players.
 | Ruben as the free one | all the friends on the bench, Ruben on the trapdoor | without Ruben the bench is short |
 | Ruben hanging from his neighbour on the bench (sweep, new) | the same, his neighbour on top of a tower against gate x (on a friend's head from 3 players: the bench's ceiling takes two bodies); Ruben hops from 9 starts along the aisle (x 32.4 down to 29.2), 3 ways each (a full jump, right held from the take-off or from 0.21 s to the landing, or for 0.1 s from 0.25 s) | a body in the air under a taut rope weighs on its holder's support, so far out his 2 counts and w opens; but the link goes slack too far from w: he is never over it before it shuts (see "Ruben hanging from the bench" below) |
 | two friends into the cellar, one hanging (new) | Ruben on the right seat against gate x (F2 on his head from 4 players), the others on the left seat, F0 on w; F1 hops from 4 starts along the aisle, 3 ways each, to hang from his neighbour on the bench | his 1 makes W-1 and F0 drops in, but F1 is never over w before it shuts, F0's rope pulling him or not. At 2 players there is no second friend |
+| the free friend holds the trapdoor open from below (new, skeptic of the ceiling fix) | F0 drops in and waits under the trapdoor (32.5); his neighbour on the bench (Ruben at 2 players, F1 from 3, on a head from 4) leaves it towards the trapdoor, walking, or jumping at once or 8 steps later, while F0 hops under it 12 to 28 steps after he sets off (jump held 10 or 20, still or moving right): 30 tries, the leaver climbing back to his place between them | the trapdoor is a platform: it slides back the step the bench lets go, through F0's head, and the leaver lands on it (his feet never get below 10) |
 | freeing the others before taking the key | F0 drops in and goes straight to f (n shuts), the team goes out onto tier 1 and keeps to its places, F0 goes back for the key | the rope holds F0 within a link of the team outside |
 | the free friend lets himself out with s (new) | F0, key in hand, steps on s and runs for e | s is 3 cells from e: e has shut before he gets there |
 | a tower over gate g | nobody on a; Ruben's neighbour climbs on Ruben at g and jumps | g reaches the ceiling |
@@ -326,7 +346,20 @@ so it is the level that stops them, not the bots. The weakened levels:
   Ruben in the cellar at 4 and 5 players (70.9 s and 60.4 s into the sweep; it fails at 2 and 3,
   where the tower was already one friend high). Script `control2.ts` in the session scratchpad
   (`fixround/coop03/probes`);
-- the bench needing W-2 for "two friends into the cellar": F1 follows F0 in at 3, 4 and 5 players.
+- the bench needing W-2 for "two friends into the cellar": F1 follows F0 in at 3, 4 and 5 players;
+- the trapdoor a gate again, for "the free friend holds the trapdoor open from below" (script
+  `sctime.ts` in the session scratchpad, `fixround/coop03r/probes`, run on the level of the ceiling
+  fix and on the one before it, with this solution file): the leaver gets into the cellar at 2, 3,
+  4 and 5 players with the lower ceiling (26.3, 5.2, 4.3 and 4.4 s into the sweep), and at 3, 4 and
+  5 with the higher one (4.7, 21.4 and 17.6 s; at 2 players its 30 tries miss there, the exhaustive
+  probe below finds 91).
+
+Re-run with the trapdoor a platform (`ctl.ts`, same scratchpad), the weakened levels that involve
+it still let the bots through: m removed, the dragged neighbour gets in at 2 and 3 players (at 4
+and 5 F1 rides on a head and is not dragged); the bench needing W-2, "Ruben as the free one" gets
+through at 2-5 and "two friends into the cellar" at 3-5; the ceiling one cell higher with the old
+set-up, "Ruben hanging" gets Ruben in at 4 and 5 (70.9 s and 60.4 s into the sweep, as with the
+gate). The other weakened levels do not involve the trapdoor and were not re-run.
 
 The walk and the jump off the bench are not in the list for m: with m removed they still fail, on
 the fall of one cell to the trapdoor (0.184 s against the bench's 0.15 s hold). Only the rope's
@@ -352,15 +385,40 @@ yank beats that fall, which is what the critic found and m closes.
   right held from the apex or later). After: 0 of 20720. A second sweep starts the patterns from
   wherever 1.5 s of walking left leaves him (standing, or floating at the end of the stretched
   rope, which also counts as hanging), with a plain run right added: 77 of 4662 at 4 players before
-  the fix (the 5-player set-up was not rebuilt for it), 0 of 18648 after (2-5). In the committed
-  sweep, the hang ends with his body's right edge at 31.34-31.67 and gets no further than 32.47
-  while w is open; dropping through needs 32.8 (m holds the trapdoor's right half). Ruben in the cellar would not have reached the key anyway (the
+  the fix (the 5-player set-up was not rebuilt for it), 0 of 18648 after (2-5). Both re-run with w a
+  platform: 0 of 20720, and 0 of 41736 for the second (its later version, 10434 per team size). In
+  the committed sweep, the hang ends with his body's right edge at 31.34-31.67 and gets no further
+  than 32.53 (32.47 with the gate) while w is open; dropping through needs 32.8 (m holds the
+  trapdoor's right half). Ruben in the cellar would not have reached the key anyway (the
   rope held him at 33.7, the key is at 29.25).
 - **Hauls and pulleys past the gates**: h, g and x reach a ceiling or a lintel, and a closed gate
   stops bodies even though the rope goes through it, so nobody is hauled past one. Nothing to probe
   further.
 - **Out of the cellar through w**: while the team queues on the bench (W-1) w is open, and the free
-  friend can jump back up into the pen. Harmless.
+  friend can jump back up into the pen. Shut, w is a one-way platform, and he can jump up through
+  it too: probed (`upthrough.ts`) with F0 holding the key and his neighbour standing on w, he gets
+  up from right under the bench's end (x 33, jumping right into m's pit: 2 of 27 tries at each of 2, 3
+  and 5 players), never straight up (his neighbour's body is in the way). Harmless: he is back in
+  the pen, the key with him, and the team still needs a friend alone on f, who can only get there
+  through w opened by the bench, to leave through x. Nobody gets down through a shut w.
+- **The free friend holds the trapdoor open from below** (the skeptic of the ceiling fix). With
+  the trapdoor a gate (it never shut on a body), F0, once dropped in, hopped up into its opening as
+  the one leaving the bench came over it; the bench's end m opened the moment the bench let go (a
+  pit is what it is while the bench is short), and he fell in after F0 through m's cell. Two in the
+  cellar then let each other out with s and e (see "No soft-lock"), which at 2 players skips f and
+  gate x: the skeptic won with it in 15.4 s (the bots take 16.2), and with Ruben or a second friend
+  in the cellar in 19.0 s at 3 players, 20.7 s at 4 and 22.9 s at 5 (22.7 s on the first version).
+  Probe (`block2.ts`, session scratchpad `fixround/coop03r/probes`): the solution up to F0's drop
+  (Ruben on the right seat), or the set-up of "Ruben walks off the bench" with F0 then walking onto
+  w (Ruben on the left seat), 0.25 s still; then F0 jumps at step 0 to 40 (held 3 to 50 steps,
+  still, right or left) while one body that can leave the bench walks left from step 0 to 50
+  (jumping at once, 8 or 16 steps later, or not): 4320 runs per leaver, 86400 in all. With the
+  trapdoor a gate, 359 put the leaver in the cellar on the first version (91 / 43 / 71 / 154 at
+  2 / 3 / 4 / 5 players) and 698 with the lower ceiling (252 / 89 / 149 / 208), which let a friend
+  in at 3 and 4 players where the first version did not. **Fixed** by making w a platform: 0 of
+  86400, and the skeptic's winning runs all stop at the hop (the leaver lands on w). The hop and a
+  hang together (W-1 reached by a hanging body, then F0 hopping) need nothing more: whatever opens
+  w, nobody under it holds it.
 - **An idle sitter dragged to the trapdoor** (critic, round 2; it got Ruben into the cellar at 2
   players and F1 at 3-4): closed by m. Probe script not committed (`sweep.ts` in the session
   scratchpad): at 2-5 players, F0 walks for the key with his neighbour idle for 0.3 to 2.5 s, then
@@ -374,7 +432,8 @@ yank beats that fall, which is what the critic found and m closes.
   the others on the left seat, F0 standing on w, F1 sweeping the starts on the aisle where he can
   stand still (8-9 of x 28.0-31.6; the rope to F0 and to the bench holds him between) with the 185
   patterns. F1's hang opens w in 1190 / 1196 / 1381 runs (of 1665 / 1480 / 1665) and F0 drops in;
-  F1 never follows him (0), with F0's rope through w pulling him or not. On the level before the fix,
+  F1 never follows him (0), with F0's rope through w pulling him or not (the same numbers with w a
+  platform). On the level before the fix,
   with F2 on top of a 3-high tower at 5 players, F1 floats at the end of the rope at most starts and
   none of 185 runs gets him in either. Closed, and kept as the shortcut "two friends into the
   cellar, one hanging". Two friends can still get into the cellar from tier 1 through e (accepted,
@@ -402,12 +461,16 @@ Every way to be locked in has a way out:
 - **Everyone shut in the cellar** (the one on r dragged in through e by a friend walking back, which
   happened to the bots when they stood idle): one stands on the inside plate s, the other walks into
   e's doorway (e never shuts on him), the first joins him, and they walk out. Checked by a probe at 2
-  players, the tightest case (the rope is too short for one on s and the other on r).
+  players, the tightest case (the rope is too short for one on s and the other on r); checked again
+  with the trapdoor a platform (`escape.ts`, session scratchpad `fixround/coop03r/probes`: won in
+  17.7 s). Since w is a platform, one-way, they can also jump up through it into the pen, from right
+  under the bench's end.
 - **A friend left below at the seat:** someone above stands on d. **Ruben left below:** he sits on
   c.
 - **Ruben** never gets through the trapdoor w, walking, jumping or dragged off the bench by the
-  rope, or hanging from his neighbour on the bench (see the shortcuts): leaving the bench towards w
-  he stands on m, and lands on w once it has shut. He can get into the cellar only through e, from
+  rope, hanging from his neighbour on the bench, or with the free friend hopping under it (see the
+  shortcuts): leaving the bench towards w
+  he stands on m, and lands on w once it is back. He can get into the cellar only through e, from
   tier 1, and gets out the same way. The escape of two shut in the cellar was probed again with m
   (2 players, the tightest case): it works.
 
@@ -427,6 +490,16 @@ Every way to be locked in has a way out:
   rope in this level"). m shows the bench's link symbol and moves with the trapdoor, which reads as
   part of the same contraption. Its cost is a seat: the bench has two, and from 4 players friends
   sit on heads.
+- **The trapdoor is a platform, not a gate.** A gate never shuts on a body, and the free friend,
+  right under the trapdoor once he has dropped in, could always hop up into its opening and hold it
+  for the next one (see "The free friend holds the trapdoor open from below"); no timing or shape of
+  the bench's end beats that, since he can hold it for most of a jump. A platform's slide waits for
+  nobody: it passes through a body from below, and carries one standing on it until something
+  stops him (F0, far right on it, against m or the bench's side; he then drops). It moves in one
+  step (240 cells/s), so it is solid again in the very step after the bench lets go, as the gate
+  was when nothing stood in its way. Its costs: it is one-way (anyone in the cellar can jump up
+  into the pen, harmless), and it reads as a board sliding under the bench rather than a gate's
+  bars, still wired to the bench and to m.
 - **The bench's ceiling is 2 cells over it**, level with gate x's top. With 3 cells (the first
   version), a 3-high tower against gate x let Ruben hang from its top far out on the aisle and be
   over the trapdoor before it shut (4-5 players). Two cells still take the 5-player bench (two
@@ -457,7 +530,11 @@ Every way to be locked in has a way out:
   too far from the trapdoor (see the shortcuts); a body floating at the end of a stretched rope
   hangs too.
 - "A gate never closes on a body" makes every relay plate optional (the door wedge), and it is how
-  two shut in the cellar let each other out.
+  two shut in the cellar let each other out. It is also why the trapdoor is a platform: a gate
+  there was held open by the free friend hopping under it.
+- A platform on a link moves `speed` cells/s along (dx, dy) while its link is on and back while it
+  is off, and nothing stops it. Whoever stands on it rides it (and keeps its horizontal speed, up
+  to a run, when it slides out from under him); from below it is not there.
 - Friends can stand on Ruben; Ruben stands on nobody.
 - In the client, link symbols follow the reading order of the first thing on each link: `relais`
   (gate g, row 7) still comes first, and `marche` (the still step) gets none

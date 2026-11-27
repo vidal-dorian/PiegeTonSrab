@@ -19,6 +19,8 @@ const feetBelow = (role: Role, y: number) => (w: CoopWorld) => {
 /** The role's centre is right of x. */
 const pastX = (role: Role, x: number) => (w: CoopWorld) => w.bodies[roleIndex(role, w.bodies.length)]!.cx > x;
 const not = (c: (w: CoopWorld) => boolean) => (w: CoopWorld) => !c(w);
+/** The trapdoor w (a platform that slides under the bench) is open: slid away, at least partly. */
+const trapdoorOpen = (w: CoopWorld) => w.props.movers.some((m) => m.thing.char === "w" && m.p > 0);
 /** Every listed role stands near its x. */
 const allNear = (spots: Array<[Role, number]>, tol = 0.35) => cond.all(...spots.map(([r, x]) => cond.near(r, x, tol)));
 /** Goals walking each role to its spot. */
@@ -301,7 +303,7 @@ function controle(n: number): Phase[] {
   });
   const g = f0Nb(n);
   phases.push(
-    { name: `3. ${g} comes off the bench (the trapdoor shuts)`, do: { [g]: jumpTo(AISLE_W, { rise: 0.1 }) }, until: cond.all(cond.near(g, AISLE_W, 0.35), cond.standsAbove(g, 10), not(cond.gateOpen("w"))), timeout: 6 },
+    { name: `3. ${g} comes off the bench (the trapdoor shuts)`, do: { [g]: jumpTo(AISLE_W, { rise: 0.1 }) }, until: cond.all(cond.near(g, AISLE_W, 0.35), cond.standsAbove(g, 10), not(trapdoorOpen)), timeout: 6 },
     { name: `3. ${g} stands on the trapdoor`, do: { [g]: walk(ON_W, { ...never, tol: 0.12 }) }, until: cond.all(cond.near(g, ON_W, 0.15), cond.standsAbove(g, 10)), timeout: 5 },
     { name: "3. F0 takes the key under the aisle", do: { F0: walk(KEY, never) }, until: cond.keyTaken, timeout: 8 },
   );
@@ -555,6 +557,115 @@ const HANG_HOPS: HopPattern[] = [
   { jump: 50, from: 25, hold: 999 },
   { jump: 50, from: 30, hold: 12 },
 ];
+
+/** Back to where the role sits in the solution's bench plan (a seat, or a head), from the trapdoor or the pit (a hop from the trapdoor, as in the solution). */
+function seatAgain(n: number, role: Role): Goal {
+  const s = benchPlan(n).find((p) => p.role === role)!;
+  if ("seat" in s) return role === "R" ? walk(s.seat, {}) : seq(walk(ON_W, { ...never, tol: 0.15 }), onto(s.seat));
+  return s.on === "R" ? seq(onto(BENCH[1]!), mount(s.on)) : mount(s.on);
+}
+
+/** Under the trapdoor, in the cellar, where the free friend waits to hop. */
+const UNDER_W = 32.5;
+
+/**
+ * One try of "the free friend holds the trapdoor open from below": F0's hop (steps after the leaver
+ * sets off, jump held, 1 to hold right), and the leaver's jump (-1 none, else steps after he sets off).
+ */
+interface HoldTry {
+  hop: number;
+  jump: number;
+  dir: number;
+  leap: number;
+}
+const HOLD_TRIES: HoldTry[] = [];
+for (const leap of [-1, 8]) {
+  for (let hop = 12; hop <= 28; hop += 2) HOLD_TRIES.push({ hop, jump: 10, dir: 1, leap });
+  for (const hop of [16, 20, 24]) HOLD_TRIES.push({ hop, jump: 20, dir: 1, leap });
+  for (const hop of [20, 24, 28]) HOLD_TRIES.push({ hop, jump: 10, dir: 0, leap });
+}
+
+/**
+ * The free friend in the cellar hops under the trapdoor while `leaver` leaves the bench towards it
+ * (left, jumping as the try says), every try in turn; after each try the leaver climbs back to his
+ * place on the bench (W-1 again: the trapdoor slides open again) and F0 walks back under it.
+ */
+function holdSweep(n: number, leaver: Role): Phase["do"] {
+  let k = 0;
+  let state: "ready" | "go" | "back" = "ready";
+  let start = 0;
+  let back: Goal | null = null;
+  let still = 0;
+  const under = walk(UNDER_W, { ...never, tol: 0.08 });
+  const aside = walk(AISLE_W - 1, { tol: 0.2 });
+  const fi = roleIndex("F0", n);
+  const leave: Goal = {
+    get label() {
+      return `leaves the bench, try ${Math.min(k + 1, HOLD_TRIES.length)}/${HOLD_TRIES.length} (${state})`;
+    },
+    step(c) {
+      if (k >= HOLD_TRIES.length) return 0;
+      const b = c.w.bodies[c.i]!;
+      const f = c.w.bodies[fi]!;
+      const t = c.w.tick - start;
+      // On the bench (a seat or a head) and the bench at W-1 again.
+      const seated = trapdoorOpen(c.w) && b.grounded && b.y + b.height <= 9.05;
+      if (state === "ready" && !seated) {
+        state = "back";
+        start = c.w.tick;
+      }
+      if (state === "back") {
+        if (seated) {
+          state = "ready";
+          still = 0;
+          return 0;
+        }
+        // A fresh climb every 1.5 s (a climb that went wrong starts again).
+        if (!back || t % Math.round(1.5 / COOP_DT) === 0) back = seatAgain(n, leaver);
+        return back.step(c);
+      }
+      if (state === "ready") {
+        // Both still for 0.25 s (the rope settled), F0 under the trapdoor.
+        still = Math.abs(b.vx) < 0.05 && f.grounded && Math.abs(f.vx) < 0.05 && f.y + f.height > 11.9 && Math.abs(f.cx - UNDER_W) < 0.15 ? still + 1 : 0;
+        if (still < 30) return 0;
+        state = "go";
+        start = c.w.tick;
+      }
+      const tg = c.w.tick - start;
+      // Landed below the bench (on the trapdoor, or in the cellar), or 2 s on: the next try.
+      if ((tg > 12 && b.grounded && b.y + b.height > 9.5) || tg > Math.round(2 / COOP_DT)) {
+        k++;
+        state = "back";
+        back = null;
+        start = c.w.tick;
+        return 0;
+      }
+      const tr = HOLD_TRIES[k]!;
+      let bits = b.cx > 32.5 ? BIT_LEFT : 0;
+      if (tr.leap >= 0 && tg === tr.leap) bits |= BIT_JUMP | BIT_JUMP_PRESS;
+      else if (tr.leap >= 0 && tg > tr.leap && tg < tr.leap + 20) bits |= BIT_JUMP;
+      return bits;
+    },
+  };
+  const hop: Goal = {
+    label: "hops under the trapdoor",
+    step(c) {
+      if (state !== "go" || k >= HOLD_TRIES.length) {
+        // Hopped out through the open trapdoor: over the leaver onto the aisle, out of his way, until it opens again.
+        const f = c.w.bodies[c.i]!;
+        if (f.y + f.height < 11 && !trapdoorOpen(c.w)) return aside.step(c);
+        return under.step(c);
+      }
+      const tr = HOLD_TRIES[k]!;
+      const t = c.w.tick - start;
+      let bits = t === tr.hop ? BIT_JUMP | BIT_JUMP_PRESS : t > tr.hop && t < tr.hop + tr.jump ? BIT_JUMP : 0;
+      if (t >= tr.hop && tr.dir > 0) bits |= BIT_RIGHT;
+      return bits;
+    },
+  };
+  return { [leaver]: leave, F0: hop };
+}
+
 /** Where F1 starts his hops in "two friends into the cellar", right to left (F0 stands on the trapdoor, right of him). */
 const TWO_STARTS = [31.4, 31.0, 30.6, 30.2];
 
@@ -633,7 +744,7 @@ export const shortcuts: Record<string, CoopSolution> = {
     ...relais(n),
     ...place(n),
     ...friendsOverRuben(BENCH[1]!, ON_W, besideRuben(n), AISLE_W),
-    { name: "the bench has W-1: the trapdoor is open, the bench's end shut", do: {}, until: cond.all(cond.plateActive("p"), cond.gateOpen("w"), not(cond.gateOpen("m"))), timeout: 4 },
+    { name: "the bench has W-1: the trapdoor is open, the bench's end shut", do: {}, until: cond.all(cond.plateActive("p"), trapdoorOpen, not(cond.gateOpen("m"))), timeout: 4 },
     { name: "ATTEMPT: Ruben walks off the bench into the trapdoor", do: { R: walk(ON_W, never) }, until: feetBelow("R", 11.95), timeout: 5 },
   ],
 
@@ -642,7 +753,7 @@ export const shortcuts: Record<string, CoopSolution> = {
     ...relais(n),
     ...place(n),
     ...friendsOverRuben(BENCH[1]!, ON_W, besideRuben(n), AISLE_W),
-    { name: "the bench has W-1: the trapdoor is open, the bench's end shut", do: {}, until: cond.all(cond.plateActive("p"), cond.gateOpen("w"), not(cond.gateOpen("m"))), timeout: 4 },
+    { name: "the bench has W-1: the trapdoor is open, the bench's end shut", do: {}, until: cond.all(cond.plateActive("p"), trapdoorOpen, not(cond.gateOpen("m"))), timeout: 4 },
     { name: "ATTEMPT: Ruben jumps from the bench into the trapdoor", do: { R: jumpTo(ON_W, { rise: 0.05 }) }, until: feetBelow("R", 11.95), timeout: 5 },
   ],
 
@@ -671,6 +782,25 @@ export const shortcuts: Record<string, CoopSolution> = {
         timeout: 3,
       },
       { name: `ATTEMPT: ${g} hops again and again, F0 still walking for the key`, do: { F0: walk(KEY, never), [g]: hopAt(Number.NaN, 0.5) }, until: feetBelow(g, 11.95), timeout: 5 },
+    ];
+  },
+
+  /**
+   * Beat 3 (integration's skeptic, round 2): F0 has dropped in and hops up under the trapdoor (a gate
+   * never shuts on a body, so a gate there stayed open while his head was in it) as his neighbour on
+   * the bench (Ruben at 2 players, F1 from 3) leaves towards it, walking or jumping, 30 tries. The
+   * trapdoor is a platform that slides back under the bench's end the step the bench lets go: F0 is
+   * under it, not on it, so it never waits for him.
+   */
+  "the free friend holds the trapdoor open from below": (n) => {
+    const ctl = controle(n);
+    const g = f0Nb(n);
+    return [
+      ...relais(n),
+      ...place(n),
+      ...ctl.slice(0, ctl.length - 3), // up to F0 dropping into the cellar
+      { name: "F0 under the trapdoor's left half", do: { F0: walk(UNDER_W, { ...never, tol: 0.08 }) }, until: cond.all(cond.near("F0", UNDER_W, 0.12), feetBelow("F0", 11.95), trapdoorOpen), timeout: 4 },
+      { name: `ATTEMPT: F0 hops under the trapdoor as ${g} leaves the bench towards it`, do: holdSweep(n, g), until: feetBelow(g, 11.95), timeout: 75 },
     ];
   },
 

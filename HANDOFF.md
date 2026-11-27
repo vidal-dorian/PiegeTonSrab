@@ -894,8 +894,11 @@ three. All five levels pass `check-coop-level --all` at 2-5 players, every short
   unused by coop03 (kept as a shared helper; La Salle keeps its own copy). Later, the bench's ceiling one
   cell lower (2 over the bench): the tallest tower is a friend on a head, so "Ruben hanging" from far out on
   the aisle at 4-5 players is closed (129 of 21830 probed runs before, 0 of 20720 after); its shortcut now
-  sweeps 9 starts x 3 hops, and "two friends into the cellar, one hanging" was added (0 at 3-5). Bot times
-  16.2 / 17.9 / 19.2 / 21.9 s.
+  sweeps 9 starts x 3 hops, and "two friends into the cellar, one hanging" was added (0 at 3-5). Then the
+  trapdoor w became a platform on the bench's link that slides under the bench in one step (a gate never
+  shut on the free friend hopping up into it, and the one leaving the bench followed him in: 359 of 86400
+  probed runs on the first version, 698 with the lower ceiling, 0 now); new shortcut "the free friend
+  holds the trapdoor open from below". Bot times 16.2 / 17.9 / 19.2 / 21.9 s.
 - La Salle de TP (coop04): beat 1 redesigned for the wrap: the climber's rope is measured round the shaft's
   lip, so from 3 players its other neighbour must wait at the duct's mouth (the leg-up, « Corde courte ?
   Attends dans la gaine »). At 4-5 players J's floor is now a second "≥ 4" sensor at M's height (no rail,
