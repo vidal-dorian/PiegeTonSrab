@@ -33,10 +33,10 @@ not one (see Deadly moments).
 
 ## Map
 
-54 x 18. Floor tops: the corridor and M of beat 1 at row 14 ("height 0" there), the cable duct
+54 x 16. Floor tops: the corridor and M of beat 1 at row 14 ("height 0" there), the cable duct
 at row 11 (height 3), the upper floor of beats 1-2 and the lab of beat 3 at row 9 (height 5 above
 the corridor; "height 0" in beat 3 below), the exit landing at row 5 (height 4 above the lab).
-Cells `1`-`4` are team-size variants (see the table).
+Cells `1`-`3` are team-size variants (see the table).
 
 ```
                     11111111112222222222333333333344444444445555
@@ -56,18 +56,15 @@ Cells `1`-`4` are team-size variants (see the table).
           #.......a.......######################################  12
           #S......a.......######################################  13
           #############113######################################  14
-          ###############4######################################  15
-          ###############4######################################  16
-          ######################################################  17
+          ######################################################  15
 ```
 
 | Char | Thing | Where | Need / link | Team sizes |
 |---|---|---|---|---|
-| `a` | crate, PC tower 1x2 | corridor, x 8 | 2 | all |
+| `a` | crate, PC tower 1x2 | corridor, x 8 | 2; weighs 0 on plates | all |
 | `1` → `p` | plate (floor sensor) | M's floor x 13-14 | ≥ 4, `plancher` | 4-5 (floor at 2-3) |
 | `2` → `l` | gate, inverted (hatch) | top of the shaft J, x 15 row 9 | `plancher` | 4-5 (open at 2-3) |
-| `3` → `\|` | crate stop = the tower's rail | J's floor, x 15 row 14 | | 4-5 (floor at 2-3) |
-| `4` → `.` | the pit under the rail, 2 deep | x 15 rows 15-16 | | 4-5 (rock at 2-3) |
+| `3` → `q` | plate (floor sensor) | J's floor, x 15 row 14 | ≥ 4, `plancher` | 4-5 (floor at 2-3) |
 | `r` | crate, server rack 3x1 | tunnel, x 27-29 row 8 | W | all |
 | `^` | bare cables (spikes) | ditch x 32-34, row 9 | kills | all |
 | `\|` | crate stop | x 35 row 8 | holds the rack over the ditch | all |
@@ -95,8 +92,8 @@ anybody in a 2-high corridor).
 ### 1. Le marchepied (x 1-26)
 
 1. Ruben pushes the PC tower along the corridor, through M, into J, where it stops against the
-   upper floor's wall (3.5-3.9 s; the friends walk behind him). From 4 players it ends on its
-   rail, over the pit, off the sensor.
+   upper floor's wall (3.5-3.9 s; the friends walk behind him). From 4 players it stands on J's
+   floor sensor, where it weighs nothing.
 2. Ruben, in M, jumps onto the tower and stands on it under the shaft (x 15.5), clear of M.
 3. From 3 players: his neighbour gives the next friend a leg up in M (it climbs onto the
    neighbour's head, jumps and slides into the duct, 1.0 s); it waits at the duct's mouth. The
@@ -155,15 +152,17 @@ because the apex is exactly 3.0, and a change of jump tuning would move them.
 | Ruben onto the PC tower in J, from M | 2 | a lone jump (M is 5 high) | 1.0 |
 | A friend onto Ruben's head, from M | 2.9 | apex 3.0 | **0.1, pinned**, but it does not depend on timing: the jumper rises along Ruben's side and lands on his head at its apex (105 of 105 tries land, from x 14.2 to 14.5, Ruben from 15.4 to 15.8, steering after 0 to 25 frames). Ruben must stand clear of M (x ≥ 15.4): leaning over it, he is bumped from below (33 misses of 70 at 15.2-15.3) |
 | From Ruben's head to the upper floor | 5 | feet 2.9, apex 5.9 | 0.9 |
-| A friend alone on the PC tower in J | 5 | apex 5.0 | **0.0, pinned**: it fails from a standing jump (0 of 462), but see "the tower's free corner" under Accepted |
+| A friend alone on the PC tower in J (beside Ruben, or on the bare tower) | 5 | apex 5.0 | **0.0, pinned**: it fails from a standing jump (0 of 462 beside Ruben; the shortcut "a friend alone on the bare PC tower" at 3-5, best feet exactly at the lip), but see "the tower's free corner" under Accepted |
 | Ruben + a friend in M (2 players) | 5 | top feet 0.9, apex 3.9 | 1.1 short |
 | 3-tower in M (3 players) | 5 | top feet 1.8 | cannot lean into J: the PC tower's top (2) is above its feet; it can only jump onto the PC tower (and from there, the line above) |
 | 4-tower in M (4-5 players) | 5 | top feet 2.7, apex 5.7 | would reach: it stands on the sensor, the hatch is shut (its top bonks at 3.1) |
+| Human tower in J, the PC tower left one cell short (in M's right cell) | 5 | 2-3 players: top feet 0.9 / 1.8, apex 3.9 / 4.8; 4-5: 4 bodies, top feet 2.7 | 2-3: 1.1 / 0.2 short (the shortcut's best feet at 3 players: 0.2 under the lip). 4-5: they stand on J's sensor (weight 4 or more), the hatch is shut; with the sensor ignored the top gets up at 4 and 5. Three friends in J at 4-5 weigh 3 (hatch open) and are 0.2 short like at 3 |
+| Ruben + 2 friends stacked on the PC tower in J (4-5) | 5 | top feet 3.8 | would reach, but they weigh 4 on J's sensor: the hatch is shut. Ruben and one friend (the solution) weigh 3 |
 | Into the duct from M's floor, alone | 3 | apex 3.0 | **0.0, pinned**: it takes a leg-up. From a head (feet 0.9, apex 3.9) the jumper is held against the duct floor's side, slides in once its feet clear it, and the duct's ceiling (4) stops it: 119 of 126 tries (7 misses with a short jump steered late) |
 | Corridor, 2 high | | no tower stands in it; a jump bonks at 1.1 | |
 | Duct, 1 high | | no jump at all | |
 | The duct's mouth to the upper floor (a friend walking off it and jumping in coyote time) | 5 | M's ceiling (5) caps the feet at 4.1 until it is in J, 1.75 cells away | 0 of 255 at 3-5 players (best feet 0.88 under the lip); at 2 players 3 of 255, all of them the "free corner" case below |
-| Out of the pit under the rail (4-5) | 2 | a lone jump | 1.0 |
+| Out of J onto the PC tower left one cell short (all sizes) | 2 | a lone jump from J's floor | 1.0 (the recovery "into J before the tower, and back out": 1.0 s at every size) |
 | Onto the PC tower in T from the lab floor (beat 3) | 2 | a jump capped at feet 2.1 by the lab's ceiling | **0.1, pinned**, but the climb does not depend on timing: the jumper rises against the tower's side and slides over as soon as its feet clear it (52 of 52 tries land, from x 46.0 to 47.2, four jump timings) |
 | From the tower in T to the landing | 4 | apex 5 | 1.0 |
 | A body in T below height 2 | | the cables (the hazard box is inset 0.1, and T is 1 wide: any body fully in T touches the strip) | death |
@@ -175,11 +174,14 @@ Towers without the PC tower in beat 1 cannot happen: the tower fills the 2-high 
 of the team, so it is pushed into M or J before anyone gets there; once in J it is in the way of
 any human tower in M (see the table).
 
-Beat 1's guard at 4-5 players: the floor of M is a sensor (plate "≥ 4") linked to an inverted
-gate, a hatch, at the top of J: any 4-tower in M stands on it and shuts the hatch before its top
-jumps. M is the only place a tower can stand (the corridor is 2 high), and the PC tower rests on
-its rail in J, off the sensor. Whoever falls into J before the tower is there lands in the pit
-under the rail and jumps out.
+Beat 1's guard at 4-5 players: the floors of M and of J are sensors (plates "≥ 4", one each)
+linked to an inverted gate, a hatch, at the top of J: any 4-tower in M or in J stands on one and
+shuts the hatch before its top jumps. M and J are the only places a tower can stand (the corridor
+is 2 high), and J can only be reached before the PC tower when it is left one cell short. The PC
+tower weighs nothing on the sensors, so Ruben on it and a friend on his head weigh 3: the hatch
+stays open for the solution. J has no hole: whoever gets into J before the tower stands on its
+floor, M's height, and jumps back out onto the tower (2 up), and a tower pushed on into J stops
+against a body standing there instead of covering it.
 
 Beat 3's guard is geometry, not a rule: the only way up is from inside T, T is deadly below
 height 2, and the lab, 3 high, holds no human tower whose top stands at 2 or more. Only the PC
@@ -210,12 +212,15 @@ ceiling. J's right side is solid from the floor to the lip.
 
 ## Variants by team size
 
-- 2 players: no sensor, hatch, rail or pit. Nobody needs the duct (the climber's only other
+- 2 players: no sensors or hatch. Nobody needs the duct (the climber's only other
   neighbour is Ruben, on the tower).
 - 3 players: same map as 2; the next friend waits in the duct.
-- 4-5 players: beat 1's sensor ("≥ 4"), hatch, rail and pit exist. Nothing changes for the team
-  when they go the right way: the climber leaves the sensor when it jumps onto Ruben, the one in
-  the duct and the others in the corridor are off it.
+- 4-5 players: beat 1's sensors ("≥ 4", M's floor and J's floor) and hatch exist. Nothing changes
+  for the team when they go the right way: on J's sensor Ruben and the climber on his head weigh 3
+  (the PC tower weighs nothing on it), the climber leaves M's sensor when it jumps onto Ruben, the
+  one in the duct and the others in the corridor are off both. (While Ruben pushes the tower
+  through M with friends behind him, M's sensor may carry 4 for a moment and shut the hatch: it
+  reopens 0.15 s after, long before anyone climbs.)
 - Beat 3 is the same at every size. The rack's need and plate w's need are W: the rack needs
   everyone; plate w needs the tower plus everyone but the one up (with a friend up, one other
   friend may step off).
@@ -249,7 +254,8 @@ He is never parked on a plate.
   flush. It is there for the theme (the rack is sacrificed into the cables) and to show the
   cables that matter later.
 
-Beat 1 cannot kill: the pit under the rail (4-5) is 2 deep and a lone jump gets out of it.
+Beat 1 cannot kill and has no hole: J's floor is M's floor at every size, and whoever gets into it
+before the tower jumps back out onto the tower (see the recovery below).
 
 ## Shortcuts
 
@@ -265,6 +271,14 @@ shortcut at every team size on the committed level):
 | a human tower beside the exit shaft | the PC tower parked on plate w at x 44 (its weight counts); the front of the queue climbs over it and builds a tower in column 47, Ruben at the base (2 bodies at 2 players, 3 from 3), and straightens it up; the top jumps for the landing | the top dies in the cables. The cage is only reachable from the landing, and no 4-tower fits in the lab |
 | a human tower in the exit shaft | the PC tower parked at x 46; Ruben climbs onto it and walks off into T to be the base of a tower there | Ruben dies in the cables |
 | the key with a friend off the plate | Ruben up on the landing, his neighbour on the tower; F0 walks off plate w, then Ruben goes for the key | 4-5: the plate carries W - 1, the cage is shut. 2-3: the rope keeps F0 on the plate (at 2 players F0 is the one on the tower, at 3 its neighbour is), so the key is never taken with F0 off it |
+| a human tower in J beside the tower left one cell short | the PC tower stopped in M's right cell; Ruben hops over it into J, then up to 3 friends, each from the PC tower onto the head below (at 5 players F0 waits on the PC tower, close to the top); the top jumps for the upper floor | 2-3: too short (top feet 0.9 / 1.8). 4-5: the 4 bodies weigh 4 or more on J's sensor, the hatch is shut (with the sensor ignored, the top gets up at 4 and 5) |
+| a friend alone on the bare PC tower | Ruben pushes the tower into J and gets back off it; F0 jumps onto the bare tower, its other neighbour F1 waiting at the duct's mouth from 3 players (at 4, F2 deeper in the duct; at 5, F3 gives the leg-ups and stands on Ruben's head in M's right cell); standing still, F0 jumps for the upper floor | 3-5: the apex is exactly the lip's height (best feet 9.000, the lip at 9). 2: Ruben, on the floor, holds F0 by the rope (best feet 10.26) |
+
+Recoveries (`recoveries` in `coop04.solution.ts`, played to the end at 2-5 players by the tests):
+
+| Recovery | The mistake and the way back | Result |
+|---|---|---|
+| into J before the tower, and back out | Ruben stops the PC tower one cell short (in M's right cell) and hops over it into J; he jumps back onto the tower (2 up from J's floor) and down into M, pushes the tower on into J, and the solution goes on | finishes at 2, 3, 4 and 5 players (22.7, 24.3, 25.6, 28.3 s); getting out takes 1.0 s |
 
 Probes on the new beat 1 (scratch scripts, not committed; the numbers are in the tables above):
 the jump onto Ruben's head, the leg-up into the duct, the climber held by a neighbour left on the
@@ -273,20 +287,36 @@ the pull of a haul into a room under the lip (the reason there is none).
 
 ### Accepted
 
-- **The tower's free corner** (beat 1): Ruben is 0.8 wide on a 1-wide tower, so up to 0.2 of the
-  tower's top is free beside him. A friend who lands there, its jump pressed just before landing,
-  sometimes gets up onto the upper floor on its own: 70, 94 and 136 of 420 tries with Ruben at
-  15.46, 15.5 and 15.6 (the jump pressed 1 to 11 frames before landing, 4 steering timings). The
-  jump then takes off a hair above the tower's top (0.008 measured: a body counts as standing
-  within 0.01 of a support) and its apex lands exactly on the lip. A standing jump from there never
-  does (0 of 210), nor does any jump while Ruben is off the tower (0 of 600: his rope holds the
-  jumper). It skips only the friend on Ruben's head: the tower is pushed and used, Ruben is on it.
-  Capping M's right cell at 4 closes it (0 of 420) but makes the haul jam (a friend coming up M
-  sticks under that ceiling while Ruben rises in J), so we kept M 5 high.
+- **The tower's free corner, and the bare tower** (beat 1): a friend who lands on the PC tower in
+  J, its jump pressed again just before landing (inside the 0.1 s jump buffer), sometimes gets up
+  onto the upper floor on its own. The jump then takes off a hair above the tower's top (0.008
+  measured: a body counts as standing within 0.01 of a support) and its apex lands exactly on the
+  lip. A standing jump from the tower never does (0 of 210 beside Ruben; the shortcut "a friend
+  alone on the bare PC tower" at 3-5). Two cases:
+  - beside Ruben (Ruben is 0.8 wide on a 1-wide tower, up to 0.2 of its top is free): 70, 94 and
+    136 of 420 tries with Ruben at 15.46, 15.5 and 15.6 (re-pressed 1 to 11 frames before landing,
+    4 steering timings). Ruben is still the one on the tower.
+  - on the bare tower, Ruben off it (critic round 4): a friend whose rope neighbours are not Ruben
+    can do it, as long as its other neighbour waits at the duct's mouth: F0 at 3 and 4 players (52
+    and 48 of 288 tries), and at 5 (56 of 288, F3 and Ruben out of the way in M's right cell). It
+    depends on the first jump's length (it sets the landing's phase: 3 of 12 hold times win, then
+    re-pressing 1 to 7 frames before landing wins, 9-11 rarely). Ruben's neighbour cannot do it while Ruben
+    is off the tower (0 of 600: his rope holds the jumper); at 2 players F0's only neighbour is
+    Ruben, so only with Ruben in the duct (untested: the bots could not give Ruben that leg-up).
+    Then Ruben is not the base: he pushes the tower (still « il pousse comme deux ») and is hauled
+    up like the others; the duct and its leg-up are still needed from 3 players.
+  Both skip the jump onto Ruben's head; the tower is pushed and used. We keep them: the only fix is
+  a lip more than 3.3 above the tower's top and less than 2.6 above Ruben's head (5.3-5.6 above M),
+  which the cell grid cannot make; a gate opened by Ruben's weight on the tower would shut on the
+  haul once Ruben is hauled up first. Capping M's right cell at 4 closes the case beside Ruben (0
+  of 420) but not the bare tower, and makes the haul jam (a friend coming up M sticks under that
+  ceiling while Ruben rises in J), so M stays 5 high.
 - The tower pushed one cell short, into M's right cell: Ruben on it and a friend on his head (or
   dropping from the duct's mouth onto it, the old « je te descends sur la tête ») lean into J and
-  get up at 2-3 players. The tower is pushed and used. At 4-5 it stands on the sensor (tower,
-  Ruben and the friend weigh 5) and shuts the hatch.
+  get up at 2-3 players. The tower is pushed and used. At 4-5 it stands on M's sensor, where it
+  weighs nothing: Ruben and the friend weigh 3, the hatch stays open (a fourth body in M shuts it),
+  so this is now open at every size (before critic round 4 the tower weighed 2 and shut the hatch
+  at 4-5).
 - Other ways into the duct: Ruben gives the leg-up, or one already in the duct hauls the next
   in over its mouth (the mantle over a wrapped lip). Any order works as long as the climber's
   other neighbour is at the mouth when the climber jumps.
@@ -344,6 +374,11 @@ the pull of a haul into a room under the lip (the reason there is none).
 - The rope decides who can be where: at the exit the next one up waits on the tower or touching
   it; at the shaft of beat 1 the climber's other neighbour waits in the duct.
 - Plate weight counts riders: whoever stands on the PC tower in T weighs on plate w.
+- A crate's weight on plates is its own setting (`weight`, default its need): beat 1's PC tower
+  weighs 0, so a sensor under it counts only who stands on it. That is how one floor sensor tells
+  Ruben on the tower (2, plus 1 on his head) from a human tower of 4.
+- A body standing in a crate's way stops it: a crate is never pushed over someone standing in the
+  cell it is pushed into.
 
 ## History
 
@@ -353,6 +388,14 @@ the pull of a haul into a room under the lip (the reason there is none).
   (only reachable from inside T), made the exit shaft the plate's last cell, replaced the pits
   and added the cables in T. Critic round 3: no new shortcut; the sign « Le suivant monte sur la
   tour » was added (Ruben's neighbour waiting on the lab floor holds him back from the key).
+- Critic round 4 (2026-11-27): at 4-5 players J's floor was a crate stop (a rail) over a pit,
+  3 deep for bodies (not 2 as written), so whoever got into J before the tower (the tower left one
+  cell short) could not get out, and pushing the tower on into J sealed them under it. J's floor
+  is now a second floor sensor (`q`, "≥ 4") with M's height, the PC tower weighs nothing on the
+  sensors, and the recovery is a test. The same critic found the buffered landing jump on the
+  bare tower (a friend not tied to Ruben): accepted, the Accepted entry now says so with its
+  numbers. New shortcuts: "a human tower in J beside the tower left one cell short", "a friend
+  alone on the bare PC tower".
 - Rope v2 (2026-11-27): the duct's floor was made of placed blocks `=` so that the rope passed
   through it. The owner rejected rope-transparent scenery (`=` now wraps like terrain), and beat 1
   was redesigned as above. The beat 3 bot tweak of that repair ("each climber walks to the foot

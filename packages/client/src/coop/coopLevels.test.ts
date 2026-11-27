@@ -1,8 +1,8 @@
 /**
  * Every campaign level is solved by the test bots at 2, 3, 4 and 5 players on the real physics,
- * in at most 90 s at 2 players, with no problem reported by coopLevelProblems; and every
- * documented shortcut fails. Levels are designed with packages/shared/scripts/check-coop-level.ts
- * (see docs/coop-levels.md).
+ * in at most 90 s at 2 players, with no problem reported by coopLevelProblems; every documented
+ * shortcut fails; and every documented recovery (a mistake, then the way back) finishes. Levels
+ * are designed with packages/shared/scripts/check-coop-level.ts (see docs/coop-levels.md).
  */
 import { describe, expect, it } from "vitest";
 import { COOP_LEVELS, coopLevelProblems } from "@game/shared/coop";
@@ -34,6 +34,15 @@ describe("co-op campaign levels", () => {
           const r = runSolution(def, n, shortcut);
           expect(r.ok, `${name} at ${n} players`).toBe(false);
           expect(r.failure ?? "", `${name} at ${n} players fails in its ATTEMPT phase`).toMatch(/^ATTEMPT/);
+        }
+      });
+    }
+    for (const [name, recovery] of Object.entries(entry.recoveries ?? {})) {
+      it(`${def.id}: the recovery "${name}" finishes`, () => {
+        for (const n of [2, 3, 4, 5]) {
+          const r = runSolution(def, n, recovery);
+          if (!r.ok) console.log(`${def.id} recovery "${name}" at ${n}: ${r.failure}\n${drawWorld(r.world)}`);
+          expect(r.failure, `${name} at ${n} players`).toBeUndefined();
         }
       });
     }

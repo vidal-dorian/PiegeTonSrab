@@ -13,7 +13,8 @@ The design intent (in French) is in the plan, section "Les niveaux : le semestre
 
 - A level: `packages/shared/src/coop/levels/<id>.ts`, exporting a `CoopLevelDef` (`levelFormat.ts`).
 - Its bot solution: `packages/shared/src/coop/levels/<id>.solution.ts`, exporting `solution`
-  (a `CoopSolution`, `bots.ts`) and `shortcuts` (attempts that must fail).
+  (a `CoopSolution`, `bots.ts`), `shortcuts` (attempts that must fail) and, where a level has
+  one, `recoveries` (a mistake and the way back, which must finish).
 - The game's campaign order: `COOP_LEVELS` in `levelList.ts`. The test registry of solutions:
   `levels/solutions.ts`.
 - Reference example: `levels/_course.ts` and `levels/_course.solution.ts` (a wall climbed with a
@@ -132,7 +133,9 @@ Goals: `walk(x, { tol, jump: "auto" | "never", drop })`, `jumpTo(x, { rise, hold
 
 Shortcuts: `shortcuts` in the solution file are bot attempts that must fail (for example, the
 towers-and-hauling route that would skip the level's thing). They are the proof that the level
-closes them.
+closes them. `recoveries` are the other way round: a mistake players will make (a crate left one
+cell short, someone in a hole) and the way back, played to the end; they must finish, the proof
+that the mistake does not soft-lock the level.
 
 ## Part 2. Level notes
 

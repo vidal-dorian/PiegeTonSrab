@@ -284,6 +284,106 @@ function towerWithoutCrate(n: number): Phase[] {
   return phases;
 }
 
+/** Ruben pushes the PC tower only as far as M's right cell (x 14), the friends behind him. */
+function pushOneShort(n: number): Phase {
+  const along: Phase["do"] = { R: hold(1) };
+  [...friends(n)].reverse().forEach((f, k) => (along[f] = follow("R", -0.9 - 0.86 * k)));
+  return { name: "Ruben pushes the tower one cell short, into M's right cell", do: along, until: crateAt("a", 14), timeout: 12 };
+}
+
+/** The role stands in J (x 15) on its floor, under the shaft. */
+const inJ = (role: Role) => (w: CoopWorld) => {
+  const b = w.bodies[roleIndex(role, w.bodies.length)]!;
+  return b.grounded && b.x >= 15 - 1e-3 && b.y + b.height > 13.9;
+};
+
+/**
+ * Beat 1 with the bodies in J instead of the PC tower: it is pushed one cell short (into M's
+ * right cell), and up to 4 bodies (Ruben at the base) hop over it into J, each onto the head of
+ * the one below; the top jumps for the upper floor. 2-3 players: too short (top feet 1.8, apex
+ * 4.8). 4-5: the 4 bodies stand on J's floor sensor (weight 4 or more) and the hatch is shut
+ * (with the sensor ignored, the top gets up at 4 and 5 players).
+ */
+function towerInJ(n: number): Phase[] {
+  const order = (["R", ...[...friends(n)].reverse()] as Role[]).slice(0, 4); // bottom to top
+  const top = order[order.length - 1]!;
+  const rest = Object.fromEntries([...friends(n)].reverse().slice(order.length - 1).map((f, k) => [f, walk(CORRIDOR_END - 0.86 * k, never)]));
+  const phases: Phase[] = [
+    pushOneShort(n),
+    { name: "Ruben hops over the tower into J", do: { ...rest, R: seq(walk(M_LEFT, never), jumpTo(15.6)) }, until: inJ("R"), timeout: 5 },
+  ];
+  order.slice(1).forEach((r, k) => {
+    const base = order[k]!;
+    // Onto the PC tower from M's left cell, then off its right side onto the head below.
+    phases.push({ name: `${r} onto the PC tower`, do: { ...rest, [r]: seq(walk(M_LEFT, never), jumpTo(14.5)) }, until: cond.all(cond.standsAbove(r, 12), cond.near(r, 14.5, 0.2)), timeout: 5 });
+    phases.push({ name: `${r} onto ${base} in J`, do: { ...rest, [r]: k < 2 ? walk(15.6, { drop: true, jump: "never", tol: 0.1 }) : jumpTo(15.6) }, until: cond.on(r, base), timeout: 5 });
+  });
+  // At 5 players the top's other neighbour (F0) comes onto the PC tower, close to it.
+  if (n === 5) phases.push({ name: "F0 onto the PC tower", do: { F0: seq(walk(M_LEFT, never), jumpTo(14.5)) }, until: cond.all(cond.standsAbove("F0", 12), cond.near("F0", 14.5, 0.2)), timeout: 5 });
+  phases.push({ name: "ATTEMPT: the top of the human tower in J jumps for the upper floor", do: { [top]: jumpTo(17.2, { rise: 0.1 }) }, until: cond.standsAbove(top, 9), timeout: 5 });
+  return phases;
+}
+
+/**
+ * Beat 1 without Ruben as the base: Ruben pushes the tower into J and gets back off it; a friend
+ * whose rope neighbours can both be close (F0, with F1 waiting at the duct's mouth from 3 players)
+ * jumps onto the bare PC tower and, standing on it, jumps for the upper floor (3 up: apex 3.0,
+ * so it never gets on). At 2 players F0's only neighbour is Ruben, back on the floor.
+ */
+function bareTower(n: number): Phase[] {
+  const phases: Phase[] = [marchepiedPush(n)[0]!, marchepiedPush(n)[1]!];
+  // Who goes into the duct (front first: each one onto the head of the one behind it in M), and
+  // where it waits; at 5 players F3 (Ruben's neighbour) gives the leg-ups and then stands on
+  // Ruben's head in M's right cell, out of F0's way.
+  const duct: Array<[Role, Role, number]> =
+    n === 3 ? [["F1", "F0", DUCT_MOUTH]] : n === 4 ? [["F2", "F1", 9.45], ["F1", "F0", DUCT_MOUTH]] : n === 5 ? [["F2", "F3", 11.7], ["F1", "F3", DUCT_MOUTH]] : [];
+  const keep: Phase["do"] = {};
+  for (const [c, h, spot] of duct) {
+    const [cx, hx] = n === 5 ? [M_LEFT, M_FRIEND] : [M_FRIEND, M_LEFT];
+    phases.push({ name: `${c} and ${h} in M`, do: { ...keep, [c]: walk(cx, never), [h]: walk(hx, never) }, until: cond.all(cond.near(c, cx, 0.45), cond.near(h, hx, 0.25)), timeout: 6 });
+    phases.push({ name: `${c} mounts ${h} (leg-up)`, do: { ...keep, [c]: mount(h) }, until: cond.on(c, h), timeout: 6 });
+    phases.push({ name: `${c} climbs into the duct, to x ${spot}`, do: { ...keep, [c]: seq(wait(0.15), jumpOnto(DUCT_MOUTH, 12), walk(spot, never)) }, until: cond.all(cond.standsAbove(c, 11), cond.near(c, spot, 0.25)), timeout: 5 });
+    // At 5 players the ones in the duct keep their places (F3 gives both leg-ups); at 4, F2 in the
+    // duct must stay free to follow Ruben's rope.
+    if (n === 5) keep[c] = walk(spot, never);
+  }
+  const rubenDown = (w: CoopWorld) => {
+    const r = w.bodies[w.bodies.length - 1]!;
+    return r.grounded && r.y + r.height > 13.9;
+  };
+  if (n < 5) {
+    phases.push({ name: "Ruben walks off the tower back into the corridor", do: { ...keep, R: walk(12.3, { jump: "never", drop: true }), F0: walk(14.3, never) }, until: cond.all(rubenDown, cond.near("R", 12.3, 0.3)), timeout: 6 });
+  } else {
+    phases.push({ name: "Ruben walks off the tower into M's right cell", do: { ...keep, F3: walk(13.3, never), R: walk(14.5, { jump: "never", drop: true }) }, until: cond.all(rubenDown, cond.near("R", 14.5, 0.2)), timeout: 6 });
+    phases.push({ name: "F3 onto Ruben's head", do: { ...keep, F3: mount("R") }, until: cond.on("F3", "R"), timeout: 6 });
+  }
+  phases.push({ name: "F0 to M's left cell", do: { ...keep, F0: walk(M_LEFT, never) }, until: cond.near("F0", M_LEFT, 0.2), timeout: 4 });
+  phases.push({ name: "F0 onto the bare PC tower", do: { ...keep, F0: jumpTo(ON_TOWER) }, until: cond.all(cond.standsAbove("F0", 12), cond.near("F0", ON_TOWER, 0.15)), timeout: 4 });
+  phases.push({ name: "F0 stands on it", do: { ...keep, F0: wait(0.3) }, timeout: 1 });
+  phases.push({ name: "ATTEMPT: F0, standing alone on the bare PC tower, jumps for the upper floor", do: { ...keep, F0: jumpTo(17.2, { rise: 0.25 }) }, until: cond.standsAbove("F0", 9), timeout: 4 });
+  return phases;
+}
+
+/**
+ * Beat 1 with a mistake on the way (must still finish): the PC tower is pushed one cell short,
+ * Ruben hops over it into J, then gets back out (onto the tower and down into M: J's floor is M's,
+ * 2 under the tower's top), pushes the tower on into J and the solution goes on.
+ */
+function intoJAndBack(n: number): Phase[] {
+  const fs = [...friends(n)].reverse();
+  const back: Phase["do"] = {};
+  fs.forEach((f, k) => (back[f] = walk(CORRIDOR_END - 0.86 * k, never)));
+  const along: Phase["do"] = { R: hold(1) };
+  fs.forEach((f, k) => (along[f] = follow("R", -0.9 - 0.86 * k)));
+  return [
+    pushOneShort(n),
+    { name: "Ruben hops over the tower into J", do: { R: seq(walk(M_LEFT, never), jumpTo(15.6)) }, until: inJ("R"), timeout: 5 },
+    { name: "Ruben gets back out: onto the tower, down into M", do: { ...back, R: seq(jumpTo(14.5), walk(M_LEFT, { jump: "never", drop: true })) }, until: cond.all(cond.near("R", M_LEFT, 0.2), feetBelow("R", 13.95)), timeout: 6 },
+    { name: "Ruben pushes the tower on into J", do: along, until: cond.all(crateAt("a", 15), cond.near("R", M_SPOT, 0.35)), timeout: 8 },
+    ...marchepiedPush(n).slice(1),
+  ];
+}
+
 /** Up to the rack, with one player standing back. */
 function rackShortOne(n: number): Phase[] {
   const q = chainOrder(n);
@@ -396,6 +496,18 @@ export const shortcuts: Record<string, CoopSolution> = {
     ...exitUp(n),
   ],
 
+  /** Beat 1 without the PC tower in J: it is left one cell short and a human tower stands in J. */
+  "a human tower in J beside the tower left one cell short": (n) => [
+    ...towerInJ(n),
+    ...haulAndLineUp(n, (["R", ...[...friends(n)].reverse()] as Role[]).slice(0, 4).pop()!),
+    ...fosse(n),
+    ...pushIntoShaft(),
+    ...exitUp(n),
+  ],
+
+  /** Beat 1 without Ruben as the base: a friend alone on the bare PC tower, a standing jump. */
+  "a friend alone on the bare PC tower": (n) => [...bareTower(n), ...haulAndLineUp(n, "F0"), ...fosse(n), ...pushIntoShaft(), ...exitUp(n)],
+
   /** Beat 2 with one pusher short of W. */
   "pushing the rack with one player short": (n) => [
     ...marchepiedPush(n),
@@ -415,4 +527,13 @@ export const shortcuts: Record<string, CoopSolution> = {
 
   /** Beat 3 without the whole class on plate w: Ruben up, one friend off it. */
   "the key with a friend off the plate": (n) => [...beats12(n), ...pushIntoShaft(), ...keyWithOneOff(n)],
+};
+
+// --- Recoveries that must finish ------------------------------------------------------------
+//
+// A mistake a team will make, then the way back: the whole level must still be solved.
+
+export const recoveries: Record<string, CoopSolution> = {
+  /** Beat 1: the tower left one cell short, Ruben hops into J, gets out, and the team goes on. */
+  "into J before the tower, and back out": (n) => [...intoJAndBack(n), ...marchepiedClimb(n), ...haulAndLineUp(n), ...fosse(n), ...pushIntoShaft(), ...exitUp(n)],
 };
