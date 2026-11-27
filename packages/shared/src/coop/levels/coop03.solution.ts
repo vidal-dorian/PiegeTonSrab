@@ -40,6 +40,71 @@ function hopAt(x: number, period: number): Goal {
   };
 }
 
+/** One hop of a sweep: jump held `jump` steps, right held from step `from` for `hold` steps (or to the landing). */
+interface HopPattern {
+  jump: number;
+  from: number;
+  hold: number;
+}
+
+/**
+ * A body trying to hang from the rope on its way to a hole, every way in turn: for each start x and
+ * each pattern, it walks to the start and stands still, then hops once, holding right as the
+ * pattern says while its centre is left of `stopAt`, and lands. Whenever `ready` does not hold
+ * (the others out of place: a hop from far out drags them) it first waits at `home` until it does
+ * (2 s at most). Once every start and pattern is done it stands where it is.
+ */
+function hopSweep(starts: number[], patterns: HopPattern[], o: { stopAt: number; home: number; ready: (w: CoopWorld) => boolean }): Goal {
+  let k = 0;
+  let state: "home" | "walk" | "settle" | "hop" = "home";
+  let g: Goal | null = null;
+  let t0 = 0;
+  let still = 0;
+  const total = starts.length * patterns.length;
+  return {
+    get label() {
+      return `hop sweep ${Math.min(k, total)}/${total}`;
+    },
+    step(c) {
+      if (k >= total) return 0;
+      const b = c.w.bodies[c.i]!;
+      const x0 = starts[Math.floor(k / patterns.length)]!;
+      const p = patterns[k % patterns.length]!;
+      if (state === "home") {
+        // Straight on if the others are in place; otherwise back home until they are (2 s at most).
+        g ??= o.ready(c.w) ? null : walk(o.home, { ...never, tol: 0.1 });
+        if (g && !(g.done!(c) && o.ready(c.w)) && c.t - t0 < Math.round(2 / COOP_DT)) return g.step(c);
+        state = "walk";
+        g = walk(x0, { ...never, tol: 0.05 });
+        t0 = c.t;
+      }
+      if (state === "walk") {
+        if (!g!.done!(c) && c.t - t0 < Math.round(3 / COOP_DT)) return g!.step(c);
+        state = "settle";
+        still = 0;
+      }
+      if (state === "settle") {
+        still = b.grounded && Math.abs(b.vx) < 0.05 ? still + 1 : 0;
+        if (still < 3) return 0;
+        state = "hop";
+        t0 = c.t;
+      }
+      const t = c.t - t0;
+      if (t > 4 && b.grounded) {
+        // Landed: on to the next pattern (or start).
+        k++;
+        state = "home";
+        g = null;
+        t0 = c.t;
+        return 0;
+      }
+      let bits = t === 0 ? BIT_JUMP | BIT_JUMP_PRESS : t < p.jump ? BIT_JUMP : 0;
+      if (t >= p.from && t < p.from + p.hold && b.cx < o.stopAt) bits |= BIT_RIGHT;
+      return bits;
+    },
+  };
+}
+
 const never = { jump: "never" as const };
 
 /**
@@ -128,6 +193,9 @@ function benchPlan(n: number): Array<{ role: Role; seat: number } | { role: Role
 /** F0's neighbour in the chain: the one who gives him rope over w. */
 const f0Nb = (n: number): Role => (n === 2 ? "R" : "F1");
 
+/** Up onto the bench at x from the aisle or the pit, and settle there. */
+const onto = (x: number): Goal => seq(jumpTo(x, { rise: 0.1 }), walk(x, { tol: 0.12 }));
+
 // --- Phases ------------------------------------------------------------------------------
 
 /** Beat 1, "Relais": Ruben (in front) waits at gate g, the friend behind him stands on plate a, Ruben goes through to plate b, everyone follows. */
@@ -211,7 +279,6 @@ function controle(n: number): Phase[] {
   // The ones still to sit queue up behind, from the trapdoor back along the aisle (the rope stays short).
   const queue = (j: number): Phase["do"] => goTo([...plan.slice(j + 1).map((s) => s.role), "F0" as Role].map((r, i) => [r, ON_W - 0.85 * i] as [Role, number]));
   // Up onto the bench from the queue: a hop over the pit (a mount starts from the bench, next to its friend's left).
-  const onto = (x: number): Goal => seq(jumpTo(x, { rise: 0.1 }), walk(x, { tol: 0.12 }));
   plan.forEach((s, j) => {
     // The last one sits together with F0 walking onto the trapdoor (below).
     if (j === plan.length - 1 && "seat" in s) return;
@@ -387,31 +454,47 @@ function followUp(n: number, front: number, skip: Role[]): Phase["do"] {
 type Seat = number | { on: Role; x: number } | { mount: Role };
 
 /**
- * Beat 3 set-up: Ruben stops at `rx` (the trapdoor, or the bench's left seat); then the friends of
- * `who`, front of the line first, walk to `launch` and hop over him onto their seats (the later
- * ones onto the heads of those already seated), the line behind closing up each time; F0 (if he
- * does not sit) then waits at `f0` on the aisle.
+ * Beat 3 set-up: Ruben stops at `rx` (the pit, or the bench's left seat); then the friends of
+ * `who`, front of the line first, walk to `launch` and hop over him onto their seats, the line
+ * behind closing up each time; F0 (if he does not sit) then waits at `f0` on the aisle. The later
+ * ones go onto the heads of those already seated, from close by (the bench's ceiling is one body
+ * over a seated head): onto the left seat's head from the pit, or from Ruben's head when he stands
+ * in it; onto the right seat's head from the left seat, or across from the left seat's head.
+ * `keep`: goals the others keep meanwhile.
  */
-function friendsOverRuben(rx: number, launch: number, who: Array<[Role, Seat]>, f0: number | null): Phase[] {
+function friendsOverRuben(rx: number, launch: number, who: Array<[Role, Seat]>, f0: number | null, keep: Phase["do"] = {}): Phase[] {
   const stay = walk(rx, { tol: 0.12 });
-  const phases: Phase[] = [{ name: `Ruben stops at ${rx}`, do: { R: stay }, until: cond.all(cond.near("R", rx, 0.15), cond.standsAbove("R", 10)), timeout: 8 }];
+  const phases: Phase[] = [{ name: `Ruben stops at ${rx}`, do: { ...keep, R: stay }, until: cond.all(cond.near("R", rx, 0.15), cond.standsAbove("R", 10)), timeout: 8 }];
   const queue: Role[] = [...who.filter(([, seat]) => !(typeof seat === "object" && "mount" in seat)).map(([r]) => r), ...(f0 !== null ? ["F0" as Role] : [])];
   const placed: Phase["do"] = {};
+  // Who sits on the left seat itself so far (Ruben, when he stops there).
+  let leftSitter: Role | null = rx === BENCH[1] ? "R" : null;
   who.forEach(([f, seat]) => {
     const behind = queue.slice(queue.indexOf(f) + 1).map((r, i) => [r, launch - 0.85 * (i + 1)] as [Role, number]);
     if (typeof seat === "object" && "mount" in seat) {
-      phases.push({ name: `${f} climbs onto ${seat.mount}'s head`, do: { ...placed, [f]: mount(seat.mount), R: stay }, until: cond.on(f, seat.mount), timeout: 8 });
+      phases.push({ name: `${f} climbs onto ${seat.mount}'s head`, do: { ...keep, ...placed, [f]: mount(seat.mount), R: stay }, until: cond.on(f, seat.mount), timeout: 8 });
       placed[f] = mount(seat.mount);
+      if (leftSitter === f) leftSitter = null;
       return;
     }
-    const x = typeof seat === "number" ? seat : seat.x;
-    const hop = seq(walk(launch, { ...never, tol: 0.15 }), jumpTo(x, { rise: 0.12 }));
-    phases.push({
-      name: typeof seat === "number" ? `${f} hops over Ruben onto the bench (${x})` : `${f} hops over Ruben onto ${seat.on}'s head`,
-      do: { [f]: typeof seat === "number" ? seq(hop, walk(x, { tol: 0.12 })) : hop, R: stay, ...goTo(behind) },
-      until: typeof seat === "number" ? cond.all(cond.standsAbove(f, 9), cond.near(f, x, 0.15)) : cond.on(f, seat.on),
-      timeout: 8,
-    });
+    const start = walk(launch, { ...never, tol: 0.15 });
+    if (typeof seat === "number") {
+      if (seat === BENCH[1]) leftSitter = f;
+      phases.push({
+        name: `${f} hops over Ruben onto the bench (${seat})`,
+        do: { ...keep, [f]: seq(start, jumpTo(seat, { rise: 0.12 }), walk(seat, { tol: 0.12 })), R: stay, ...goTo(behind) },
+        until: cond.all(cond.standsAbove(f, 9), cond.near(f, seat, 0.15)),
+        timeout: 8,
+      });
+      return;
+    }
+    // From next to the left seat: Ruben's head in the pit, or the pit itself.
+    const steps: Goal[] = [start];
+    if (rx === PIT) steps.push(jumpTo(PIT, { rise: 0.1 }));
+    if (seat.x === BENCH[1]) steps.push(mount(seat.on));
+    else if (leftSitter) steps.push(mount(leftSitter), walk(seat.x, never));
+    else steps.push(jumpTo(BENCH[1]!, { rise: 0.12 }), mount(seat.on));
+    phases.push({ name: `${f} climbs onto ${seat.on}'s head`, do: { ...keep, [f]: seq(...steps), R: stay, ...goTo(behind) }, until: cond.on(f, seat.on), timeout: 10 });
   });
   if (f0 !== null) phases.push({ name: `F0 waits at ${f0}`, do: { F0: walk(f0, never) }, until: cond.near("F0", f0, 0.3), timeout: 6 });
   return phases;
@@ -439,25 +522,57 @@ function allFriendsSeated(n: number): Array<[Role, Seat]> {
 
 /**
  * All the friends on the bench with Ruben's neighbour as high and as far from the trapdoor as he
- * can be: the others make a tower on the right seat (two at most, under the bench's ceiling), he
- * waits on the left seat and climbs on top; a fourth friend then takes the left seat. Then the
- * tower moves right against gate x.
+ * can be: `under` of the others (one at most under the bench's low ceiling) make a tower on the
+ * right seat and he climbs on top from the left seat (`who`). Then the tower moves right against
+ * gate x, and the rest sit on the left seat (`rest`; at 5 players one on the other's head).
  */
-function nbOnTower(n: number): { who: Array<[Role, Seat]>; tower: Role[] } {
+function nbOnTower(n: number, under = 1): { who: Array<[Role, Seat]>; rest: Array<[Role, Seat]>; tower: Role[] } {
   const N = nb(n);
-  if (n === 2) return { who: [[N, BENCH[0]!]], tower: [N] };
+  if (n === 2) return { who: [[N, BENCH[0]!]], rest: [], tower: [N] };
   const s = lineAfterSeat(n).slice(0, -1).reverse();
   const others = s.filter((r) => r !== N);
-  const tower = others.slice(0, 2);
+  const tower = others.slice(0, Math.min(under, others.length));
+  const later = others.slice(tower.length);
   const who: Array<[Role, Seat]> = [];
   for (const r of s) {
     if (r === N) who.push([r, BENCH[1]!]);
     else if (r === tower[0]) who.push([r, BENCH[0]!]);
-    else if (r === tower[1]) who.push([r, { on: tower[0]!, x: BENCH[0]! }]);
+    else if (tower.indexOf(r) > 0) who.push([r, { on: tower[tower.indexOf(r) - 1]!, x: BENCH[0]! }]);
   }
   who.push([N, { mount: tower[tower.length - 1]! }]);
-  if (others[2]) who.push([others[2], BENCH[1]!]);
-  return { who, tower: [...tower, N] };
+  const rest = later.map((r, j): [Role, Seat] => [r, j === 0 ? BENCH[1]! : { on: later[j - 1]!, x: BENCH[1]! }]);
+  return { who, rest, tower: [...tower, N] };
+}
+
+/**
+ * Where Ruben starts his hops in "Ruben hanging", right to left: from the trapdoor's edge to as far
+ * left on the aisle as the stretched rope lets him stand (the link taut: he hangs from the tower).
+ */
+const HANG_STARTS = Array.from({ length: 9 }, (_, i) => 32.4 - 0.4 * i);
+/** How he hops: a full jump, holding right from the start or from the apex to the landing, or for 0.1 s late on the way down. */
+const HANG_HOPS: HopPattern[] = [
+  { jump: 50, from: 0, hold: 999 },
+  { jump: 50, from: 25, hold: 999 },
+  { jump: 50, from: 30, hold: 12 },
+];
+/** Where F1 starts his hops in "two friends into the cellar", right to left (F0 stands on the trapdoor, right of him). */
+const TWO_STARTS = [31.4, 31.0, 30.6, 30.2];
+
+/** "Ruben hanging from his neighbour on the bench", with `under` friends under the neighbour (1: all the bench's ceiling takes; probes pass more on a higher one). */
+export function rubenHanging(n: number, under = 1): Phase[] {
+  const { who, rest, tower } = nbOnTower(n, under);
+  const up: Phase["do"] = { [tower[0]!]: walk(FAR, { ...never, tol: 0.06 }) };
+  tower.slice(1).forEach((r, j) => (up[r] = mount(tower[j]!)));
+  const towerUp = cond.all(cond.near(tower[0]!, FAR, 0.3), ...tower.slice(1).map((r, j) => cond.on(r, tower[j]!)));
+  return [
+    ...relais(n),
+    ...place(n),
+    ...friendsOverRuben(PIT, ON_W, who, null),
+    { name: "the tower moves right against gate x", do: up, until: cond.all(...tower.map((r) => cond.near(r, FAR, 0.1))), timeout: 6 },
+    ...(rest.length > 0 ? friendsOverRuben(PIT, ON_W, rest, null, up) : []),
+    // Ruben hops from every start on the aisle, every way; the attempt gets through if his feet get below the aisle's top (into w).
+    { name: "ATTEMPT: Ruben hops for the trapdoor, hanging from the tower", do: { ...up, R: hopSweep(HANG_STARTS, HANG_HOPS, { stopAt: 32.6, home: ON_W, ready: towerUp }) }, until: feetBelow("R", 10.5), timeout: 95 },
+  ];
 }
 
 export const shortcuts: Record<string, CoopSolution> = {
@@ -569,22 +684,49 @@ export const shortcuts: Record<string, CoopSolution> = {
 
   /**
    * Beat 3, Ruben hanging: all the friends on the bench, his neighbour as high and as far from the
-   * trapdoor as he can be (on top of a tower against gate x, under the bench's low ceiling), Ruben
-   * hops on the trapdoor. A body in the air under a taut rope weighs on what its holder stands on:
-   * his 2 would make W-1. The link stays slack (3.3 / 3.6 / 4.1 with 0 / 1 / 2 under the holder).
+   * trapdoor as he can be (on a friend's head against gate x: the bench's ceiling takes two bodies),
+   * Ruben hops for the trapdoor from all along the aisle. A body in the air under a taut rope weighs
+   * on what its holder stands on: from far enough left his 2 makes W-1 and the trapdoor opens, but
+   * the link goes slack too far from the trapdoor for him to be over it before it shuts.
    */
-  "Ruben hanging from his neighbour on the bench": (n) => {
-    const { who, tower } = nbOnTower(n);
-    const up: Phase["do"] = { [tower[0]!]: walk(FAR, { ...never, tol: 0.06 }) };
-    tower.slice(1).forEach((r, j) => (up[r] = mount(tower[j]!)));
-    return [
-      ...relais(n),
-      ...place(n),
-      ...friendsOverRuben(PIT, ON_W, who, null),
-      { name: "the tower moves right against gate x", do: up, until: cond.all(...tower.map((r) => cond.near(r, FAR, 0.1))), timeout: 6 },
-      // Ruben hops on the trapdoor's far side from the tower.
-      { name: "ATTEMPT: Ruben hops on the trapdoor", do: { ...up, R: hopAt(32.4, 0.6) }, until: cond.any(feetBelow("R", 11.95), cond.gateOpen("w")), timeout: 8 },
-    ];
+  "Ruben hanging from his neighbour on the bench": (n) => rubenHanging(n),
+
+  /**
+   * Beat 3, two friends for the cellar: Ruben on the right seat against gate x (from 4 players F2
+   * on his head: the highest place F1's bench neighbour can have), the other friends on the left
+   * seat, F0 on the trapdoor. The bench is one short; F1 hops from all along the aisle to hang from
+   * his neighbour (F2, or Ruben at 3 players). His 1 opens the trapdoor and F0 drops in, but F1
+   * never gets over it before it shuts, F0's rope through the trapdoor pulling him or not. (At 2
+   * players there is no second friend.)
+   */
+  "two friends into the cellar, one hanging": (n) => {
+    const line = lineAfterSeat(n);
+    const seated = line.slice(0, -1).reverse().filter((r) => r !== "F0" && r !== "F1"); // right to left
+    const queue = (rest: Role[]) => goTo(rest.map((r, i) => [r, ON_W - 0.85 * i] as [Role, number]));
+    const keep: Phase["do"] = { R: walk(BENCH[0]!, { tol: 0.1 }) };
+    const phases: Phase[] = [...relais(n), ...place(n)];
+    phases.push({ name: "Ruben sits on the right seat", do: { ...keep, ...queue([...seated, "F1", "F0"]) }, until: cond.all(cond.near("R", BENCH[0]!, 0.2), cond.standsAbove("R", 9)), timeout: 10 });
+    if (n >= 4) {
+      phases.push({ name: "F2 onto Ruben's head", do: { ...keep, F2: seq(onto(BENCH[1]!), mount("R")), ...queue([...seated.slice(1), "F1", "F0"]) }, until: cond.on("F2", "R"), timeout: 10 });
+      keep.F2 = mount("R");
+    }
+    keep.R = walk(FAR, { ...never, tol: 0.06 });
+    const held = cond.all(cond.near("R", FAR, 0.1), ...(n >= 4 ? [cond.on("F2", "R")] : []));
+    phases.push({ name: "Ruben moves right against gate x", do: { ...keep }, until: held, timeout: 6 });
+    if (n >= 5) {
+      phases.push({ name: "F3 onto the left seat", do: { ...keep, F3: onto(BENCH[1]!), ...queue(["F1", "F0"]) }, until: cond.all(cond.near("F3", BENCH[1]!, 0.2), cond.standsAbove("F3", 9)), timeout: 10 });
+      keep.F3 = walk(BENCH[1]!, { tol: 0.1 });
+    }
+    if (n >= 3) {
+      phases.push({ name: "F1 hops back over F0", do: { ...keep, F0: walk(AISLE_W + 0.2, never), F1: jumpTo(30.6, { rise: 0.1 }) }, until: cond.all(cond.near("F1", 30.6, 0.4), cond.standsAbove("F1", 10)), timeout: 6 });
+    }
+    keep.F0 = walk(ON_W, { ...never, tol: 0.1 });
+    // At 2 players Ruben alone is W-1: F0 drops in as he gets there, alone.
+    if (n >= 3) phases.push({ name: "F0 onto the trapdoor", do: { ...keep }, until: cond.all(cond.near("F0", ON_W, 0.15), cond.standsAbove("F0", 10)), timeout: 6 });
+    const both = cond.all(feetBelow("F0", 11.95), n >= 3 ? feetBelow("F1", 10.5) : () => false);
+    const sweep = n >= 3 ? { F1: hopSweep(TWO_STARTS, HANG_HOPS, { stopAt: 32.6, home: AISLE_W, ready: held }) } : {};
+    phases.push({ name: "ATTEMPT: F1 hops to hang from his bench neighbour, F0 on the trapdoor", do: { ...keep, ...sweep }, until: both, timeout: 40 });
+    return phases;
   },
 
   /** Beat 3 in the wrong order: F0 drops in and stands on f first (the team goes out), then goes back for the key. */

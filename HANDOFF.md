@@ -891,8 +891,11 @@ three. All five levels pass `check-coop-level --all` at 2-5 players, every short
   sitter dragged to the trapdoor stands on m and weighs nothing on the bench, and w shuts before he can drop
   in (closed the critic's "dragged sitter" case: 37 of 576 before, 0 of 5292 after). The bench has 2 seats;
   the bots pass the key forward in arrival order. `takeKeyFrom` was added to `bots.ts` for this lane and is now
-  unused by coop03 (kept as a shared helper; La Salle keeps its own copy). Bot times 16.6 / 17.9 / 19.5 /
-  22.0 s.
+  unused by coop03 (kept as a shared helper; La Salle keeps its own copy). Later, the bench's ceiling one
+  cell lower (2 over the bench): the tallest tower is a friend on a head, so "Ruben hanging" from far out on
+  the aisle at 4-5 players is closed (129 of 21830 probed runs before, 0 of 20720 after); its shortcut now
+  sweeps 9 starts x 3 hops, and "two friends into the cellar, one hanging" was added (0 at 3-5). Bot times
+  16.2 / 17.9 / 19.2 / 21.9 s.
 - La Salle de TP (coop04): beat 1 redesigned for the wrap: the climber's rope is measured round the shaft's
   lip, so from 3 players its other neighbour must wait at the duct's mouth (the leg-up, « Corde courte ?
   Attends dans la gaine »). At 4-5 players J's floor is now a second "≥ 4" sensor at M's height (no rail,
@@ -915,11 +918,6 @@ Open after the integration's skeptic round (not fixed; each is in the level's no
   anchor slides to the lip's corner and then off it (8 of 156 probed runs at 2 players, 18-27 s after the
   step; 4 of 156 at 3; none at 4-5). This breaks "the first beats never kill" for a team that does nothing
   for 18 s. Fix idea: a raised end on the lip (moves the pivot and every depth of the beat).
-- coop03, "Ruben hanging from the bench" is open at 4-5 players from further left on the aisle (x 30.0-30.4):
-  the link gets taut (4.76), Ruben's 2 counts on the bench, w opens and he drops into the cellar (9 of 4800
-  probed runs). No faster finish or soft-lock found (he cannot reach the key from there). Fix idea: a
-  shorter tower (lower bench ceiling) or the tower further from the aisle, and the shortcut's attempt should
-  sweep Ruben's start x.
 - coop04, the duct can be skipped at 4-5 players: the climber's other neighbour rides a head at the corridor
   mouth instead of waiting in the duct, and they jump together (26 of 48 tries at 4, 78 of 144 at 5,
   re-measured on this branch; the level then finishes in 24.1 / 26.8 s). No shortcut covers it yet.

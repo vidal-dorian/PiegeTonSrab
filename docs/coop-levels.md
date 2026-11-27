@@ -139,8 +139,9 @@ the consequences for a map.
   hanging one leaning.
 - **A taut link carries weight.** A body in the air under a taut rope weighs on its holder's
   support (plates, benches). A plate that counts a team needs the longest possible link measured
-  from every place a hanging body can start, not just one (L'Amphi's open 4-5 finding came from a
-  shortcut that hopped from a single x).
+  from every place a hanging body can start, not just one (L'Amphi's 4-5 finding, since closed by
+  a lower bench ceiling, came from a shortcut that hopped from a single x). A body floating at the
+  end of a stretched rope hangs too.
 - **Wraps can drag.** A body climbing back over a solid step drags its neighbour by the wrap round
   that step; a still mover leaves a pocket under it that bodies walk into. L'Amphi used a gate
   inverted on the bench's own link (m) as a step that exists only while it is needed.
@@ -213,8 +214,9 @@ closed and accepted, deadly moments, Ruben's moment, communication moment.
   under it). The bench has 2 seats; the bot solution seats with a queue, orders its exit line as it
   goes and passes the key forward in arrival order. New shortcut "the free friend drags his
   neighbour off the bench into the trapdoor"; with m removed it gets through at 2, 3 and 5. All 12
-  shortcuts fail at every size. Left open by the integration's skeptic: "Ruben hanging" from
-  further left on the aisle at 4-5 players (see coop03.md, shortcuts).
+  shortcuts fail at every size. The integration's skeptic then found "Ruben hanging" from further
+  left on the aisle at 4-5 players; closed by lowering the bench's ceiling to 2 cells (see
+  coop03.md, shortcuts).
 - **La Salle de TP.** Finding 1 (a pit under the rail at 4-5 players buried Ruben under the
   tower): real, fixed. A 2-deep pit would still trap (the tower's top is 4 above it), so J's floor
   is a second "≥ 4" sensor `q` at M's height, the rail and the pit are gone (54 x 16), and the PC

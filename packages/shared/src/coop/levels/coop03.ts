@@ -11,7 +11,9 @@
  *    pocket stands on k and weighs nothing on c. The tunnel's ceiling is gate h (over its mouth) and
  *    plate d ("1", the first cells of the upper floor, right over the seat): whoever goes up
  *    through h and stands on d holds h for Ruben, with the rope straight through d to him.
- * 3. Le contrôle surprise (x 26-41): plate "W-1" (p, the bench, one cell above the aisle, two seats)
+ * 3. Le contrôle surprise (x 26-41): plate "W-1" (p, the bench, one cell above the aisle, two seats,
+ *    under a ceiling two cells over it: a friend on a head at most, so nobody stands high enough for
+ *    Ruben to hang from him far out on the aisle and still be over the trapdoor before it shuts)
  *    opens the 2-cell trapdoor w just left of it; the one friend left free drops into the cellar
  *    under the bench. The bench's end m, over w's right half, is an inverted gate on the same link:
  *    shut (a step at the bench's height) while w is open, a pit the rest of the time. Whoever leaves
@@ -39,7 +41,7 @@ export const coop03: CoopLevelDef = {
     "#####################################################################",
     "#####################################################################",
     "#######################..........####...............................#",
-    "#######################.............#...............................#",
+    "#######################..........####...............................#",
     "#.............g.......h.............x...............................#",
     "#.............g.......h.............x...............................#",
     "#.............g.......h..........mppp...............................#",
