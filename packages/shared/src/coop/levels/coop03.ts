@@ -16,10 +16,6 @@
  *    the free friend away from the key: take it first. Plate r ("1", on the landing) opens the
  *    basement's exit e (in the landing) for him.
  * 4. The tiers (gradins) down to the stage (estrade) and the door.
- *
- * The "=" cells (placed blocks: the seat's desk, and the corridor floor over the basement) are
- * solid for bodies but let the rope through, as everything over the basement does: the rope from
- * the one in the seat, or in the basement, goes straight to the team instead of round the terrain.
  */
 import type { CoopLevelDef } from "../levelFormat";
 
@@ -35,9 +31,9 @@ export const coop03: CoopLevelDef = {
     "#.............g............h..................x....................................#",
     "#.............g............h..................x....................................#",
     "#.............g............h..................x....................................#",
-    "#.............g..........==h..................x....................................#",
-    "#.S...........g...........=h..................x....................................#",
-    "#########aa####bbb######kc##ddd####ww==ppppp=====e###rrr#..........................#",
+    "#.............g..........##h..................x....................................#",
+    "#.S...........g...........#h..................x....................................#",
+    "#########aa####bbb######kc##ddd####ww##ppppp#####e###rrr#..........................#",
     "#################################Kn...............#######..........................#",
     "#############################################f###############......................#",
     "#############################################################......................#",

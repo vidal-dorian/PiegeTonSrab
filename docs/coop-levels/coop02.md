@@ -2,6 +2,10 @@
 
 > « Un câble RJ45, c'est une corde, non ? »
 
+> **To be redesigned (2026-11-27).** The rope now wraps placed blocks `=` like terrain, so the `=`
+> cells this level used to let the rope through are back to plain `#` and its bots fail. The notes
+> below that mention `=` describe the previous version.
+
 Files: `packages/shared/src/coop/levels/coop02.ts` (the level),
 `packages/shared/src/coop/levels/coop02.solution.ts` (bot solution, shortcuts, and the bot goals
 `lowerTo`, `swingTo` and `stepOff`, written on the exported bot API so other levels can reuse them).

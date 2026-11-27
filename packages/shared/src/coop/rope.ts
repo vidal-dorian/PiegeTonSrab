@@ -1,7 +1,8 @@
 /**
  * The rope that ties the players together: a chain of links between neighbours' body centres. A
- * link wraps around the corners of the fixed terrain (solid tiles only: platforms, gates, crates,
- * seesaws, balances and bodies never stop it) and its length is measured along that path. Shorter
+ * link wraps around the corners of the fixed scenery (solid tiles and the static solid race objects:
+ * "=" placed blocks and springs; the co-op things, i.e. platforms, gates, crates, seesaws, balances,
+ * fragile floors, and bodies never stop it) and its length is measured along that path. Shorter
  * than its rest length (COOP.ropeLength) it is slack and pulls nothing; longer, it is elastic up to
  * a hard stop at ROPE_MAX_LENGTH, where it holds dead. Solved after every body has taken its step,
  * all bodies at once, so the same world gives the same rope on every machine.
@@ -75,7 +76,7 @@ export interface RopeHost {
   ridesOn(rider: number, base: number): boolean;
   /** Whether a cell stops bodies (terrain and springs): the walls a body pulled into slides along. */
   solidCell(cx: number, cy: number): boolean;
-  /** Whether a cell is fixed terrain: the rope wraps around its corners. */
+  /** Whether a cell is fixed scenery (terrain, "=" placed blocks, springs): the rope wraps around its corners. */
   ropeSolid(cx: number, cy: number): boolean;
   /** The rope moved body i by (dx, dy) towards body `by` (the referee's blame, the mantle). */
   onPull?(i: number, by: number, dx: number, dy: number): void;

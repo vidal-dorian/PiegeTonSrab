@@ -36,9 +36,10 @@ prints the time of each phase, or the failing phase with the world drawn at that
 - Rows of characters, same terrain as the race maps: `#` solid, `.` empty; race objects `^` floor
   spikes, `*` saw, `T` spring, `=` placed block.
 - `=`, a placed block (drawn as a white riveted tile, never taken for terrain): solid for bodies
-  and crates, but the rope passes through it, as through every thing. Use it where the rope must
-  go through a floor or a block that bodies must not: Le Labo Réseau's raised-floor tiles at the
-  lip, L'Amphi's desk over the seat and bench row over the basement, La Salle de TP's duct floor.
+  and crates, and the rope wraps it like terrain (springs `T` too). The rope wraps all the fixed
+  scenery; only the co-op things (gates, crates, A/B shelves, platforms, fragile floors) let it
+  through. There is no static cell that stops bodies but not the rope: a puzzle that needs the
+  rope to pass must use a thing (a test in coopRopeWrap.test.ts holds every level to it).
 - `S`: leftmost spawn cell; players spawn on S..S+4 (rope order: friends in seat order, Ruben on
   the right). Floor under those five cells, two free rows above.
 - `K` Ruben's USB key (at most one; none means the door is open from the start).
@@ -61,7 +62,7 @@ Units are cells and seconds. A body is 0.8 wide and 0.9 high.
 | Jump | apex exactly 3.0 above the feet; a lone player climbs a step of 2, not 3 |
 | Towers | a 2-tower climbs a step of 3, a 3-tower 4, a 4-tower 5 (hard); 5 is never climbed without a step |
 | Jump across | about 5 cells centre to centre at run speed (a gap of about 5.8 at most, edge to edge) |
-| Rope | 4.5 cells of rest length between chain neighbours, measured along its path: it wraps around the corners of the fixed terrain (solid tiles, glass and team-size walls; platforms, placed blocks `=`, gates, crates, seesaws, balances and bodies never stop it) and keeps those wraps until it comes round them. Elastic past 4.5: a friend hanging still stretches it by about 0.15 (Ruben 0.3, a chain by the weight below each link), a runner dragging a friend by about 0.4, up to a hard stop at 5.4 (20 %). Over a lip the path is longer than the straight line: measure rope puzzles along the path (see "Rope v2" in HANDOFF.md) |
+| Rope | 4.5 cells of rest length between chain neighbours, measured along its path: it wraps around the corners of all the fixed scenery (solid tiles, glass, team-size walls, placed blocks `=` and springs `T`; the things, i.e. platforms, gates, crates, shelves, seesaws, balances, fragile floors, and bodies never stop it) and keeps those wraps until it comes round them. Elastic past 4.5: a friend hanging still stretches it by about 0.15 (Ruben 0.3, a chain by the weight below each link), a runner dragging a friend by about 0.4, up to a hard stop at 5.4 (20 %). Over a lip the path is longer than the straight line: measure rope puzzles along the path (see "Rope v2" in HANDOFF.md) |
 | Ruben | weighs 2 (plates, seesaws, balances), pushes like 2, has a rope mass of 2; nobody can stand on him (he slides off and squashes the friend), he can carry friends |
 | Carrying | whoever carries someone (or a crate) cannot jump; nobody jumps off a base that is in the air |
 | Walls | no wall jump, no wall slide |
@@ -98,7 +99,7 @@ A death restarts the whole level for everyone, things included.
   skipping a beat. Height rules hold from 2 to 5 players.
 - Widths: a lone player jumps about 5 cells; the rope (4.5, at most 5.4 under load) is not longer,
   so rope puzzles play on height, ceilings and overhangs, never on width.
-- Rope puzzles are measured along the rope's path (it wraps the terrain's corners) and allow for
+- Rope puzzles are measured along the rope's path (it wraps the scenery's corners) and allow for
   the give: a body dropped onto the rope dips below its resting depth (about 0.6 for one body,
   about 1 for two dropping together), so a deadly depth keeps 0.3 below the dip, not below the
   rest. A walker can drag a friend standing still with the link stretched to about 4.9.

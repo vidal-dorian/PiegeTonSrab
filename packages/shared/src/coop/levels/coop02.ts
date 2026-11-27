@@ -7,9 +7,7 @@
  *    one nearest the lip (Ruben: he spawns on the right) must be lowered to the right depth, where
  *    the rope swings him under the lip and onto the slot's floor. Too close to the edge he hangs
  *    below it, too far he hangs beside the lip. Then the others step off one by one and the ones
- *    already in hold them and haul them in. The raised floor's last three tiles ("=", placed
- *    blocks) are solid for bodies but let the rope through, so the rope pulls the one lowered
- *    under the lip instead of wrapping the lip's corner.
+ *    already in hold them and haul them in.
  * 2. Les câbles dénudés (left): Ruben's key hangs on the near wall of a second shaft, stripped
  *    cables right below it and on the far wall, spikes at the bottom (deeper than the rope). Whoever
  *    entered the server room first (Ruben) is nearest it and goes down; his anchor must stop at the
@@ -31,7 +29,7 @@ export const coop02: CoopLevelDef = {
     "##############..............##",
     "##############..............##",
     "##############..S...........##",
-    "######################===...##",
+    "#########################...##",
     "#...........................##",
     "#...........D...............##",
     "#...........D...............##",

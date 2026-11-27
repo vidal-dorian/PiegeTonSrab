@@ -132,7 +132,11 @@ export interface CoopLevel {
   height: number;
   /** Terrain only: what the paper masses are drawn from (glass included). */
   terrain: Level;
-  /** Collision grid of the players: terrain plus the solid race objects (springs). */
+  /**
+   * Collision grid of the players: terrain plus the solid race objects ("=" placed blocks,
+   * springs). Static (the co-op things are colliders, not cells), so it is also the grid the rope
+   * wraps around (CoopWorld.ropeSolid): nothing fixed stops bodies and lets the rope through.
+   */
   collision: Level;
   /** Collision grid of the crates: the players' grid plus the crate stops. */
   crateGrid: Level;

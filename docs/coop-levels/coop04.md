@@ -2,6 +2,10 @@
 
 > « Il est où le bouton pour compiler ? »
 
+> **To be redesigned (2026-11-27).** The rope now wraps placed blocks `=` like terrain, so the `=`
+> cells this level used to let the rope through are back to plain `#` and its bots fail. The notes
+> below that mention `=` describe the previous version.
+
 Files: `packages/shared/src/coop/levels/coop04.ts` (the level),
 `packages/shared/src/coop/levels/coop04.solution.ts` (bot solution and shortcuts).
 Check: `npx tsx packages/shared/scripts/check-coop-level.ts coop04`.

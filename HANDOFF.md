@@ -365,8 +365,8 @@ Defaults (proposed in the approved plan, not yet played by Dorian):
 - Mode name "Sauve Ton Srab". Ruben weighs 2 on plates, seesaws and balances, pushes as two, has mass 2 on the
   rope, and cannot be carried (a friend he lands on gets squashed and he slides off). No setting turns this off.
 - Rope: a chain in seat order with Ruben always last, 4.5 cells between neighbours for the whole campaign. Since
-  rope v2 (below) that is a rest length along the rope's path: it wraps around the corners of the fixed terrain
-  and stretches 20 % before it stops dead. A hauled body rises at most 2.5 cells/s (Ruben 1.2); an idle
+  rope v2 (below) that is a rest length along the rope's path: it wraps around the corners of all the fixed
+  scenery (terrain, placed blocks `=`, springs; never the co-op things) and stretches 20 % before it stops dead. A hauled body rises at most 2.5 cells/s (Ruben 1.2); an idle
   anchor slowly slides towards the void unless it pushes away; a hanging body swings (pump, capped at 70°)
   and adds its weight to whoever holds it.
 - Towers: standing on heads; a carrier cannot jump; no jump from a base in the air; no vertical speed kept
@@ -452,8 +452,8 @@ Known rope quirks, measured by the level bots, to check when playing (none is a 
   centre, so an anchor standing back from a pit's edge could be lifted off a balance pan by the friend hanging
   over the corner (La Salle: Ruben's neighbour still waits one cell from the pit; the bots were not changed).
 - (Rope v2) A rope keeps the way it went: a friend who dropped through a hole stays threaded through it (wraps
-  have history). Where a level needs the rope through a floor, the floor is placed blocks `=` (see "Levels after
-  rope v2").
+  have history). Placed blocks `=` no longer let the rope through (see "Rope wraps placed blocks"): a level that
+  needs the rope through a floor must use a thing.
 - (Rope v2) A body dropped onto the rope dips below its resting depth, about 0.6 for one, about 1 for two
   dropping together, and an anchor standing still is dragged towards the edge meanwhile: an anchor that lowers
   while the friend still bounces takes him deeper than asked (Le Labo Réseau's cables).
@@ -829,7 +829,7 @@ lopsided: he sinks). With 2 players a 2-cell step stands against the sandbox's 4
 Levels after rope v2 (repaired, "repair what breaks": only what failed or opened; all pass `check-coop-level
 --all` at 2-5 players and every shortcut fails in its attempt; notes in `docs/coop-levels/coop0N.md`, "Rope v2"):
 
-- Placed blocks `=` (the race's riveted white block, solid for bodies and crates) are not terrain, so the rope
+- (Superseded by "Rope wraps placed blocks" below.) Placed blocks `=` (the race's riveted white block, solid for bodies and crates) were not terrain, so the rope
   passes through them like through every thing. Three levels use them where their idea needs the rope through a
   floor or a block that bodies must not pass: Le Labo Réseau's raised floor at the lip (x 22-24: the one lowered
   is swung under the lip into the slot again; with a solid lip he hung straight below its corner and could only
@@ -859,6 +859,18 @@ Levels after rope v2 (repaired, "repair what breaks": only what failed or opened
   blocks, and Ruben stepping off the lip with his neighbour about 3.5 back lands in the slot, the rope drawn
   from the neighbour over the floor's corner and through the blocks.
 
+Rope wraps placed blocks (2026-11-27, owner's decision; supersedes the `=` passthrough above):
+
+- The rope wraps every static solid cell: terrain plus the static solid race objects (`=` placed blocks,
+  springs), i.e. `level.collision`, which holds nothing else (the co-op things are colliders). Gates, crates,
+  A/B shelves, platforms and fragile floors still let it through. `CoopWorld.ropeSolid` reads that grid, and
+  the drawing (`ropeSegments.ts`) and `placeWraps` go through it, so they stay consistent.
+- The `=` cells of Le Labo Réseau, L'Amphi and La Salle de TP are back to plain `#` (as before rope v2's level
+  repair). Their bots (and some shortcut tests) fail again: levels 2-4 are to be redesigned around the wraps.
+  The bot tweaks of that repair (`coop02.solution.ts`, `coop04.solution.ts`) were left in place.
+- Guard: `coopRopeWrap.test.ts` checks, for every co-op level and team size, that every cell that stops bodies
+  also stops the rope, and that a `=` block is wrapped like terrain.
+
 Status at the end of M4 (2026-11-26):
 
 - Done: step B is wired into the online screen (opt-in, `?predict=1`; step A stays the default because the
@@ -879,9 +891,9 @@ Status at the end of M4 (2026-11-26):
 - Rope v2: try the pulley (`?coopLocal=2&level=sandbox&spawn=61&noruben`) and the give. Should a link
   stretched between two players standing still come back (see "Rope v2 review fixes": who gives)? Is 20 % the right amount,
   is the stretch cue (thinner, orange to red, all red at the stop) clear, does a hanging friend bounce too
-  much or too little (`ropeDamping`)? Levels 1 to 5 pass with it; three of them let the rope through placed
-  blocks `=` where their idea needs it (see "Levels after rope v2"): is that acceptable, or should those
-  beats be redesigned around the wraps? La Salle can now be climbed by hauling from 3 players (accepted).
+  much or too little (`ropeDamping`)? Decided: the rope wraps placed blocks `=` too, and levels 2 to 4 get
+  redesigned around the wraps (see "Rope wraps placed blocks"). La Salle can now be climbed by hauling from 3
+  players (accepted).
 
 - Co-op "Réactivité": playtest the setting. Auto predicts under a 60 ms round trip and draws step A over
   80 ms (bench: the worst player's corrections start crossing 0.1 cell at about 78 ms, and always do by

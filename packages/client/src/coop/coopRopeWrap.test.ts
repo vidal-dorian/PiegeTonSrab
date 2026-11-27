@@ -6,8 +6,11 @@
  * - Wraps and unwraps around one and two corners, in order; never through a thin wall, however fast.
  * - The spring: gives, comes back, settles, stops dead at the hard stop.
  * - The wraps are state: saved, hashed, sent in snapshots, deterministic; the budgets hold.
+ * - All the fixed scenery stops it: a placed block "=" is wrapped like terrain, and no level has a
+ *   static cell that stops bodies but lets the rope through.
  */
 import { describe, expect, it } from "vitest";
+import { isSolidCell, OBJECT_DEFS } from "@game/shared";
 import {
   ALL_BITS,
   BIT_DOWN_PRESS,
@@ -18,6 +21,7 @@ import {
   BIT_RIGHT,
   COOP,
   COOP_DT,
+  COOP_LEVELS,
   CoopWorld,
   decodeWorld,
   encodeWorld,
@@ -341,6 +345,65 @@ describe("rope v2: wrapping and unwrapping", () => {
     ends[1]!.cy = 9;
     sweepRope(host, [0, 1], wraps, x1, y1);
     expect(wraps[0]).toEqual([]);
+  });
+});
+
+describe("rope v2: placed blocks are scenery", () => {
+  /** `rows` with the cells where `at` holds turned into placed blocks "=". */
+  function placed(rows: string[], at: (x: number, y: number) => boolean): string[] {
+    return rows.map((r, y) => [...r].map((c, x) => (at(x, y) ? "=" : c)).join(""));
+  }
+
+  it("wraps a block of \"=\" corner by corner, as it wraps the same block of terrain", () => {
+    // A floor (top y = 20) with a 2-wide, 1-high block at x 20-21 (top y = 19), in terrain or in "=".
+    const isBlock = (x: number, y: number) => y === 19 && x >= 20 && x <= 21;
+    const terrain = room(40, 24, (x, y) => y >= 20 || isBlock(x, y), 2, 19);
+    const seen: string[][] = [];
+    for (const rows of [terrain, placed(terrain, isBlock)]) {
+      const w = world(rows, 2);
+      expect(w.ropeSolid(20, 19)).toBe(true);
+      w.placeBody(0, 18, 20 - H);
+      w.placeBody(1, 20.6, 19 - H);
+      const trace: string[] = [];
+      const note = () => {
+        const p = wrapsOf(w).join(",");
+        if (trace[trace.length - 1] !== p) trace.push(p);
+      };
+      run(w, 60, (s) => [0, s < 25 ? BIT_RIGHT : 0], note);
+      expect(wrapsOf(w)).toEqual([20, 19, 22, 19]);
+      run(w, 90, (s) => [0, BIT_LEFT | BIT_JUMP | (s === 0 ? BIT_JUMP_PRESS : 0)], note);
+      seen.push(trace);
+    }
+    expect(seen[1]).toEqual(["", "20,19", "20,19,22,19", "20,19", ""]);
+    expect(seen[1]).toEqual(seen[0]);
+  });
+
+  it("a body placed beyond a wall of \"=\" gets the rope over it, not through it", () => {
+    // A floor (top y = 20) with a 1-wide, 2-high wall at x 20 (top y = 18).
+    const isWall = (x: number, y: number) => x === 20 && y >= 18 && y <= 19;
+    const w = world(placed(room(40, 24, (x, y) => y >= 20 || isWall(x, y), 2, 19), isWall), 2);
+    w.placeBody(0, 18.5, 20 - H);
+    w.placeBody(1, 21.6, 20 - H);
+    expect(wrapsOf(w)).toEqual([20, 18, 21, 18]);
+  });
+
+  it("in every co-op level, every cell that stops bodies stops the rope (no rope-transparent scenery)", () => {
+    for (const def of COOP_LEVELS) {
+      for (let n = 2; n <= COOP.maxPlayers; n++) {
+        const w = new CoopWorld(parseCoopLevel(def, n), team(n, n - 1));
+        const { collision } = w.level;
+        for (const o of w.level.objects) {
+          if (OBJECT_DEFS[o.kind].solid) expect(w.ropeSolid(o.x, o.y), `${def.id} at ${n}: ${o.kind} at (${o.x}, ${o.y})`).toBe(true);
+        }
+        for (let y = 0; y < collision.height; y++) {
+          for (let x = 0; x < collision.width; x++) {
+            const label = `${def.id} at ${n}: cell (${x}, ${y})`;
+            expect(w.ropeSolid(x, y), label).toBe(isSolidCell(collision, x, y));
+            if (isSolidCell(w.level.terrain, x, y)) expect(w.ropeSolid(x, y), label).toBe(true);
+          }
+        }
+      }
+    }
   });
 });
 

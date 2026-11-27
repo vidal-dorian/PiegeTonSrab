@@ -291,7 +291,10 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
   }
 
   ropeSolid(cx: number, cy: number): boolean {
-    return isSolidCell(this.level.terrain, cx, cy);
+    // All the fixed scenery: terrain plus the static solid race objects ("=" placed blocks,
+    // springs), i.e. the bodies' own grid. The co-op things (gates, crates, shelves, platforms,
+    // fragile floors) are colliders, not in this grid: the rope goes through them.
+    return isSolidCell(this.level.collision, cx, cy);
   }
 
   moveStack(i: number, dx: number, dy: number): { dx: number; dy: number } {
