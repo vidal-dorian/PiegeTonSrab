@@ -272,7 +272,33 @@ export class CoopPredictor {
       this.setOffset(node, n, bx + v.x, by + v.y);
       this.clampToTerrain(node, n, false);
     }
+    this.keepRidersOnCarriers(bases, n);
     this.holdRiderLinks(bases, n);
+  }
+
+  /**
+   * A rider that clampToTerrain stopped under a ceiling is lifted less than its carrier: it would
+   * be drawn sunk into it (a tower lifted by a correction in a low corridor). Then the carrier is
+   * lifted no more than the rider, and so on down the pile (towards the world's positions, which
+   * fit). Piles are at most a few bodies high: a few passes settle it.
+   */
+  private keepRidersOnCarriers(bases: readonly number[], n: number): void {
+    const w = this.world;
+    for (let pass = 0; pass < 6; pass++) {
+      let changed = false;
+      for (let node = 0; node < w.nodeCount; node++) {
+        if (bases[node] === node) continue;
+        const s = w.supportOf(node);
+        const carrier = s && s.kind !== "terrain" ? (w.colliderById(s.id)?.node ?? -1) : -1;
+        if (carrier < 0) continue;
+        const [, ry] = this.offsetOf(node, n);
+        const [cx, cy] = this.offsetOf(carrier, n);
+        if (cy >= ry) continue;
+        this.setOffset(carrier, n, cx, ry);
+        changed = true;
+      }
+      if (!changed) return;
+    }
   }
 
   /** How long link k is drawn when both ends' offsets are scaled by `s`, along its path (its wrap points stay put). */
