@@ -71,9 +71,9 @@ export const coop04: CoopLevelDef = {
     "4": { "2-3": "#", "4-5": "." },
   },
   signs: [
-    { x: 5.6, y: 12.3, text: "Ruben pousse comme deux" },
+    { x: 5.0, y: 12.35, text: "Ruben pousse comme deux" },
     { x: 10.9, y: 9.6, text: "Gaine technique" },
-    { x: 10.9, y: 11.55, text: "Corde trop courte ? Attends dans la gaine" },
+    { x: 7.9, y: 11.55, text: "Corde courte ? Attends dans la gaine" },
     { x: 21, y: 5.2, text: "Poussez ensemble !" },
     { x: 31, y: 6.3, text: "Câbles dénudés" },
     { x: 44.2, y: 6.55, text: "Toute la classe sur la plaque" },
