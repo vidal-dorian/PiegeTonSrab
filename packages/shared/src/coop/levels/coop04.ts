@@ -3,13 +3,15 @@
  * Notes: docs/coop-levels/coop04.md.
  *
  * Left to right:
- * 1. Le marchepied (x 1-26): the team starts on the cable duct's walkway (floor row 11). Ruben
- *    drops into the corridor below (floor row 14) and pushes the PC tower "a" (need 2) under the
- *    shaft J (x 15); he jumps on it from M (x 14), a friend drops onto his head from the 1-high
- *    duct, jumps onto the upper floor (row 9) and hauls the others. From 4 players a floor
- *    sensor (plate p, need 4) shuts the hatch l in the shaft under a human tower; the PC tower
- *    rests on its rail ("|" at x 15) and never weighs on it. Whoever falls through the rail
- *    walks out by the crawl under the corridor (row 15) and jumps back up at x 6 (4-5 only).
+ * 1. Le marchepied (x 1-26): the team starts in the 2-high corridor (floor row 14), Ruben in
+ *    front of the PC tower "a" (need 2). He pushes it through M (x 13-14, 5 high) into the shaft
+ *    J (x 15), against the upper floor's wall, and climbs on it; his neighbour jumps from M onto
+ *    his head, then up J onto the upper floor (row 9, height 5) and hauls the others over the
+ *    lip. From 3 players the climber's other neighbour must wait in the cable duct (x 9-12,
+ *    floor row 11, 1 high, reached with a leg-up in M): from the floor its rope, measured round
+ *    the shaft's lip, is too short for the climber's jump; from the duct's mouth it reaches. From
+ *    4 players a floor sensor in M (plate p, need 4) shuts the hatch l at the top of J under a
+ *    human tower; the PC tower rests on a rail ("|", x 15) over a 2-deep pit, off the sensor.
  * 2. Le fossé du tunnel (x 27-35): everyone in a row pushes the server rack "r" (need W) along
  *    the 1-high tunnel into the ditch of bare cables (x 32-34, "^"); the stop at x 35 holds the
  *    rack right over the ditch. Nobody can reach the ditch before the rack covers it: a breather.
@@ -37,14 +39,14 @@ export const coop04: CoopLevelDef = {
     "###############............#############.........#####", // 6
     "###############............#############t.......s#####", // 7
     "###############............rrr.....|....t.......s#####", // 8
-    "#.........#####2################^^^########wwwwww#####", // 9
-    "#S..............######################################", // 10
-    "#######.######..######################################", // 11
-    "######4|a.......######################################", // 12
-    "######4|a.......######################################", // 13
-    "######4###111113######################################", // 14
-    "######4444444444######################################", // 15
-    "######################################################", // 16
+    "#############..2################^^^########wwwwww#####", // 9
+    "#########.......######################################", // 10
+    "#############...######################################", // 11
+    "#.......a.......######################################", // 12
+    "#S......a.......######################################", // 13
+    "#############113######################################", // 14
+    "###############4######################################", // 15
+    "###############4######################################", // 16
     "######################################################", // 17
   ],
   legend: {
@@ -65,12 +67,13 @@ export const coop04: CoopLevelDef = {
     "1": { "2-3": "#", "4-5": "p" },
     "2": { "2-3": ".", "4-5": "l" },
     "3": { "2-3": "#", "4-5": "|" },
-    // The crawl under the corridor and its shaft at x 6: the way out from under the rail (4-5).
+    // The pit under the rail (4-5): 2 deep, a lone jump gets out of it.
     "4": { "2-3": "#", "4-5": "." },
   },
   signs: [
-    { x: 12.2, y: 12.4, text: "Ruben pousse comme deux" },
-    { x: 11.8, y: 9.6, text: "Gaine technique" },
+    { x: 5.6, y: 12.3, text: "Ruben pousse comme deux" },
+    { x: 10.9, y: 9.6, text: "Gaine technique" },
+    { x: 10.9, y: 11.55, text: "Corde trop courte ? Attends dans la gaine" },
     { x: 21, y: 5.2, text: "Poussez ensemble !" },
     { x: 31, y: 6.3, text: "Câbles dénudés" },
     { x: 44.2, y: 6.55, text: "Toute la classe sur la plaque" },
