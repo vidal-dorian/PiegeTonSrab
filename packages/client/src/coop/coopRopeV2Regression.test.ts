@@ -234,9 +234,11 @@ describe("rope v2 review: an anchor between a walker and a hanging chain", () =>
     }
   });
 
-  it("in coop02, an anchor between a walker who stands still (or hauls, then holds) and the chain in the shaft stays still", () => {
-    const coop02 = COOP_LEVELS.find((l) => l.id === "coop02")!;
-    // The walker on the raised floor, the anchor on the row-10 floor, Ruben's chain hanging in the
+  it("an anchor between a walker who stands still (or hauls, then holds) and the chain in the shaft stays still", () => {
+    // Found in coop02 when its raised floor let the rope through over the server room; the level
+    // has been redesigned since (its rope wraps the lip), so this uses the fixture above, which has
+    // the same floors with the rope's way through left open.
+    // The walker on the upper floor, the anchor on the row-10 floor, Ruben's chain hanging in the
     // right shaft over (24, 10); the chain walks into the shaft for 0.75 s, then, if `haul`, the
     // walker hauls for that many steps; then nobody presses a key.
     for (const [n, walkerX, anchorX, haul] of [
@@ -249,7 +251,7 @@ describe("rope v2 review: an anchor between a walker and a hanging chain", () =>
       [5, 20.9, 21.8, 120],
     ] as const) {
       const label = `${n} players, walker ${walkerX}, anchor ${anchorX}, haul ${haul}`;
-      const w = new CoopWorld(parseCoopLevel(coop02, n), team(n, n - 1));
+      const w = world(rows, n, n - 1);
       w.placeBody(0, walkerX, 5.1);
       w.placeBody(1, anchorX, 9.1);
       for (let i = 2; i < n; i++) w.placeBody(i, 23.0 - 0.6 * (n - 1 - i), 9.1);

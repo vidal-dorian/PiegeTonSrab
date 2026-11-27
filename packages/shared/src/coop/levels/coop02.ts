@@ -1,18 +1,22 @@
 /**
  * Level 2, "Le Labo Réseau": you can lower a friend where nobody can jump.
  *
- * 1. La baie de brassage (top right, no danger): the raised floor of the lab ends on a cable shaft
- *    (a deep catch pit). Under the lip of the floor, a slot leads into the low server room. Nobody
- *    can drop into it (you would have to drift a whole cell sideways while falling past it): the
- *    one nearest the lip (Ruben: he spawns on the right) must be lowered to the right depth, where
- *    the rope swings him under the lip and onto the slot's floor. Too close to the edge he hangs
- *    below it, too far he hangs beside the lip. Then the others step off one by one and the ones
- *    already in hold them and haul them in.
+ * 1. La baie de brassage (top right, no danger): the raised floor of the lab runs under a low cable
+ *    duct to a lip over a cable shaft (a deep catch pit). Under the lip, a slot leads into the low
+ *    server room. Nobody can drop into it (you would have to drift a whole cell sideways while
+ *    falling past it, and the duct leaves no room to jump onto a friend's head there). The rope
+ *    runs over the lip's corner, so the one who steps off (Ruben: he spawns on the right) hangs as
+ *    deep as the rope is long past that corner: his anchor stops about two cells back, Ruben hangs
+ *    in the slot's mouth and leans in under the lip (the rope wraps its lower corner too), then
+ *    the anchor walks towards the edge and sets him down on the slot's floor. Too close to the
+ *    edge, he drops below the floor's top against its side: walking back brings him up and in.
+ *    Then the others do the same, the ones already in making way, and the last one is hauled up.
  * 2. Les câbles dénudés (left): Ruben's key hangs on the near wall of a second shaft, stripped
  *    cables right below it and on the far wall, spikes at the bottom (deeper than the rope). Whoever
- *    entered the server room first (Ruben) is nearest it and goes down; his anchor must stop at the
- *    right depth, in a window of 0.7 cell. With 3 players or more the key hangs deeper: two go down
- *    one below the other (Ruben at the bottom), and Ruben swings a little to touch it.
+ *    entered the server room first (Ruben) is nearest it and goes down; the rope runs over the
+ *    rim's corner, and his anchor must stop at the right depth, in a window of 0.65 cell. With 3
+ *    players or more the key hangs deeper: two go down one below the other (Ruben at the bottom),
+ *    and Ruben swings a little to touch it.
  *
  * Notes and exact numbers: docs/coop-levels/coop02.md.
  */
@@ -24,10 +28,10 @@ export const coop02: CoopLevelDef = {
   quote: "Un câble RJ45, c'est une corde, non ?",
   rows: [
     "##############################",
-    "##############..............##",
-    "##############..............##",
-    "##############..............##",
-    "##############..............##",
+    "##############........########",
+    "##############........########",
+    "##############........########",
+    "##############........########",
     "##############..S...........##",
     "#########################...##",
     "#...........................##",
@@ -68,9 +72,11 @@ export const coop02: CoopLevelDef = {
     j: { "2": ".", "3+": "K" },
   },
   signs: [
-    { x: 21, y: 2.2, text: "Avance : il descend.\nRecule : il remonte." },
+    // On the raised floor, before the duct: how the rope over the lip's corner sets the depth, and
+    // what the one hanging in the slot's mouth does.
+    { x: 17.9, y: 2.3, text: "Avance : il descend.\nRecule : il remonte.\nEn bas : penche-toi !" },
     // Over shaft B, where Ruben goes down: his anchor slides 0.3 cells/s (0.45 with a friend
-    // above him) and the window is 0.7 cell wide.
+    // above him) and the window is 0.65 cell wide.
     { x: 7.8, y: 8, text: "Ruben, t'es lourd !\nStop ! Remonte un peu !" },
   ],
 };
