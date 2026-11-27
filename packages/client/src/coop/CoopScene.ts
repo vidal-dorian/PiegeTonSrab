@@ -55,7 +55,8 @@ import { loadCleared, markCleared } from "./progress";
 import { CoopBodyView } from "./render/coopBodyView";
 import { stackLabels } from "./render/labelLayout";
 import { captureFrame, lerpFrame, newFrame, type PropFrame } from "./render/propFrame";
-import { RopeView, type RopeSegment } from "./render/ropeView";
+import { RopeView } from "./render/ropeView";
+import { drawnRopeSegments } from "./render/ropeSegments";
 import { drawableTerrain, ThingViews } from "./render/thingViews";
 import { ClaudeBubbles } from "./ui/claudeBubble";
 import { CoopClearedScreen, type ClearedInfo, type HostChoice } from "./ui/coopCleared";
@@ -755,14 +756,8 @@ export class CoopScene extends Phaser.Scene {
     const placed = labels.flatMap((l, i) => (l ? [{ i, box: l }] : []));
     const lifts = stackLabels(placed.map((p) => p.box));
     placed.forEach((p, k) => this.bodyViews[p.i]!.liftLabel(lifts[k]!));
-    const segments: RopeSegment[] = [];
-    for (let k = 0; k + 1 < world.chain.length; k++) {
-      const a = boxes[world.chain[k]!];
-      const b = boxes[world.chain[k + 1]!];
-      // Through the corners the world's link wraps.
-      if (a && b) segments.push({ ax: a.x + a.w / 2, ay: a.y + a.h / 2, bx: b.x + b.w / 2, by: b.y + b.h / 2, points: world.rope[k]?.points ?? [] });
-    }
-    this.rope.draw(segments);
+    // Through the corners the world's link wraps, swept to the drawn bodies.
+    this.rope.draw(drawnRopeSegments(world, boxes));
     this.objects.update(this.level.objects, frame.levelTick * COOP_DT);
     this.things.update(frame, world, now, this.colors, authority);
     this.camera.update(dt, boxes);

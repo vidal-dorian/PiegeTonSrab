@@ -694,9 +694,11 @@ Decided with him:
   `ropeStiffness` 240 (1/s² per unit of mass), `ropeDamping` 0.5 (damping ratio), `ropeRelax` 15 (1/s),
   `ropeMaxWraps` 8.
 - Wraps around the fixed terrain only (solid tiles, glass and team-size walls included; one-way platforms,
-  gates, crates, balances, seesaws, moving platforms and bodies are not obstacles, as before). The pulley is
-  frictionless: the same tension all along the path.
-- The wraps are world state: saved, loaded, hashed, in the snapshots (snapshot version 4, protocol 6), replayed
+  gates, crates, balances, seesaws, moving platforms and bodies are not obstacles, as before). The pulley has
+  a little viscous friction since the review (`ropePulleyDamping`, below): otherwise the same tension all
+  along the path.
+- The wraps are world state: saved, loaded, hashed, in the snapshots (snapshot version 4, protocol 6; 7 since
+  the review fixes changed the rules), replayed
   by the prediction, cleared on a level start, a restart and a rebuilt team.
 
 How it works (`rope.ts`, `world.ts`):
@@ -743,7 +745,7 @@ Measured (`coopRopeWrap.test.ts`, re-pins in the other rope tests; old -> new):
   steps (2 / 3 bodies), at rest + 0.05 in 28 / 58 (was: at 4.5 in 8 / 15). Hanging over the sandbox trench:
   the head 15.29-15.44 (was under 15.5: the path over the rim's corner is longer than the chord), link 4.64.
 - The pulley (the sandbox's): two friends walking off the pillar on either side hang 0.7 under the floors, held,
-  level when they leave together (any split holds: equal masses on a frictionless pulley), link 4.64; Ruben
+  level when they leave together (any split holds: equal masses), link 4.64; Ruben
   against a friend: the friend up at the corner, Ruben at the rope's end just above the pit's bottom, rising at
   most 1.2 cells/s. A friend standing 2 cells behind a 1-wide block holds a friend under its far lip (drift
   0.150 / Ruben 0.300), pushing away holds, walking on hauls him over (rope back off the block).
@@ -753,13 +755,52 @@ Measured (`coopRopeWrap.test.ts`, re-pins in the other rope tests; old -> new):
   32-121; under 0.2 ms); replaying 20 steps at 5 players 0.50-0.90 ms (under 2 ms); prediction bench: drawn
   links over the world's, along the path, p99.9 0.049, max 0.060.
 
+Rope v2 review fixes (2026-11-27, 9 confirmed findings; `coopRopeV2Regression.test.ts` fails on the code
+they were found in):
+
+- A wrap point let go late (the ~1° `UNWRAP_SIN` margin) now sweeps the thin triangle it releases (next
+  pivot, released corner, end): a corner lying along the same face wraps. Before, coop04's duct at 4-5
+  players kept the rope through the corridor floor for up to 339 steps (0.5 deep) in 6 of 48 random runs.
+- The elastic drag of a standing end never takes its other link past the hard stop (`otherLinkRoom`): an
+  anchor between a walker and a chain hanging with its rise capped (coop02's cable shaft) was dragged
+  into the stop and thrown back by it every step (0.3 cell at 60 Hz, links 5.6-6.1). Now no reversal,
+  longest 5.47, the walker hauls the chain through the anchor as the rigid rope did.
+- No endless bouncing (decision 1). Three cases bobbed or seesawed for ever, because asymmetric gravity
+  (a body less than hangHeight under its pivot does not count as hanging) pumped up a motion that the
+  damping, acting on the whole link's length rate, barely saw: a body held against a wall just under a
+  wrapped corner (0.25 cell at 3 cells/s), the same under the sandbox pillar's corner held by a friend in
+  the pit, and two friends on either side of the pulley (2.15 cells, a 3 s seesaw). Now:
+  - the spring is a force against a wall: only its part along the wall moves the body, faded in below
+    30° instead of switching (the switch made the lift jump 4x), and the press brakes the speed along
+    the wall (`ropeWallFriction` 0.3 of the speed per cell/s of press, viscous);
+  - the rope sliding round wrap points between two ends in the air is braked (`ropePulleyDamping` 4/s,
+    on the difference of their speeds along the rope; a standing end's own move does not count, so
+    hauling over a block is unchanged). Two friends on the pulley settle where they are (level when they
+    left together, one up at a corner when not); Ruben against a friend settles too.
+  All settle within 0.02 cell; the hard stop's velocity pass still slides a hauled body up a wall as before.
+- The sandbox's pulley has 3-wide pits (pillar x 69-70, pits 66-68 and 71-73): from the 2-wide pits a
+  friend walking off cleared the pit and landed on the far floor unless both left within 50 ms; now
+  both are held over the corners with up to 0.2 s between them (and always when they walk off, then let go).
+- Drawing: each drawn link is swept from the world's pose to the drawn bodies (`wrapsForPose`, through
+  `render/ropeSegments.ts`), with the shortest clear path as a fallback when a drawn end cuts a corner.
+  Step A (bodies blended between snapshots) and step B (smoothed bodies) drew a link straight through a
+  corner for a frame or two around a wrap or unwrap (up to 0.38 deep); the level bots' step A frames
+  now never go into the terrain.
+- Left for Dorian (a design decision): a link can stay stretched (up to the stop, drawn orange-red) while
+  both ends stand idle, when the lower one stands steeply under its pivot (it is never lifted below the
+  stop) and the upper one is an anchor for it (it never gives ground). Letting the stretch come back
+  through the upper one drags anchors towards edges and broke coop01 and coop04 at every team size, and
+  lifting the lower one hovered it off the floor (see above). Moving either player ends it.
+- Bots: coop05's shortcut "a tower from the seesaw to the mezzanine" lands the base on the cap within
+  0.1 (it could sit on the edge of F0's head and block the climb); the shortcut still fails at its attempt.
+
 Drawing (`render/ropeLayout.ts`, `ropeView.ts`): each link goes through its wrap points; the parts between
 two corners are straight, the two end parts share the slack and sag. Near the rest length the orange cue fades
 in as before; past it the ink thins (4 to 2.5 px) and the overlay goes from orange to red, all red at the stop.
 The rope is stroked as an open path (closing it drew a chord under every slack rope).
 
 Dev tool: `?coopLocal=2&level=sandbox` opens the sandbox (now 80 wide; the pulley at its far right: a 2-wide
-pillar one cell above the floor between two 2-wide pits); `&spawn=61` starts the team right before the pulley
+pillar one cell above the floor between two 3-wide pits); `&spawn=61` starts the team right before the pulley
 (any column with five cells of floor), `&noruben` makes both bodies friends (with Ruben the pulley is
 lopsided: he sinks). With 2 players a 2-cell step stands against the sandbox's 4-cell wall.
 
@@ -813,7 +854,8 @@ Status at the end of M4 (2026-11-26):
 
 ## Open questions for Dorian
 
-- Rope v2: try the pulley (`?coopLocal=2&level=sandbox&spawn=61&noruben`) and the give. Is 20 % the right amount,
+- Rope v2: try the pulley (`?coopLocal=2&level=sandbox&spawn=61&noruben`) and the give. Should a link
+  stretched between two players standing still come back (see "Rope v2 review fixes": who gives)? Is 20 % the right amount,
   is the stretch cue (thinner, orange to red, all red at the stop) clear, does a hanging friend bounce too
   much or too little (`ropeDamping`)? Levels 1 to 5 pass with it; three of them let the rope through placed
   blocks `=` where their idea needs it (see "Levels after rope v2"): is that acceptable, or should those

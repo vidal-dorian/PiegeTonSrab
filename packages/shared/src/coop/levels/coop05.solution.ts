@@ -256,7 +256,8 @@ export const shortcuts: Record<string, CoopSolution> = {
     return [
       ...poulie(n),
       ...ready(n),
-      { name: `${base} drops onto the seesaw's cap`, do: { [base]: walk(CAP, { drop: true }), ...(n > 2 ? { [chain(n)[2]!]: when(pastX(base, 25.25), walk(MOUTH, never)) } : {}) }, until: cond.near(base, CAP, 0.3), timeout: 10 },
+      // Right onto the cap (tol 0.1): landing 0.3 to the right, the base can sit on the edge of F0's head instead.
+      { name: `${base} drops onto the seesaw's cap`, do: { [base]: walk(CAP, { drop: true, tol: 0.1 }), ...(n > 2 ? { [chain(n)[2]!]: when(pastX(base, 25.25), walk(MOUTH, never)) } : {}) }, until: cond.near(base, CAP, 0.15), timeout: 10 },
       { name: `F0 climbs onto ${base}`, do: { F0: mount(base) }, until: cond.on("F0", base), timeout: 10 },
       { name: `ATTEMPT: F0 jumps from ${base}'s head onto the mezzanine`, do: { F0: jumpTo(LANDING, { rise: 0.3 }) }, until: cond.standsAbove("F0", 9), timeout: 5 },
       ...keyAfterShot(),

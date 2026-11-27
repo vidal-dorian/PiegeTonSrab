@@ -244,6 +244,9 @@ The physics make two of the plan's sentences impossible at 2 players; both come 
   unchanged: head apex 8.74 straight up (8.75 before; the saw kills), feet apex 8.33-8.42 steering
   left. The anchor waiting one cell from the pit in beat 1 is kept (the rope over the pit's corner
   is measured along its path now, as the bots measured it before).
+- Rope v2 review fixes: no map change. In the shortcut "a tower from the seesaw to the mezzanine" the
+  base lands on the cap within 0.1 (was 0.3): landing 0.3 to the right at 3 players it sat on the edge of
+  F0's head and F0 could not jump. It still fails at its attempt at 2-5 players.
 
 ## Review fixes (critic round 1)
 

@@ -54,7 +54,7 @@ function world(rows: string[], n: number, rubenAt = -1): CoopWorld {
   return new CoopWorld(parseCoopLevel({ id: "t", name: "t", rows }, n), team(n, rubenAt));
 }
 
-/** The sandbox as two players see it: its pulley is the 2-wide pillar x 68-69 (top y = 10) between pits x 66-67 and 70-71 (bottom y = 13). */
+/** The sandbox as two players see it: its pulley is the 2-wide pillar x 69-70 (top y = 10) between pits x 66-68 and 71-73 (bottom y = 13). */
 function pulley(rubenAt = -1): CoopWorld {
   return new CoopWorld(parseCoopLevel(sandboxLevel, 2), team(2, rubenAt));
 }
@@ -111,8 +111,8 @@ describe("rope v2: the pulley over a block", () => {
       };
       for (const keep of [false, true]) {
         const v = pulley();
-        v.placeBody(leftSeat, 68.05, 10 - H);
-        v.placeBody(right, 69.15, 10 - H);
+        v.placeBody(leftSeat, 69.05, 10 - H);
+        v.placeBody(right, 70.15, 10 - H);
         let longest = 0;
         const lengths: number[] = [];
         run(
@@ -135,7 +135,7 @@ describe("rope v2: the pulley over a block", () => {
           expect(v.bodies[i]!.y + H, label).toBeLessThan(13 - 0.5);
         }
         const points = wrapsOf(v);
-        expect(points, label).toEqual(leftSeat === 0 ? [68, 10, 70, 10] : [70, 10, 68, 10]);
+        expect(points, label).toEqual(leftSeat === 0 ? [69, 10, 71, 10] : [71, 10, 69, 10]);
         // Measured: at most 4.97 (the catch), settled at 4.64-4.66; level with each other.
         expect(longest, label).toBeLessThanOrEqual(MAX + 0.01);
         expect(Math.abs(v.bodies[0]!.cy - v.bodies[1]!.cy), label).toBeLessThan(0.05);
@@ -148,8 +148,8 @@ describe("rope v2: the pulley over a block", () => {
 
   it("Ruben against a friend: Ruben sinks, the friend rises to the corner, no faster than it lifts Ruben", () => {
     const w = pulley(1);
-    w.placeBody(0, 68.05, 10 - H);
-    w.placeBody(1, 69.15, 10 - H);
+    w.placeBody(0, 69.05, 10 - H);
+    w.placeBody(1, 70.15, 10 - H);
     let fastest = 0;
     let lastY = w.bodies[0]!.y;
     let longest = 0;
@@ -465,8 +465,8 @@ describe("rope v2: wraps are part of the world's state", () => {
   /** A sandbox world with both friends hanging over the pulley (wraps on). */
   function wrapped(): CoopWorld {
     const w = pulley();
-    w.placeBody(0, 68.05, 10 - H);
-    w.placeBody(1, 69.15, 10 - H);
+    w.placeBody(0, 69.05, 10 - H);
+    w.placeBody(1, 70.15, 10 - H);
     run(w, 90, (s) => (s < 30 ? [BIT_LEFT, BIT_RIGHT] : [0, 0]));
     expect(w.ropeWraps[0]!.length).toBe(6);
     return w;
@@ -497,7 +497,7 @@ describe("rope v2: wraps are part of the world's state", () => {
     const s = wrapped().save();
     const bytes = encodeWorld(s);
     expect(decodeWorld(bytes)).toEqual(s);
-    expect(decodeWorld(bytes).ropeWraps[0]!.filter((_, i) => i % 3 !== 2)).toEqual([68, 10, 70, 10]);
+    expect(decodeWorld(bytes).ropeWraps[0]!.filter((_, i) => i % 3 !== 2)).toEqual([69, 10, 71, 10]);
     const old = bytes.slice();
     old[0] = 3;
     expect(() => decodeWorld(old)).toThrow(/version 3/);
@@ -573,11 +573,11 @@ describe("rope v2: budgets", () => {
   it("a server step at 5 players stays under 0.2 ms (median), wraps included", () => {
     const w = new CoopWorld(parseCoopLevel(sandboxLevel, 5), team(5, 4));
     // Everyone on the pulley: four bodies hang or stand around the pillar, the rope wrapped.
-    w.placeBody(0, 66.1, 11.4);
-    w.placeBody(1, 68.05, 10 - H);
-    w.placeBody(2, 70.1, 11.4);
-    w.placeBody(3, 73, 11 - H);
-    w.placeBody(4, 76, 11 - H);
+    w.placeBody(0, 67.1, 11.4);
+    w.placeBody(1, 69.05, 10 - H);
+    w.placeBody(2, 71.1, 11.4);
+    w.placeBody(3, 74.2, 11 - H);
+    w.placeBody(4, 76.5, 11 - H);
     run(w, 60, () => [0, 0, 0, 0, 0]);
     const times: number[] = [];
     let wrappedLinks = 0;

@@ -35,6 +35,18 @@ export const COOP = {
    * second (1/s): their pull is a position pull, they keep their own speed.
    */
   ropeRelax: 15,
+  /**
+   * Friction of the rope sliding round the terrain corners it wraps, 1/s per unit of mass (viscous:
+   * on the difference of the two ends' speeds along the rope, ends in the air only). Two friends
+   * hanging on either side of a block settle instead of seesawing for ever; 0 is a frictionless pulley.
+   */
+  ropePulleyDamping: 4,
+  /**
+   * A body in the air that the stretched rope presses against a wall loses this share of its speed
+   * along the wall per cell/s of press, each step (viscous friction): held against a wall just under
+   * a corner, it settles instead of bobbing.
+   */
+  ropeWallFriction: 0.3,
   /** Terrain corners a link can wrap around (more: the rope goes through, as it did before wrapping). */
   ropeMaxWraps: 8,
   /**

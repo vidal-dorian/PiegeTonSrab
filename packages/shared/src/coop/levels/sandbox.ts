@@ -11,8 +11,9 @@ import type { CoopLevelDef } from "../levelFormat";
  *   against it, so the dev tool's two keyboard halves get past);
  * - a 2-high tunnel (jumping bonks the ceiling);
  * - a spike pit (deadly: the level restarts);
- * - the end ledge, then the pulley: a 2-wide pillar one cell above the floor, between two 2-wide
- *   pits 2 deep. Two friends on the pillar who walk off opposite sides hang on either side of it,
+ * - the end ledge, then the pulley: a 2-wide pillar (x 69-70) one cell above the floor, between two
+ *   3-wide pits 2 deep (2-wide, a friend walking off the pillar cleared the pit and landed on the far
+ *   floor). Two friends on the pillar who walk off opposite sides hang on either side of it,
  *   each held by the other over its two top corners (Ruben against a friend sinks to the bottom and
  *   lifts the friend to the corner); a friend standing on a floor pulls the one hanging on the far
  *   side up to the corner, and walking on hauls him over the pillar.
@@ -32,9 +33,9 @@ export const sandboxLevel: CoopLevelDef = {
     "#..............................................................................#",
     "#..............................................##########......................#",
     "#..............................................................................#",
-    "#...................................................................##.........#",
-    "#....................................####################...######..##..########",
-    "#....................................####################^^^######..##..########",
+    "#....................................................................##........#",
+    "#....................................####################...######...##...######",
+    "#....................................####################^^^######...##...######",
     "#..................................22###########################################",
     "#..................................22###########################################",
     "#..............##########..#####################################################",
@@ -57,6 +58,6 @@ export const sandboxLevel: CoopLevelDef = {
     { x: 25.9, y: 13.0, text: "on rattrape" },
     { x: 41.5, y: 9.2, text: "4 : tour de 3 ou hisser" },
     { x: 51.5, y: 6.8, text: "tunnel" },
-    { x: 69, y: 8.4, text: "poulie" },
+    { x: 70, y: 8.4, text: "poulie" },
   ],
 };

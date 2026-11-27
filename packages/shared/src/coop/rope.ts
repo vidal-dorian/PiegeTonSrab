@@ -9,13 +9,15 @@
  * - Wraps (sweepRope): each link keeps the ordered list of terrain corners it is wrapped around (the
  *   world saves it: it depends on history). When an end moves, the segment from it to its pivot (its
  *   wrap point next to it, or the other end) sweeps a triangle: the first convex corner inside it
- *   becomes a wrap point, and a wrap point is let go when the rope turns the other way round it.
+ *   becomes a wrap point, and a wrap point is let go when the rope turns the other way round it
+ *   (the thin triangle that letting go sweeps is swept too).
  *   The swept triangle covers the whole move, so a fast body never takes the rope through a wall.
  * - Elastic: past its rest length, a link pulls each end towards its pivot. A body in the air gets a
  *   damped spring's pull on its speed (stiffness per unit of mass, so Ruben stretches it twice as
  *   much); a body standing on something is pulled by position, a share of the stretch per step (it
- *   keeps its own speed: dragging a friend is a smooth half speed). The tension is the same all along
- *   the path (a frictionless pulley).
+ *   keeps its own speed: dragging a friend is a smooth half speed; never past the hard stop of its
+ *   other link). The tension is the same all along the path, but for a little viscous friction of the
+ *   rope sliding round its wrap points between two ends in the air (COOP.ropePulleyDamping).
  * - Hard stop: a link longer than ROPE_MAX_LENGTH is shortened back to it. The error is shared by
  *   "how easily the rope moves each end" (grip / mass): in the air 1, standing 0.35. A body holding a
  *   friend who hangs below it does not move for that link when it is held itself: standing (an
@@ -29,7 +31,8 @@
  * - Hanging: "below" and "above" are measured from the pivot, so a friend hanging over a corner
  *   hangs from that corner, whoever holds the other end and wherever.
  * - Walls: a body in the air pulled into a wall slides along it as far as the rope needs, when its
- *   end segment is steep enough (30°) to hold it there. A friend hanging against a wall below a lip
+ *   end segment is steep enough (30°) to hold it there (the spring's lift fades out below that), and
+ *   the spring's press into the wall brakes it along the wall (COOP.ropeWallFriction). A friend hanging against a wall below a lip
  *   is pulled straight up the wall towards the corner, then climbs over it with the mantle (world.ts).
  * - Nobody outruns the rope: a body pulled back against friends right behind it, or standing on a
  *   friend, takes them back too (a train), each never further than where it stood when the step
@@ -114,6 +117,8 @@ const MAX_TRACE = 64;
 const SWEEP_EVENTS = 2 * COOP.ropeMaxWraps + 4;
 /** Damping of the spring, 1/s per unit of mass (critical damping is 2 sqrt(stiffness)). */
 const SPRING_DAMPING = 2 * COOP.ropeDamping * Math.sqrt(COOP.ropeStiffness);
+/** Viscous friction of the rope sliding round its wrap points, 1/s per unit of mass. */
+const PULLEY_DAMPING = COOP.ropePulleyDamping;
 /**
  * A wrap point is let go only once the rope turns the other way round it by more than this (the
  * sine of about 1°): a link that runs almost straight through a corner does not wrap and unwrap it
@@ -158,6 +163,9 @@ function againstWall(host: RopeHost, b: CoopController, ux: number): boolean {
 
 // --- Geometry of the wraps ------------------------------------------------------------------
 
+/** What the wrap geometry needs of the world: where the fixed terrain is. */
+export type CornerHost = Pick<RopeHost, "ropeSolid">;
+
 function cross(ax: number, ay: number, bx: number, by: number): number {
   return ax * by - ay * bx;
 }
@@ -172,7 +180,7 @@ const QUAD_X = [0, -1, 1, -1, 1];
 const QUAD_Y = [0, -1, -1, 1, 1];
 
 /** The quadrant of the one solid cell around grid point (x, y), or 0 when it is not exactly one (not a convex corner). */
-function cornerQuadrant(host: RopeHost, x: number, y: number): number {
+function cornerQuadrant(host: CornerHost, x: number, y: number): number {
   let q = 0;
   let count = 0;
   if (host.ropeSolid(x - 1, y - 1)) {
@@ -231,7 +239,7 @@ interface Hit {
  * touches it: a rope already through the terrain does not hook a corner on its way out); the one
  * reached first (smallest t along f -> e), on a tie the farthest from p. hit.t > 1 when none.
  */
-function firstCorner(host: RopeHost, px: number, py: number, fx: number, fy: number, ex: number, ey: number, hit: Hit): void {
+function firstCorner(host: CornerHost, px: number, py: number, fx: number, fy: number, ex: number, ey: number, hit: Hit): void {
   hit.t = 2;
   const area = cross(fx - px, fy - py, ex - px, ey - py);
   // The end moves along its own segment: it slides the rope along itself, it touches nothing side-on.
@@ -276,11 +284,17 @@ const hitScratch: Hit = { t: 2, x: 0, y: 0, s: 0 };
  * points it comes round (the rope turns the other way at its pivot) and wrap the corners its segment
  * sweeps, in the order they happen. `atA`: the moving end is end a (its wrap point is the first).
  */
-function sweepEnd(host: RopeHost, w: RopeWraps, atA: boolean, fx0: number, fy0: number, ex: number, ey: number, ox: number, oy: number): void {
+function sweepEnd(host: CornerHost, w: RopeWraps, atA: boolean, fx0: number, fy0: number, ex: number, ey: number, ox: number, oy: number): void {
+  sweepEndFor(host, w, atA, fx0, fy0, ex, ey, ox, oy, SWEEP_EVENTS);
+}
+
+/** sweepEnd with an event budget; returns what is left of it. */
+function sweepEndFor(host: CornerHost, w: RopeWraps, atA: boolean, fx0: number, fy0: number, ex: number, ey: number, ox: number, oy: number, budget: number): number {
   let fx = fx0;
   let fy = fy0;
   const hit = hitScratch;
-  for (let event = 0; event < SWEEP_EVENTS; event++) {
+  let events = budget;
+  while (events-- > 0) {
     const np = w.length / 3;
     let px = ox;
     let py = oy;
@@ -309,9 +323,13 @@ function sweepEnd(host: RopeHost, w: RopeWraps, atA: boolean, fx0: number, fy0: 
       w.splice(atA ? 0 : w.length - 3, 3);
       fx += tU * (ex - fx);
       fy += tU * (ey - fy);
+      // Let go late (the margin), the end part jumps from pivot -> released corner -> end to
+      // pivot -> end: it sweeps that thin triangle as if the end went from the corner to where it
+      // is. A corner in it (one lying along the same face, collinear with the released one) wraps.
+      if (fx !== px || fy !== py) events = sweepEndFor(host, w, atA, px, py, fx, fy, ox, oy, events);
       continue;
     }
-    if (hit.t > 1 || np >= COOP.ropeMaxWraps) return;
+    if (hit.t > 1 || np >= COOP.ropeMaxWraps) return events;
     // Along a -> b: at end a the path is end -> corner -> pivot, the reverse of pivot -> corner -> end.
     const turn = atA ? -hit.s : hit.s;
     if (atA) w.splice(0, 0, hit.x, hit.y, turn);
@@ -319,6 +337,7 @@ function sweepEnd(host: RopeHost, w: RopeWraps, atA: boolean, fx0: number, fy0: 
     fx += hit.t * (ex - fx);
     fy += hit.t * (ey - fy);
   }
+  return 0;
 }
 
 /**
@@ -346,8 +365,68 @@ export function sweepRope(host: RopeHost, chain: readonly number[], wraps: RopeW
   }
 }
 
+/**
+ * The wrap points of a link drawn at another pose than the world's: its wraps `w` (the world's,
+ * for ends at (fax, fay) and (fbx, fby)), swept as if end a then end b moved straight to (tax, tay)
+ * and (tbx, tby), into `out` (flat x, y, no turns). A screen that draws bodies between two
+ * snapshots, or smoothed, draws each link through these: the drawn rope wraps and lets go with the
+ * drawn bodies instead of cutting a corner for the frames where the two disagree.
+ */
+export function wrapsForPose(
+  host: CornerHost,
+  w: RopeWraps,
+  fax: number,
+  fay: number,
+  fbx: number,
+  fby: number,
+  tax: number,
+  tay: number,
+  tbx: number,
+  tby: number,
+  out: number[],
+): void {
+  const tmp = poseScratch;
+  tmp.length = 0;
+  for (let i = 0; i < w.length; i++) tmp.push(w[i]!);
+  if (tax !== fax || tay !== fay) sweepEnd(host, tmp, true, fax, fay, tax, tay, fbx, fby);
+  if (tbx !== fbx || tby !== fby) sweepEnd(host, tmp, false, fbx, fby, tbx, tby, tax, tay);
+  // An end drawn across a corner (blended along the chord of its move, or smoothed) sweeps
+  // through the terrain and misses it: then the shortest clear path, as for a placed body.
+  if (!pathClear(host, tax, tay, tmp, tbx, tby)) {
+    placeWraps(host, tax, tay, tbx, tby, poseFallback);
+    if (pathClear(host, tax, tay, poseFallback, tbx, tby)) {
+      tmp.length = 0;
+      for (let i = 0; i < poseFallback.length; i++) tmp.push(poseFallback[i]!);
+    }
+  }
+  out.length = 0;
+  for (let i = 0; i < tmp.length; i += 3) out.push(tmp[i]!, tmp[i + 1]!);
+}
+
+const poseScratch: RopeWraps = [];
+const poseFallback: RopeWraps = [];
+
+/** Whether the path a -> wrap points -> b stays clear of the terrain (each part tested from just off its corners). */
+function pathClear(host: CornerHost, ax: number, ay: number, w: RopeWraps, bx: number, by: number): boolean {
+  let px = ax;
+  let py = ay;
+  for (let i = 0; i <= w.length; i += 3) {
+    let qx = bx;
+    let qy = by;
+    if (i < w.length) {
+      const q = cornerQuadrant(host, w[i]!, w[i + 1]!);
+      qx = w[i]! - QUAD_X[q]! * CORNER_OFF;
+      qy = w[i + 1]! - QUAD_Y[q]! * CORNER_OFF;
+    }
+    if (segmentHitsTerrain(host, px, py, qx, qy)) return false;
+    px = qx;
+    py = qy;
+  }
+  return true;
+}
+
 /** Whether the segment (ax, ay)-(bx, by) crosses a cell of fixed terrain (grid walk, cell by cell). */
-function segmentHitsTerrain(host: RopeHost, ax: number, ay: number, bx: number, by: number): boolean {
+function segmentHitsTerrain(host: CornerHost, ax: number, ay: number, bx: number, by: number): boolean {
   let cx = Math.floor(ax);
   let cy = Math.floor(ay);
   const ex = Math.floor(bx);
@@ -383,7 +462,7 @@ function segmentHitsTerrain(host: RopeHost, ax: number, ay: number, bx: number, 
  * line is clear of the terrain, else the shortest clear path over one or two convex corners (in
  * the box of the two centres widened by 2), else straight through.
  */
-export function placeWraps(host: RopeHost, ax: number, ay: number, bx: number, by: number, out: RopeWraps): void {
+export function placeWraps(host: CornerHost, ax: number, ay: number, bx: number, by: number, out: RopeWraps): void {
   out.length = 0;
   if (!segmentHitsTerrain(host, ax, ay, bx, by)) return;
   const corners: number[] = [];
@@ -721,9 +800,13 @@ export function solveRope(host: RopeHost, chain: readonly number[], wraps: reado
     const wb = mobility(ib, ia, m.pax, m.pay);
     if (wa + wb <= 0) return;
     const drag = (i: number, share: number, ux: number, uy: number, seg: number, wrapped: boolean, by: number): void => {
-      const k = Math.abs(ux);
-      if (k < MIN_DRAG_COS) return;
-      pull(i, want * share, ux > 0 ? 1 : -1, 0, k, wrapped ? seg * k : Number.MAX_VALUE, ux, uy, by);
+      const c = Math.abs(ux);
+      if (c < MIN_DRAG_COS) return;
+      const dir = ux > 0 ? 1 : -1;
+      // Never past the hard stop of the body's other link: an anchor between a walker and a
+      // friend hanging below it is not dragged into that link's stop (the stop would throw it back).
+      const room = otherLinkRoom(k, i, dir);
+      pull(i, want * share, dir, 0, c, Math.min(wrapped ? seg * c : Number.MAX_VALUE, room), ux, uy, by);
     };
     const wrapped = wraps[k]!.length > 0;
     if (A.grounded && wa > 0) {
@@ -731,6 +814,25 @@ export function solveRope(host: RopeHost, chain: readonly number[], wraps: reado
       measure(k, m);
     }
     if (B.grounded && wb > 0) drag(ib, wb / (wa + wb), m.bx, m.by, m.lb, wrapped, ia);
+  };
+
+  const other = newMeasure();
+  /**
+   * How far body i may move along x (`dir`) before one of its links other than link `k` reaches
+   * its hard stop (a link already past it allows no move that lengthens it).
+   */
+  const otherLinkRoom = (k: number, i: number, dir: number): number => {
+    let room = Number.MAX_VALUE;
+    for (let j = 0; j < links.length; j++) {
+      if (j === k) continue;
+      const [a, b] = links[j]!;
+      if (a !== i && b !== i) continue;
+      measure(j, other);
+      const lengthen = -dir * (a === i ? other.ax : other.bx);
+      if (lengthen <= 1e-9) continue;
+      room = Math.min(room, Math.max(0, MAX - other.len) / lengthen);
+    }
+    return room;
   };
 
   /** The hard stop: shorten a link longer than MAX back to it. */
@@ -800,6 +902,31 @@ export function solveRope(host: RopeHost, chain: readonly number[], wraps: reado
     b.vy += dvy;
   };
 
+  /**
+   * The spring's pull on body b in the air: q more speed along its pull direction (ux, uy), as a
+   * force. Pressed against a wall, the wall takes the part into it (a force is not redirected:
+   * only the part along the wall moves the body), and that press brakes the body's speed along
+   * the wall (COOP.ropeWallFriction): a body held against a wall just under a corner settles
+   * instead of bobbing (nothing else damps a move along the wall when the rope pulls nearly flat).
+   */
+  const springUp = (b: CoopController, q: number, ux: number, uy: number): void => {
+    let dvx = ux * q;
+    let dvy = uy * q;
+    let press = 0;
+    if (dvx !== 0 && againstWall(host, b, dvx)) {
+      const side = dvx > 0 ? 1 : -1;
+      const x = Math.min(Math.abs(dvx), Math.max(0, -b.vx * side)) * side;
+      press = Math.abs(dvx - x);
+      dvx = x;
+      // Along the wall as far as the rope needs (as speedUp), fading out below MIN_SLIDE instead
+      // of stopping there: a jump in the lift as the end segment crosses 30° drove a bob.
+      dvy = ((q - x * ux) * uy) / Math.max(uy * uy, MIN_SLIDE * MIN_SLIDE);
+    }
+    b.vx += dvx;
+    b.vy += dvy;
+    if (press > 0) b.vy *= 1 - Math.min(1, COOP.ropeWallFriction * press);
+  };
+
   const vyBefore = bodies.map((b) => b.vy);
 
   // The spring: a stretched link pulls each end in the air towards its pivot, the same tension all
@@ -816,11 +943,18 @@ export function solveRope(host: RopeHost, chain: readonly number[], wraps: reado
     const airA = !fixedA && !A.grounded;
     const airB = !fixedB && !B.grounded;
     if (!airA && !airB) continue;
-    const rate = (fixedA ? 0 : -(A.vx * m.ax + A.vy * m.ay)) + (fixedB ? 0 : -(B.vx * m.bx + B.vy * m.by));
-    const force = Math.max(0, COOP.ropeStiffness * (Math.min(m.len, MAX) - REST) + SPRING_DAMPING * rate);
-    if (force === 0) continue;
-    if (airA) speedUp(A, (force * dt) / A.mass, m.ax, m.ay);
-    if (airB) speedUp(B, (force * dt) / B.mass, m.bx, m.by);
+    const rateA = fixedA ? 0 : -(A.vx * m.ax + A.vy * m.ay);
+    const rateB = fixedB ? 0 : -(B.vx * m.bx + B.vy * m.by);
+    const tension = COOP.ropeStiffness * (Math.min(m.len, MAX) - REST) + SPRING_DAMPING * (rateA + rateB);
+    // Over corners, a little friction: the rope sliding round them between two ends in the air
+    // (one going down as the other goes up, the length unchanged) is braked, so two friends on
+    // either side of a block settle instead of seesawing for ever. A standing end's own move
+    // does not count (it pulls by position; hauling over a block is unchanged).
+    const slip = wraps[k]!.length > 0 ? PULLEY_DAMPING * ((airA ? rateA : 0) - (airB ? rateB : 0)) : 0;
+    const forceA = Math.max(0, tension + slip);
+    const forceB = Math.max(0, tension - slip);
+    if (airA && forceA > 0) springUp(A, (forceA * dt) / A.mass, m.ax, m.ay);
+    if (airB && forceB > 0) springUp(B, (forceB * dt) / B.mass, m.bx, m.by);
   }
 
   // At the hard stop: remove the speed that stretches each link from the bodies in the air (shared
