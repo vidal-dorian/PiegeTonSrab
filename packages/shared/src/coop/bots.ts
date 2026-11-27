@@ -281,6 +281,32 @@ export function enter(): Goal {
   };
 }
 
+/**
+ * Take the key from `from`: press ↓ whenever `from` carries it and is within reach (1.35 cells,
+ * centre to centre), at most every 8 steps; done once this bot carries it. Passing the key along a
+ * queue at the door: each one takes it from the one behind.
+ */
+export function takeKeyFrom(from: Role): Goal {
+  let pressedAt = -100;
+  return {
+    label: `take the key from ${from}`,
+    step(c) {
+      const j = roleIndex(from, c.w.bodies.length);
+      if (c.w.props.keyCarrier !== j) return 0;
+      const a = c.w.bodies[c.i]!;
+      const b = c.w.bodies[j]!;
+      const dx = a.cx - b.cx;
+      const dy = a.cy - b.cy;
+      if (Math.sqrt(dx * dx + dy * dy) <= 1.35 && c.t - pressedAt > 8) {
+        pressedAt = c.t;
+        return BIT_DOWN | BIT_DOWN_PRESS;
+      }
+      return 0;
+    },
+    done: (c) => c.w.props.keyCarrier === c.i,
+  };
+}
+
 /** Goals one after the other. */
 export function seq(...goals: Goal[]): Goal {
   let k = 0;
