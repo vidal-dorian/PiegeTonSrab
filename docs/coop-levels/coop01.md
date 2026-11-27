@@ -128,20 +128,21 @@ the line is kept), then back left under the top floor to the pillar.
 
 | Players | 2 | 3 | 4 | 5 |
 |---|---|---|---|---|
-| Bots | 26.9 s | 27.7 s | 29.2 s | 30.5 s |
+| Bots | 25.4 s | 25.9 s | 27.0 s | 28.3 s |
 
 Humans who know the level should take 45 to 60 s (the bots never hesitate and pile up instantly).
 
 ## The rope across the trench, and at the pillar
 
-A jumper cannot land further from its rope neighbours than 4.5 cells (centre to centre). Measured
-on the rim with `placeBody` (scratch script, not committed), the top of a tower on the rim jumping
-right:
+A jumper cannot land further from its rope neighbours than the rope allows (4.5 cells of rest
+length; since rope v2 it gives up to 5.4 along its path). Measured on the rim with `placeBody`
+(scratch script, not committed), the top of a tower on the rim jumping right:
 
 | Tower on the rim | Result |
 |---|---|
 | 2-tower Ruben + his neighbour, the jumper's other neighbour 0.82 / 1.0 / 1.2 cells behind Ruben | across, landing at x 38.9 / 38.8 / 38.6 (on the lip) |
-| same, 1.5 cells behind | yanked back into the trench (harmless) |
+| same, 1.5 cells behind | yanked back into the trench (harmless); rope v2: across, landing at 38.7 |
+| rope v2: same, 2.0 / 2.5 / 3.0 cells behind | yanked back into the trench |
 | 2-tower F1 + F0 (F0 is the end of the rope) | across, landing at 39.7 |
 | 3-tower Ruben + the jumper's other neighbour + the jumper | across, landing at 39.1 |
 
@@ -250,3 +251,12 @@ rope reaches across. Also « Bouge pas, je monte ! » to Ruben at every tower.
   a 3-high wall. The door is on the open side of the pillar, so Ruben never has to cross it.
 - The bots' tower at the trench is Ruben carrying the pile to the rim, because after the muret the
   friends who came up first stand in front of him and nobody can walk through anybody.
+
+## Rope v2
+
+No change: the bots pass at 2-5 players and every shortcut still fails in its attempt (the
+muret and the wall beyond the trench are 3 above a lone jump's take-off, and nobody is up to hold a
+rope before the first climb). The rope now wraps the muret's top and the trench's lips, so the hauls
+pull up towards the lip's corner and climb over it (the mantle reaches 0.9 under a wrapped lip);
+the trench's 2-tower jump tolerates the jumper's other neighbour up to 1.5 cells behind Ruben
+(was 1.2; the table above).

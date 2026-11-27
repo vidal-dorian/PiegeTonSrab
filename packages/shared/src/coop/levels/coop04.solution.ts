@@ -300,7 +300,9 @@ function towerBesideShaft(n: number): Phase[] {
     { name: "the queue steps back from the tower", do: walkTo(q.map((r, j) => [r, 43.3 - 0.86 * j] as [Role, number])), timeout: 1 },
   ];
   order.forEach((r, k) => {
-    phases.push({ name: `${r} climbs onto the parked tower`, do: { [r]: jumpTo(44.5) }, until: cond.all(cond.standsAbove(r, 7), cond.near(r, 44.5, 0.3)), timeout: 4 });
+    // From the foot of the tower: the one at the back of the queue may have been dragged by the
+    // rope (it gives up to 5.4 now) when the one before him climbed.
+    phases.push({ name: `${r} climbs onto the parked tower`, do: { [r]: seq(walk(43.3, { jump: "never", tol: 0.1 }), wait(0.1), jumpTo(44.5)) }, until: cond.all(cond.standsAbove(r, 7), cond.near(r, 44.5, 0.3)), timeout: 4 });
     // Off its far side: Ruben into column 47; the others down next to it, then onto the one there.
     if (k === 0) {
       phases.push({ name: `${r} walks off it into column 47`, do: { [r]: walk(47.45, { drop: true, jump: "never", tol: 0.1 }) }, until: cond.all(cond.near(r, 47.45, 0.12), feetBelow(r, 8.95)), timeout: 4 });
@@ -314,7 +316,10 @@ function towerBesideShaft(n: number): Phase[] {
       phases.push({ name: `${r} climbs onto ${base}`, do: { [r]: mount(base) }, until: cond.on(r, base), timeout: 5 });
       phases.push({ name: `${r} leans back on ${base}'s head`, do: { [r]: shiftOn(base, 46.7) }, timeout: 2 });
     } else {
-      phases.push({ name: `${r} walks off it onto ${base}`, do: { [r]: walk(46.6, { drop: true, jump: "never", tol: 0.1 }) }, until: cond.on(r, base), timeout: 4 });
+      // The ones left on the floor come up to the parked tower first, so the rope (which gives a
+      // little now) does not pull the one walking off short of the head below.
+      const rest = Object.fromEntries(q.slice(order.length).map((x, j) => [x, walk(43.3 - 0.86 * j, { jump: "never", tol: 0.15 })]));
+      phases.push({ name: `${r} walks off it onto ${base}`, do: { [r]: walk(46.6, { drop: true, jump: "never", tol: 0.1 }), ...rest }, until: cond.on(r, base), timeout: 4 });
     }
   });
   // Then the tower straightens up over column 47, bottom up.

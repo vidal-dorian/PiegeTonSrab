@@ -9,10 +9,14 @@ Check: `npx tsx packages/shared/scripts/check-coop-level.ts coop02`.
 
 ## Idea
 
-« On peut descendre un pote là où personne ne peut sauter. » The rope is 4.5 cells, centre to
-centre, and a body that hangs against a wall hangs on the circle around his anchor: the closer
-the anchor stands to the edge, the deeper he hangs. Walking towards the edge lowers him, walking
-back brings him up (sign « Avance : il descend. Recule : il remonte. »).
+« On peut descendre un pote là où personne ne peut sauter. » The rope is 4.5 cells of rest
+length (it gives up to 5.4 under load) and the closer the anchor stands to the edge, the deeper
+his friend hangs. Walking towards the edge lowers him, walking back brings him up (sign « Avance :
+il descend. Recule : il remonte. »). Since rope v2 the rope runs along the floor and over the
+rim's corner (shaft B: the depth is the rope's length minus the anchor's distance to the corner),
+except through the raised floor's last three tiles (`=`, placed blocks): the cable passes through
+them, so in beat 1 the one lowered still hangs on the circle around his anchor and is swung
+under the lip.
 
 - Beat 1 (no danger) shows it: a slot under the lip of the raised floor can only be reached by
   someone held at the right depth, and the rope swings him into it. Then the role turns around:
@@ -41,7 +45,7 @@ bottom). The group camera shows the whole width; it scrolls down when someone ha
 ##############..............##  3
 ##############..............##  4
 ##############..S...........##  5
-#########################...##  6
+######################===...##  6
 #...........................##  7
 #...........D...............##  8
 #...........D...............##  9
@@ -66,6 +70,7 @@ bottom). The group camera shows the whole width; it scrolls down when someone ha
 | `S` | spawns | x 16-20 on the raised floor (F0 on the left, Ruben on the right, nearest shaft A) |
 | shaft A | catch pit, bottomless | x 25-27 from the top, plus x 24 (the recess) under the lip |
 | the lip | the raised floor's right end, 1 cell thick | x 24, row 6; its edge is x = 25 |
+| `=` | the raised floor's last tiles (placed blocks): solid for bodies, the rope passes through them | x 22-24, row 6 (the lip included) |
 | the slot | the server room's mouth, 3 rows high | rows 7-9; its floor (row 10) ends at x = 24 |
 | `D` | door | x 12, rows 8-9, in the server room |
 | shaft B | 3 wide, near rim x = 4 | x 1-3, rows 7-20 |
@@ -85,10 +90,10 @@ Order of descent: Ruben, then his neighbour F(n-2), ..., F0 last (the order the 
 
 ### 1. La baie de brassage (shaft A, the slot)
 
-- Ruben walks to the lip; his neighbour stops at x = 21.9, about 3 cells back. Ruben steps off
+- Ruben walks to the lip; his neighbour stops at x = 21.3, about 3.5 cells back. Ruben steps off
   (slowly over the last cell). The rope catches him beside the lip, then swings him under it
   towards his anchor, and he lands on the slot's floor.
-- Then each next body does the same: the one behind it on the raised floor stops at x = 21.9, it
+- Then each next body does the same: the one behind it on the raised floor stops at x = 21.3, it
   steps off and is swung into the slot. Whoever is already in the room waits at x = 23.1 (as far
   in as the rope lets the next one still reach the lip) and walks on as soon as he steps off,
   hauling him in; the ones ahead make way. Ruben is the first catcher.
@@ -101,26 +106,28 @@ Order of descent: Ruben, then his neighbour F(n-2), ..., F0 last (the order the 
   against the near wall with his feet at 12.65, touching his key (row 12), 0.45 above the cables.
   F0 walks back and hauls him up (at Ruben's 1.2 cells/s).
 - 3+ players: Ruben at the edge, his neighbour F(n-2) at x 5.4, the next one F(n-3) (F0 with 3
-  players, F1 with 4, F2 with 5) at x = 7.25, the others behind. Ruben steps off: his neighbour
+  players, F1 with 4, F2 with 5) at x = 8.0, the others behind. Ruben steps off: his neighbour
   holds him a first rope length down. Then the neighbour steps off too: the anchor holds them
-  both (three units of mass), the neighbour against the wall, Ruben one rope below him (feet
-  17.15-17.45). Ruben pushes gently left (`swingTo`, at most 1.2 cells/s, never past x 2.8) until
+  both (three units of mass), the neighbour against the wall, Ruben one rope below him. The pair
+  drops about 2 cells onto the anchor's link, which gives (the rope is elastic), so the anchor
+  waits for them to settle, then walks towards the edge until Ruben's feet are at 17.15. Ruben pushes gently left (`swingTo`, at most 1.2 cells/s, never past x 2.8) until
   he touches his key one cell out from the wall, then damps his swing. The anchor walks back and
   hauls the pair over the rim.
 - Ruben carries his key: he opens the door (x 12) and everyone goes in.
 
 The anchor goal (`lowerTo`) walks to its place, waits for the rope to hold the friend (and only
 from him: everyone between them in the chain hangs too), then walks towards the edge when the
-friend is too high and away when he is too deep.
+friend is too high (only once he has settled: under 0.5 cells/s up or down) and away when he is
+too deep.
 
 ### Bot times (checker)
 
 | Players | Total | Beat 1 lowering | Beat 1 train | Beat 2 | Door |
 |---|---|---|---|---|---|
-| 2 | 12.1 s | 2.5 s | 2.8 s | 5.8 s (line up 2.4, lower 1.0, haul 2.4) | 1.1 s |
-| 3 | 19.3 s | 2.3 s | 4.5 s | 11.4 s (line up 2.4, lower 0.7, swing 1.8, haul 6.5) | 1.2 s |
-| 4 | 20.0 s | 2.2 s | 6.2 s | 10.5 s | 1.2 s |
-| 5 | 20.8 s | 2.0 s | 7.7 s | 9.7 s | 1.3 s |
+| 2 | 12.5 s | 3.1 s | 2.9 s | 5.4 s (line up 2.3, lower 0.9, haul 2.2) | 1.1 s |
+| 3 | 19.2 s | 2.9 s | 4.5 s | 10.7 s (line up 2.1, lower 0.7, swing 1.7, haul 6.2) | 1.1 s |
+| 4 | 20.0 s | 2.8 s | 6.0 s | 10.1 s | 1.1 s |
+| 5 | 21.1 s | 2.6 s | 7.8 s | 9.4 s | 1.3 s |
 
 The bots know the depths; players have to find them (and fight the anchor's slide), so a known
 replay is longer than the bots' run, but the level is on the short side of the 45-60 s target.
@@ -130,12 +137,14 @@ replay is longer than the bots' run, but the level is on the short side of the 4
 All measured on the real physics (anchor held in place, the other body stepping off), not just
 computed, unless marked.
 
-- **Beat 1, the slot.** The one lowered lands in it for an anchor between x 21.3 and 22.3 (1.1
-  cells; the bots use 21.9), whether it is Ruben or a friend. Closer to the edge he hangs below
+- **Beat 1, the slot.** Ruben lowered lands in it for an anchor held between x 21.0 and 21.8
+  (0.8 cell, leaning into the slot or not; 20.8-21.8 without leaning; the bots use 21.3 for
+  everyone; rope v2, was 21.3-22.3 with the rigid 4.5). Closer to the edge he hangs below
   the slot's floor against its wall, and the anchor must walk back; further back he hangs beside
   the lip, above the slot, and the anchor must come closer. Landing margin: hung straight below
-  an anchor standing on the raised floor, feet reach 6 + 4.5 = 10.5, so the slot's floor (10) is
-  reached with 0.5 to spare. An anchor who stands still there does not kill: too far, he slides
+  an anchor standing on the raised floor, feet reach 6 + 4.5 = 10.5 (more under load), so the
+  slot's floor (10) is reached with 0.5 to spare. Held closer (22.0 to 23.6) he hangs against the
+  slot's wall, 0.07 to 0.75 under its floor, leaning in or not. An anchor who stands still there does not kill: too far, he slides
   until Ruben lands (2.1 s from x 21.0); too close, he slides until he stands right above Ruben and
   stops (nobody dead after 40 s from 22.5, 23 or 24).
 - **Why nobody can drop into the slot.** The wall under the lip is set back one cell (the recess
@@ -143,23 +152,36 @@ computed, unless marked.
   3-row opening, which at the fall speed there (15-22 cells/s) takes longer than the opening
   lasts. Measured before the mirror (same geometry): 270 solo jumps and drops off the lip never
   land in it; the shortcut below checks it at 2-5 players.
-- **Beat 2, 2 players.** Rest depth of the feet against the near wall, by anchor x: 6.9 → 13.06
-  (cables from 13.1), 7.2 → 12.71, 7.5 → 12.26 (touches the key: from 12.23); 6.8 and closer:
-  death; 7.6 and further: too high, no key. Key window: anchor 6.9-7.5 (0.7 cell; the bots use
-  7.2). Feet margin at 7.2: 0.48 to the key, 0.39 to the cables (bots: deepest 12.66). The same
+- **Beat 2, 2 players** (rope v2: the rope runs over the rim's corner, so the depth is linear in
+  the anchor's distance; Ruben stepping off dips about 0.6 below his rest depth before the rope
+  settles). By anchor x held still, deepest / rest feet: 6.6 → 13.13, death; 6.7 → 13.08 /
+  12.51; 6.9 → 12.90 / 12.31; 7.2 → 12.61 / 12.00; 7.5 → 12.31 / 11.68 (the key, from 12.23, is
+  touched in the dip up to 7.5); 7.6 → 12.17 / 11.58: no key. Window: anchor 6.7-7.5 (0.8 cell;
+  the bots use 7.2), death at 6.6 and closer. An anchor walking slowly towards the edge (no dip)
+  brings the rest depth to the key from about 6.95 and to the cables from about 6.15. Bots:
+  deepest 12.50, 0.6 above the cables. The same
   whether Ruben or F0 is lowered (the depth is geometry); what changes is the slide: an anchor who
   stands still at 7.2 lowers Ruben onto the cables after 1.1 s (0.3 cells/s), a friend after 2.2 s.
   So the anchor must keep correcting while the one below calls the depth.
-- **Beat 2, 3+ players.** Ruben's feet are about one rope (4.5) below his neighbour's. The key
+- **Beat 2, 3+ players, rope v2.** The neighbour's drop off the rim (about 2 cells) makes the
+  pair dip about 1 cell below its rest. Anchor held still, deepest / rest feet of Ruben: 7.0 →
+  18.11, death; 7.4 → 17.72 / 16.72; 7.8 → 17.17 / 16.29; 8.0 → 16.84 / 16.05 (above the key
+  without a swing: the anchor then walks towards the edge); 8.6 → 14.87 / 14.82. So the anchor
+  holds from about 7.3 to 7.85 (0.55 cell), or stands further back and lowers them once they have
+  settled (the bots: 8.0, then down to 17.15; deepest 17.10-17.17, about 0.9 above the cables).
+  The rest of this paragraph is the rigid rope's: Ruben's feet are about one rope (4.5) below his neighbour's. The key
   (x 2, row 16) is touched by feet between 16.23 and 17.67 with a swing of 0.33 cell; the cables
   start at 18.1. From the 2-player rest depths, that gives (computed) a key window of about x 6.9
   to 7.75 and death closer than about 6.5 (the bots use 7.25). Measured in the bot runs: Ruben
   never deeper than 17.44 (0.66 above the cables) and never further out than x 3.23 (the far
   cables start at 1.75). The anchor holds three units (0.45 cells/s of slide). One rope alone
   reaches feet 14.48 at most: the 3+ key (from 16.25) is 1.8 out of reach of a single body.
+  (Rope v2: one rope at its hard stop, anchored at the rim, reaches feet about 15.3, still 0.9
+  short; the shortcut "drop at the key" checks it. Bots: Ruben never further out than x 3.13.)
 - **Shaft B's bottom.** The spikes (row 21, deadly from 21.55) are deeper than anyone hanging:
   one rope 14.48, two ropes about 19 at most, so even two stepping off together, anchored at the
-  very edge, stay 2.5 above them. Three stepping off together reach the spikes.
+  very edge, stay 2.5 above them. Three stepping off together reach the spikes. (Rope v2,
+  computed: two links both at the hard stop over the rim reach feet about 20.7, 0.9 above them.)
 - **Shaft A's depth.** Bottomless: the kill line is at y 29, 19 below the slot's floor and 23
   below the raised floor (checker: ≥ 6). The deepest body in the bot runs reached feet 12.2;
   chains of 4 hanging (18 cells) still stay above it.
@@ -231,7 +253,7 @@ succeeded, the rest of the intended solution follows and would finish the level)
 | Shortcut | How it fails |
 |---|---|
 | Everyone drops into shaft A at once (nobody holds), leaning into the slot | nobody can drift a cell sideways while falling past it: everyone falls out of the level |
-| Ruben drops into the slot with his neighbour right behind him at the lip | the rope catches him half a cell below the slot's floor (feet 10.45), against its wall: he never gets in (timeout) |
+| Ruben drops into the slot with his neighbour right behind him at the lip | the rope catches him below the slot's floor (feet 10.45 with the rigid rope, 10.75 with rope v2), against its wall: he never gets in (timeout), leaning in or not |
 | Ruben steps off at the key with his neighbour right behind him at the edge | 2 players: he takes the key and dies on the cables right below it. 3+: one rope does not reach the deep key: timeout |
 | Everyone drops into shaft B to grab the key from below | killed by the cables and the spikes at the bottom |
 
@@ -283,11 +305,25 @@ bottom), a tower (nothing to climb), the far side of either shaft (level walls).
 - After review: the level is mirrored (Ruben nearest shaft A, so he goes down first in both
   beats), the 2-player key moves up one row right above the cables (window 0.7 cell, 1.1 s of
   slide margin with Ruben below), and the signs move with it.
+- Rope v2 (elastic, wraps the terrain): beat 1 failed at every size (the rope wrapped the lip, so
+  Ruben hung straight below it). The raised floor's last three cells (x 22-24, row 6) became
+  placed blocks `=` (solid for bodies, not for the rope); beat 1's anchor moved from 21.9 to
+  21.3. Beat 2 at 3+ killed Ruben on the cables (the pair's drop dips about a cell on the elastic
+  rope while the anchor bot walked on): the anchor now stands at 8.0 instead of 7.25 and lowers
+  only once they have settled. The 2-player numbers stayed (7.2). All four shortcuts still fail,
+  also with a real lean into the slot (probes: everyone dropping off the lip leaning in, Ruben
+  dropping in with his anchor at 22.0-23.6).
 
 ## Engine notes
 
 - Nothing in the engine was changed. The findings above (pump strength, pockets under overhangs)
   are limits of the current tuning, not bugs.
+- Rope v2: with the lip solid for the rope, a friend lowered over it hangs straight down from its
+  corner and can only reach the slot by a pumped swing whose radius must be right within about
+  0.05 cell (the swing around the lip's lower corner rises as it goes in, so it either passes
+  above the slot's floor or hits its side). The raised floor's last three tiles are placed blocks
+  (`=`), which the rope passes through like any thing: the old geometry and the old window come
+  back, and bodies still meet a solid lip, so nobody drops into the slot.
 - An anchor bot that does not wait for the rope to hold its friend (it acted while he was still
   falling) walks to the edge and kills him: `lowerTo` reacts only to a body whose `hanging` flag
   is set and whose chain to the anchor hangs too.

@@ -450,7 +450,13 @@ Known rope quirks, measured by the level bots, to check when playing (none is a 
   Keep "= 1" plates where nobody needs to hang from the one standing on them.
 - (Gone with rope v2: a link is measured along its path now.) A link bent over a corner was measured centre to
   centre, so an anchor standing back from a pit's edge could be lifted off a balance pan by the friend hanging
-  over the corner (La Salle: Ruben's neighbour waits one cell from the pit).
+  over the corner (La Salle: Ruben's neighbour still waits one cell from the pit; the bots were not changed).
+- (Rope v2) A rope keeps the way it went: a friend who dropped through a hole stays threaded through it (wraps
+  have history). Where a level needs the rope through a floor, the floor is placed blocks `=` (see "Levels after
+  rope v2").
+- (Rope v2) A body dropped onto the rope dips below its resting depth, about 0.6 for one, about 1 for two
+  dropping together, and an anchor standing still is dragged towards the edge meanwhile: an anchor that lowers
+  while the friend still bounces takes him deeper than asked (Le Labo Réseau's cables).
 - A haul that ends level with the hauler never climbs over the lip (the pull is flat): the hauler must stand
   higher than the lip or walk on. (Rope v2: a wrapped lip pulls the friend up towards its corner and the
   mantle reaches 0.9 there; a pull down to a hauler far to the side, under about 27°, mantles too.)
@@ -757,15 +763,38 @@ pillar one cell above the floor between two 2-wide pits); `&spawn=61` starts the
 (any column with five cells of floor), `&noruben` makes both bodies friends (with Ruben the pulley is
 lopsided: he sinks). With 2 players a 2-cell step stands against the sandbox's 4-cell wall.
 
-Levels after rope v2 (`check-coop-level --all`; not redesigned in this step): La Rentrée passes at 2-5. La
-Salle passes at 2 and 5, fails at 3 and 4 ("F0 drops onto the seesaw and stands on pad A": a bot goal stalls
-with the rope slack). Le Labo Réseau fails at 2-5 ("lower Ruben into the slot": the swing under the lip relied
-on a rope through the floor; the rope now wraps both corners of the lip, and with the anchor where the bots
-stop for the chord, Ruben hangs just under the lip, too high to reach the slot's floor). L'Amphi fails at 2-5
-("Ruben's neighbour jumps over the block and holds d": the rope goes over the block now and is too short).
-La Salle de TP fails at 2-5 ("Ruben pushes the tower": the rope runs down the duct's hole and round its corner,
-4.6-5.3 long where the chord was 3.1, so Ruben is held back). The shortcuts of these levels are not checked
-while their solutions fail.
+Levels after rope v2 (repaired, "repair what breaks": only what failed or opened; all pass `check-coop-level
+--all` at 2-5 players and every shortcut fails in its attempt; notes in `docs/coop-levels/coop0N.md`, "Rope v2"):
+
+- Placed blocks `=` (the race's riveted white block, solid for bodies and crates) are not terrain, so the rope
+  passes through them like through every thing. Three levels use them where their idea needs the rope through a
+  floor or a block that bodies must not pass: Le Labo Réseau's raised floor at the lip (x 22-24: the one lowered
+  is swung under the lip into the slot again; with a solid lip he hung straight below its corner and could only
+  get in by a swing right within about 0.05 cell), L'Amphi's desk over Ruben's seat (the rope went over the
+  block, 5.8 long) and the corridor floor over the basement (the free friend's rope stayed threaded through the
+  trapdoor and could not reach plate f), La Salle de TP's duct floor (Ruben's rope stayed threaded through the
+  hole he dropped in by, 4.6-5.3 where the chord was 3.1). If placed blocks should stop the rope too, those
+  beats need redesigning (see the level notes for why each one does).
+- La Rentrée: unchanged. La Salle: no map change (bots: the anchor and the ones behind close up sooner before
+  the flyer drops onto the seesaw).
+- Bot changes: Le Labo Réseau's anchors (beat 1 at 21.3 instead of 21.9; beat 2 at 3+ players stands at 8.0
+  instead of 7.25 and lowers only once the pair has settled, as the elastic rope dips about a cell when the
+  neighbour drops off the rim); setups of three shortcuts closing up behind (La Salle de TP "a human tower
+  beside the exit shaft", La Salle "a tower on the spent barbell", with and without the shelf), because the
+  rope now gives and pulled the back of the queue or a climber short.
+- New route found by probing and accepted: in La Salle from 3 players, the flyer on the mezzanine can haul the
+  others up the shaft over the mezzanine's lip (the rope wraps its corner and the wrapped mantle takes them
+  over), Ruben included, without plate p and its step (probed with both removed). It still needs the shot,
+  and it is the plan's literal « déclic ». At 2 players the flyer alone cannot haul Ruben there.
+- Other probes, no new shortcut: Le Labo Réseau's slot (everyone dropping off the lip leaning in; Ruben
+  dropped with his anchor 22.0-23.6 cells, leaning in), the 3+ key with one rope at the stop (feet about 15.3,
+  the key from 16.23); La Salle de TP's key from the landing with the next one still on the lab floor
+  (reached: the rope lifts him against the tower's side, nothing skipped); La Salle's flight (unchanged, apex
+  8.74 straight up into the saw); La Rentrée's trench jump (the jumper's other neighbour may now stand 1.5
+  behind Ruben, was 1.2).
+- Browser (`?coopLocal=2&level=coop02`, Playwright, no console error): the `=` cells draw as white riveted
+  blocks, and Ruben stepping off the lip with his neighbour about 3.5 back lands in the slot, the rope drawn
+  from the neighbour over the floor's corner and through the blocks.
 
 Status at the end of M4 (2026-11-26):
 
@@ -786,7 +815,9 @@ Status at the end of M4 (2026-11-26):
 
 - Rope v2: try the pulley (`?coopLocal=2&level=sandbox&spawn=61&noruben`) and the give. Is 20 % the right amount,
   is the stretch cue (thinner, orange to red, all red at the stop) clear, does a hanging friend bounce too
-  much or too little (`ropeDamping`)? Levels 2 to 5 are being repaired for it.
+  much or too little (`ropeDamping`)? Levels 1 to 5 pass with it; three of them let the rope through placed
+  blocks `=` where their idea needs it (see "Levels after rope v2"): is that acceptable, or should those
+  beats be redesigned around the wraps? La Salle can now be climbed by hauling from 3 players (accepted).
 
 - Co-op "Réactivité": playtest the setting. Auto predicts under a 60 ms round trip and draws step A over
   80 ms (bench: the worst player's corrections start crossing 0.1 cell at about 78 ms, and always do by

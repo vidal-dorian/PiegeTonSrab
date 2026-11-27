@@ -44,7 +44,7 @@ lab). Cells `1`-`4` are team-size variants (see the table).
           ###############............rrr.....|....t.......s#####  8
           #.........#####2################^^^########wwwwww#####  9
           #S..............###################################### 10
-          #######.######..###################################### 11
+          #######.======..###################################### 11
           ######4|a.......###################################### 12
           ######4|a.......###################################### 13
           ######4###111113###################################### 14
@@ -56,6 +56,7 @@ lab). Cells `1`-`4` are team-size variants (see the table).
 | Char | Thing | Where | Need / link | Team sizes |
 |---|---|---|---|---|
 | `a` | crate, PC tower 1x2 | corridor, x 8 | 2 | all |
+| `=` | the duct's floor (placed blocks): solid for bodies and crates, the rope passes through it | x 8-13, row 11 | | all |
 | `1` → `p` | plate (floor sensor) | corridor floor x 10-14 (M included) | ≥ 4, `plancher` | 4-5 (floor at 2-3) |
 | `3` → `\|` | crate stop = the tower's rail | shaft J, x 15 row 14 | | 4-5 (floor at 2-3) |
 | `2` → `l` | gate, inverted (hatch) | shaft J, x 15 row 9 | `plancher` | 4-5 (open at 2-3) |
@@ -122,10 +123,10 @@ R. Spawn: x 1 to 5 on the walkway, Ruben rightmost.
 
 | Players | Total | Beat 1 | Beat 2 | Beat 3 |
 |---|---|---|---|---|
-| 2 | 21.0 s | 9.1 s | 6.1 s | 6.1 s |
-| 3 | 21.6 s | 8.9 s | 5.9 s | 6.9 s |
-| 4 | 22.8 s | 10.1 s | 5.2 s | 7.7 s |
-| 5 | 25.4 s | 11.7 s | 5.2 s | 8.5 s |
+| 2 | 21.0 s | 9.0 s | 6.1 s | 6.1 s |
+| 3 | 21.5 s | 8.7 s | 6.0 s | 6.9 s |
+| 4 | 22.4 s | 9.6 s | 5.3 s | 7.7 s |
+| 5 | 25.2 s | 11.4 s | 5.2 s | 8.5 s |
 
 (Beat 2 includes the queue's reorder on the upper floor. The previous version took 25.2 s at 2
 players and 31.2 s at 5.)
@@ -178,10 +179,26 @@ Beat 3's guard is geometry, not a rule: the only way up is from inside T, T is d
 height 2, and the lab, 3 high, holds no human tower whose top stands at 2 or more. Only the PC
 tower stands in T (crates cover spikes).
 
-Rope: during beat 1's push Ruben is 3 cells below the friends in the duct. At the exit the one on
-the landing (x 49.45, 4 up) and the next one, on the tower (x 48.5) or touching it (x 47.55), are
-within 4.5; the key (x 52.2) is within 4.5 of the tower, not of the lab floor, so the next one
-climbs onto the tower before the first goes for the key.
+Rope: during beat 1's push Ruben is 3 cells below the friends in the duct (through the duct's
+floor, see Rope v2 below). At the exit the one on the landing (x 49.45, 4 up) and the next one, on
+the tower (x 48.5) or touching it (x 47.55), are within 4.5. Since rope v2 the key (x 52.2) is also
+within reach with the next one still on the lab floor: the rope, over the landing's corner at its
+hard stop (5.4), lifts him against the tower's side (feet 7.66, clear of the cables). It skips
+nothing (the plate still needs everyone else, he then climbs the tower), so the bots keep the
+order "the next one onto the tower first".
+
+### Rope v2
+
+The rope now wraps around the corners of the fixed terrain. In beat 1 Ruben drops into the
+corridor through the hole at x 7, so his rope stayed threaded through that hole and round the
+duct's floor (4.6-5.3 long where the chord was 3.1): it held him back before the shaft J at every
+size. The duct's floor (x 8-13, row 11) is now placed blocks `=`: the same floor for bodies and
+crates, and the rope from the friends in the duct goes straight down to Ruben as before. Bots
+unchanged. Two shortcut setups needed the bots to close up behind (the rope gives up to 5.4 now,
+and pulled the back of the queue or the next climber short): "a human tower beside the exit
+shaft" (each climber walks to the foot of the parked tower before jumping onto it, and the ones
+left on the floor come up before the third climber walks off it). Every shortcut fails in its
+attempt at 2-5 players, as before.
 
 Push corridors: the rack needs everyone in a row; 5 bodies take 4.3 cells behind the rack, the
 upper floor gives 11. The PC towers need 2 (Ruben alone, or two friends in a row).

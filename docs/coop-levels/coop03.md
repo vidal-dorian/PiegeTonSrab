@@ -37,9 +37,9 @@ lock can be undone (see "No soft-lock").
 #.............g............h..................x....................................#  4
 #.............g............h..................x....................................#  5
 #.............g............h..................x....................................#  6
-#.............g..........##h..................x....................................#  7
-#.S...........g...........#h..................x....................................#  8
-#########aa####bbb######kc##ddd####ww##ppppp#####e###rrr#..........................#  9
+#.............g..........==h..................x....................................#  7
+#.S...........g...........=h..................x....................................#  8
+#########aa####bbb######kc##ddd####ww==ppppp=====e###rrr#..........................#  9
 #################################Kn...............#######..........................# 10
 #############################################f###############......................# 11
 #############################################################......................# 12
@@ -58,6 +58,7 @@ lock can be undone (see "No soft-lock").
 | `b` | plate | floor, x 15-17 | 1, `relais` |
 | `k` | still platform (a mover on link `marche`, which nothing drives) | floor, x 24: the seat's step | |
 | `c` | plate: the seat | floor of a 1 x 1 pocket at x 25, under a 2-high block (x 25-26) | 2, `place` |
+| `=` | placed blocks (the seat's desk, and the corridor floor over the basement: x 37-38 and 44-48, row 9): solid for bodies and crates, the rope passes through them | x 25-26 rows 7-8; row 9 | |
 | `h` | gate | x 27, floor to ceiling, against the block | `place` |
 | `d` | plate | floor, x 28-30 | 1, `place` |
 | `w` | trapdoor (horizontal gate) | floor, x 35-36 | `controle` |
@@ -70,6 +71,9 @@ lock can be undone (see "No soft-lock").
 | `D` | door | the stage (floor 15), x 81 | |
 
 The basement (row 10, x 33-49, one cell high; two under each trapdoor) opens only through w and e.
+Its ceiling from x 35 to 49 is all things the rope passes through (the trapdoors, the bench, the
+placed blocks `=`): the rope from the free friend in the basement goes straight up to the team, as
+it did before rope v2.
 
 ### Plate numbers by team size
 
@@ -162,10 +166,10 @@ Three tiers of 2 down to the front floor (17), then the stage, a step of 2 up, a
 
 | Players | Total |
 |---|---|
-| 2 | 17.6 s |
-| 3 | 18.6 s |
-| 4 | 20.2 s |
-| 5 | 22.8 s |
+| 2 | 17.7 s |
+| 3 | 19.2 s |
+| 4 | 20.8 s |
+| 5 | 23.3 s |
 
 ## Heights and margins
 
@@ -282,6 +286,24 @@ Every way to be locked in has a way out:
 - **f and r are more than one link from gates n and e.** n is the inverted gate of f's link, and
   nobody passes it while f is held. r opens e for the one below, who is within a link of r when he
   uses it.
+
+## Rope v2
+
+The rope now wraps around the corners of the fixed terrain. Three spots of this level relied on a
+rope through the floor, and each failed in the bots at every size:
+
+- The seat: the rope from Ruben in the pocket went out of it and over the 2-high block to his
+  neighbour on d, 5.8 long (the old chord 2.9): past the hard stop (5.4), so the neighbour never
+  reached d. The block (x 25 row 7, x 26 rows 7-8) is now placed blocks `=` (the seat's desk):
+  the same block for bodies, the old chord for the rope.
+- The basement: the free friend drops through the trapdoor w, so his rope stayed threaded through
+  w and wrapped the two solid cells between w and the bench (x 37-38): he could not walk more than
+  about 4 cells under the bench, nowhere near f (x 45). Then, on f, the rope wrapped the corridor
+  floor x 44-48 and pulled him off f when the team walked out. Those seven cells are now `=` (the
+  bench row), so the basement's whole ceiling from w to e lets the rope through.
+- Every shortcut still fails in its attempt at 2-5 players, and the measures above hold (the rope
+  goes where it went before). "Freeing the others before taking the key" is stronger with the wraps
+  where they remain (x 31-34 and 50-56): the key is still 12 cells from the team.
 
 ## Engine notes
 

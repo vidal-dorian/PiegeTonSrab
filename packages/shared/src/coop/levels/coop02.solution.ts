@@ -31,18 +31,22 @@ const EDGE_A = 25;
 const SLOT_FLOOR_X = 24;
 /** Shaft B: its near rim (the server room's floor starts at x = 4). */
 const EDGE_B = 4;
-/** Where beat 1's anchor stops: about 3 cells back from the lip (the slot takes his friend from 21.3 to 22.3). */
-const ANCHOR_A = 21.9;
+/** Where beat 1's anchor stops: about 3.5 cells back from the lip (the slot takes Ruben from 21.0 to 21.8). */
+const ANCHOR_A = 21.3;
 /** Beat 2, 2 players: Ruben's feet against the wall at the key (touch from 12.23, cables from 13.1). */
 const KEY_FEET_2 = 12.65;
-/** Where that anchor stands (the window is about 6.9-7.6). */
+/** Where that anchor stands (held still, the key is touched for 6.7-7.5; closer, the drop dips onto the cables). */
 const ANCHOR_B2 = 7.2;
 /**
  * Beat 2, 3+ players: Ruben's feet one rope below his neighbour (the key one cell out from the
  * wall: touch from 16.23 to 17.67; cables from 18.1).
  */
 const KEY_FEET_3 = 17.15;
-const ANCHOR_B3 = 7.25;
+/**
+ * Where that anchor waits: far enough back that the pair's drop off the rim (the rope gives about a
+ * cell under it) stays above the cables; he lowers them once they have settled.
+ */
+const ANCHOR_B3 = 8.0;
 /** Ruben swings left until he touches the key (one cell out from the wall), never past this x (far cables at 1.75). */
 const SWING_MAX_X = 2.8;
 
@@ -109,7 +113,9 @@ export function lowerTo(who: Role, feet: number, o: { at: number; edgeX: number;
       const toward = o.edgeDir > 0 ? BIT_RIGHT : BIT_LEFT;
       const away = o.edgeDir > 0 ? BIT_LEFT : BIT_RIGHT;
       const room = (o.edgeX - me.cx) * o.edgeDir;
-      if (err > tol && room > 0.9) return toward;
+      // Lower him only once he has settled: the rope gives a little when someone drops onto it,
+      // and walking on while he still bounces down takes him deeper than asked.
+      if (err > tol && room > 0.9 && Math.abs(h.vy) < 0.5) return toward;
       if (err < -tol) return away;
       return 0;
     },

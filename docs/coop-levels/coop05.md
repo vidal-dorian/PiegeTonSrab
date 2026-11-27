@@ -105,10 +105,10 @@ and everyone goes through the door.
 
 | Players | Total | Beat 1 | Beat 2 | Beat 3 |
 |---|---|---|---|---|
-| 2 | 17.5 s | 7.3 s | 6.4 s | 3.9 s |
-| 3 | 19.1 s | 9.1 s | 5.5 s | 4.4 s |
-| 4 | 20.0 s | 10.5 s | 3.7 s | 6.0 s |
-| 5 | 22.8 s | 12.4 s | 3.0 s | 7.5 s |
+| 2 | 16.7 s | 7.3 s | 5.7 s | 3.9 s |
+| 3 | 18.5 s | 9.1 s | 4.1 s | 5.3 s |
+| 4 | 20.1 s | 10.5 s | 2.9 s | 6.9 s |
+| 5 | 23.7 s | 12.4 s | 2.8 s | 8.7 s |
 
 Players who know the level should take 45-60 s: the crossing order, the countdown and the climb
 are all talk.
@@ -159,6 +159,15 @@ failing phase's name):
 
 - Two friends as the counterweight on pan l (3+).
 - Climbing Ruben's head on pan l to reach the tunnel: it still needs Ruben on the pan.
+- From 3 players, since rope v2: hauling the others up the shaft instead of using the step. The
+  rope from the flyer on the mezzanine wraps its lip's corner (25, 9), so whoever walks out of the
+  mouth is pulled up the shaft's wall and climbs over the lip (the mantle reaches 0.9 under a
+  wrapped lip). Probed with the step and plate p removed: the flyer hauls his neighbour, and the
+  two of them haul the next ones, Ruben included, at 3, 4 and 5 players. It still needs the shot
+  (nobody is up before it), it is the plan's literal « déclic » (the flyer brings Ruben up, see
+  "Review fixes" item 6), and the step stays the easy way. At 2 players the flyer alone cannot haul
+  Ruben (the block at x 22 stands right behind the lip and he cannot hop it with Ruben hanging):
+  plate p is needed there.
 - A failed shot (the switch hit before the flyer is on pad A, the flyer jumping at the launch, F0
   missing the lip) wastes the barbell: hold R to restart. A sign over the shaft says « Une seule
   barre ! »; the one at the mouth says who jumps (« Au bout : saute dans le bloc »), the one by the
@@ -227,6 +236,14 @@ The physics make two of the plan's sentences impossible at 2 players; both come 
   needs the hauler's floor to be the lip.
 - A climber below the mezzanine is held by the rope to whoever is still in the tunnel: climbing
   order and waiting spots matter as much as heights.
+- Rope v2 (elastic, wraps the terrain): no map change. The bots failed at 3 and 4 players in
+  beat 2: F0 walked off the mouth while the anchor still stood 4 cells back, the stretched link
+  swung him back onto pad B's side and he could not walk up onto the raised pad A. The anchor and
+  the ones behind now close up when F0 passes x 23 (was 25.2). Two shortcut setups needed the same
+  closing up ("a tower on the spent barbell", with or without the shelf back). F0's flight is
+  unchanged: head apex 8.74 straight up (8.75 before; the saw kills), feet apex 8.33-8.42 steering
+  left. The anchor waiting one cell from the pit in beat 1 is kept (the rope over the pit's corner
+  is measured along its path now, as the bots measured it before).
 
 ## Review fixes (critic round 1)
 

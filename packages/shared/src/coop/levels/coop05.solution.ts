@@ -170,8 +170,8 @@ function catapulte(n: number): Phase[] {
   const c = chain(n);
   const anchor = c[1]!;
   const behind = c.slice(2);
-  const go: Phase["do"] = { F0: walk(PAD_A, { drop: true, jump: "never" }), [anchor]: when(pastX("F0", 25.2), walk(MOUTH, never)) };
-  behind.forEach((r, i) => (go[r] = when(pastX("F0", 25.2), walk(MOUTH - 0.85 * (i + 1), never))));
+  const go: Phase["do"] = { F0: walk(PAD_A, { drop: true, jump: "never" }), [anchor]: when(pastX("F0", 23), walk(MOUTH, never)) };
+  behind.forEach((r, i) => (go[r] = when(pastX("F0", 23), walk(MOUTH - 0.85 * (i + 1), never))));
   return [
     {
       name: "2. F0 drops onto the seesaw and stands on pad A; the anchor takes the mouth",
@@ -298,17 +298,21 @@ function barbellTower(n: number, twice: boolean): Phase[] {
   // The others close up behind (their ropes would hold the base back otherwise).
   const follow: Phase["do"] = {};
   c.slice(1).forEach((r, i) => (follow[r] = walk(MOUTH - 0.85 * i, never)));
+  // From 3 players, the ones behind the top close up to the mouth too while he climbs and jumps.
+  const closeUp: Phase["do"] = {};
+  c.slice(2).forEach((r, i) => (closeUp[r] = walk(MOUTH - 0.85 * (i + 1), never)));
   const spent = (w: CoopWorld) => w.crates[0]!.y > 12.5 && w.crates[0]!.support !== null;
   const onBarbell = (r: Role) => (w: CoopWorld) => cond.near(r, 25.55, 0.2)(w) && body(w, r).y + body(w, r).height > 13.5 && body(w, r).y + body(w, r).height < 15.2;
   const build: Phase[] =
     n === 2
       ? [
-          { name: "F0 drops onto the seesaw's cap", do: { F0: walk(26.5, { drop: true }) }, until: cond.near("F0", 26.5, 0.3), timeout: 6 },
+          // Ruben closes up behind: the rope, which gives a little now, would hold F0 on the barbell.
+          { name: "F0 drops onto the seesaw's cap", do: { F0: walk(26.5, { drop: true }), R: walk(MOUTH - 0.85, never) }, until: cond.near("F0", 26.5, 0.3), timeout: 6 },
           { name: "Ruben walks off the mouth onto the barbell", do: { R: seq(walk(MOUTH, never), walk(25.6, { drop: true, jump: "never", tol: 0.08 })) }, until: onBarbell("R"), timeout: 8 },
         ]
       : [
           { name: "F0 drops onto the barbell", do: { ...follow, F0: walk(25.6, { drop: true, jump: "never", tol: 0.08 }) }, until: onBarbell("F0"), timeout: 6 },
-          { name: "F1 drops onto the seesaw's cap", do: { F1: seq(walk(MOUTH, never), walk(26.6, { drop: true, tol: 0.1 })) }, until: cond.near("F1", 26.6, 0.3), timeout: 8 },
+          { name: "F1 drops onto the seesaw's cap", do: { ...closeUp, F1: seq(walk(MOUTH, never), walk(26.6, { drop: true, tol: 0.1 })) }, until: cond.near("F1", 26.6, 0.3), timeout: 8 },
         ];
   return [
     ...poulie(n),
@@ -316,8 +320,8 @@ function barbellTower(n: number, twice: boolean): Phase[] {
     { name: "F0 jumps into the switch: the barbell falls onto the empty seesaw", do: { F0: jumpTo(MOUTH) }, until: spent, timeout: 6 },
     ...(twice ? [{ name: "a second jump into the switch: shelf s is back", do: { F0: seq(wait(0.5), jumpTo(MOUTH)) }, until: (w: CoopWorld) => w.props.shelves[0]!.solid, timeout: 6 } as Phase] : []),
     ...build,
-    { name: `${top} climbs onto ${base}`, do: { [top]: mount(base) }, until: cond.on(top, base), timeout: 12 },
-    { name: `ATTEMPT: ${top} jumps from the tower onto the ${twice ? "shelf, then the mezzanine" : "mezzanine"}`, do: { [top]: twice ? seq(jumpTo(25.5, { rise: 0.2 }), jumpTo(LANDING)) : jumpTo(LANDING, { rise: 0.3 }) }, until: cond.standsAbove(top, 9), timeout: 6 },
+    { name: `${top} climbs onto ${base}`, do: { ...(n === 2 ? {} : closeUp), [top]: mount(base) }, until: cond.on(top, base), timeout: 12 },
+    { name: `ATTEMPT: ${top} jumps from the tower onto the ${twice ? "shelf, then the mezzanine" : "mezzanine"}`, do: { ...(n === 2 ? {} : closeUp), [top]: twice ? seq(jumpTo(25.5, { rise: 0.2 }), jumpTo(LANDING)) : jumpTo(LANDING, { rise: 0.3 }) }, until: cond.standsAbove(top, 9), timeout: 6 },
     ...keyAfterShot(),
     ...monte(n),
   ];
