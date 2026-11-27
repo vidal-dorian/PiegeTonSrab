@@ -134,10 +134,14 @@ describe("co-op mantle: only a hauled body climbs, and it lifts its riders with 
         const b = w.bodies[1]!;
         expect(b.x, label).toBeGreaterThanOrEqual(25 - 1e-6);
         expect(b.x + W, label).toBeLessThanOrEqual(27 + 1e-6);
-        // Its head stays well below the rim (top y = 15): it hangs, it does not hover on the void.
-        expect(highest, label).toBeGreaterThan(15.5);
+        // Its head stays below the rim (top y = 15): it hangs, it does not hover on the void. The rope
+        // is measured along its path over the rim's corner now (it used to be centre to centre: the
+        // head stayed under 15.5), so with the anchor 5 cells back the friend hangs just under the
+        // rim (measured 15.29-15.44), the link taut at its rest length plus its weight's stretch (4.64).
+        expect(highest, label).toBeGreaterThan(15.2);
         expect(b.hanging, label).toBe(true);
-        expect(w.rope[0]!.length, label).toBeCloseTo(COOP.ropeLength, 1);
+        expect(w.rope[0]!.length, label).toBeGreaterThanOrEqual(COOP.ropeLength);
+        expect(w.rope[0]!.length, label).toBeLessThan(COOP.ropeLength + 0.25);
       }
     }
   });

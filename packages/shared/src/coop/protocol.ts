@@ -14,7 +14,7 @@ export const COOP_ROOM_NAME = "coop";
  * Bumped whenever the co-op rules or messages change: every machine must simulate the same world,
  * so a tab still running an older build is refused with a message asking to reload.
  */
-export const COOP_PROTOCOL_VERSION = 5;
+export const COOP_PROTOCOL_VERSION = 6;
 /**
  * The server stops waiting for the story intro after this long, milliseconds: its length (87 s,
  * INTRO_DURATION_S on the client) plus 10 s for whoever paused on a frame or joined late.

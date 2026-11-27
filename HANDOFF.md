@@ -364,8 +364,9 @@ Defaults (proposed in the approved plan, not yet played by Dorian):
 
 - Mode name "Sauve Ton Srab". Ruben weighs 2 on plates, seesaws and balances, pushes as two, has mass 2 on the
   rope, and cannot be carried (a friend he lands on gets squashed and he slides off). No setting turns this off.
-- Rope: a chain in seat order with Ruben always last, 4.5 cells between neighbours for the whole campaign; it
-  goes through terrain (drawn bent over corners). A hauled body rises at most 2.5 cells/s (Ruben 1.2); an idle
+- Rope: a chain in seat order with Ruben always last, 4.5 cells between neighbours for the whole campaign. Since
+  rope v2 (below) that is a rest length along the rope's path: it wraps around the corners of the fixed terrain
+  and stretches 20 % before it stops dead. A hauled body rises at most 2.5 cells/s (Ruben 1.2); an idle
   anchor slowly slides towards the void unless it pushes away; a hanging body swings (pump, capped at 70°)
   and adds its weight to whoever holds it.
 - Towers: standing on heads; a carrier cannot jump; no jump from a base in the air; no vertical speed kept
@@ -396,7 +397,8 @@ Rope and inputs after the M1 review (2026-11-26, 15 confirmed findings fixed):
   it. The rope lifts at most at the haul speed but never cuts a body's own jump.
 - Chains of three or more (second review round): a link whose straight line cuts through the terrain
   bends over one terrain corner; a friend pressed against the wall under that lip is pulled up the wall
-  towards it (its length is still counted centre to centre). A body in the air pulled into a wall slides
+  towards it (its length is still counted centre to centre). (Replaced by rope v2: wraps with history,
+  length along the path.) A body in the air pulled into a wall slides
   along it when the link is at least 30° steep. A body holding a friend below it does not move for that
   link when it is held itself (standing, or hanging from a friend higher up), so a haul passes down the
   whole chain; a body rises no faster than what hangs below it or stands on it. The rope undoes this
@@ -412,7 +414,8 @@ Rope and inputs after the M1 review (2026-11-26, 15 confirmed findings fixed):
   already queued for them (`coopSnap.pending`), and replays from each snapshot. The 0.06 cell measured at M1
   was one lucky run: see "Prediction wired (M4)" below for the bench over several runs.
 
-Room and clock after the M3 network review (protocol version 4; version 5 adds `coopSnap.ack`, see M4):
+Room and clock after the M3 network review (protocol version 4; version 5 adds `coopSnap.ack`, see M4;
+version 6 adds the rope's wrap points to the snapshots, see rope v2):
 
 - Level epochs: every `coopLevel` carries an `epoch`, bumped whenever tick 0 is set again (a level start, a
   rebuild, a resume, the clock moved after a server stall, which is now broadcast like a resume). Clients echo
@@ -445,11 +448,12 @@ Known rope quirks, measured by the level bots, to check when playing (none is a 
 - A friend hanging from the rope weighs on whoever holds it, so an "= 1" plate goes off for a moment when the
   holder's neighbour jumps or drops below it with the rope taut (the 0.15 s hold hides short blips only).
   Keep "= 1" plates where nobody needs to hang from the one standing on them.
-- A link bent over a corner is measured centre to centre, so an anchor standing back from a pit's edge can be
-  lifted off a balance pan by the friend hanging over the corner (La Salle: Ruben's neighbour waits one cell
-  from the pit).
+- (Gone with rope v2: a link is measured along its path now.) A link bent over a corner was measured centre to
+  centre, so an anchor standing back from a pit's edge could be lifted off a balance pan by the friend hanging
+  over the corner (La Salle: Ruben's neighbour waits one cell from the pit).
 - A haul that ends level with the hauler never climbs over the lip (the pull is flat): the hauler must stand
-  higher than the lip or walk on.
+  higher than the lip or walk on. (Rope v2: a wrapped lip pulls the friend up towards its corner and the
+  mantle reaches 0.9 there; a pull down to a hauler far to the side, under about 27°, mantles too.)
 - What La Salle's first design needed and the engine does not do (options for M5): slack for a body thrown by
   a seesaw (the rope pulls a rising catapulted friend back, capping its flight near 4.3 at 2 players), and an
   impact on balance pans (a landing presses no harder than walking on).
@@ -498,7 +502,8 @@ Prediction wired (M4, 2026-11-26):
   than 8 cells/s (`MAX_FADE_SPEED`): a friend's jump learnt a round trip late glides there instead of
   jumping a cell in two frames. A rider's offset joins its carrier's the same way (it used to take it at
   once, a pop of up to 2 cells when a body landed on another one with a different offset). Offsets never
-  stretch a rope link past max(its length in the copy, the rope), never draw a pile's base lower than what
+  stretch a rope link past max(its length in the copy, the rope) (along its path since rope v2, riders' piles
+  included), never draw a pile's base lower than what
   it stands on, nor a rider lower on its carrier, and never draw a box into a solid cell (the offset keeps
   only what fits). A correction over 3 cells, or another attempt, snaps. The rope is drawn between the drawn
   bodies.
@@ -671,6 +676,97 @@ Prediction wired (M4, 2026-11-26):
   adds at most about 16 ms. A slow computer therefore falls back to step A, which also spares it the
   replays. A level started after the lobby (or a long end-of-level card) reads the light screen's pings.
 
+Rope v2: elastic, wraps around the terrain (after Dorian's playtest, 2026-11-27)
+
+Dorian, after playing: "the rope is very stiff: either taut or slack. It should be a bit more supple: at max
+length it should stretch slightly and come back. And I want physics between the rope and the scenery, e.g. two
+players each walking away on either side of a block with the rope over it: the rope holds each of them."
+Decided with him:
+
+- Elastic, marked: 4.5 stays the rest length; past it a link is a damped spring up to a hard stop at 5.4
+  (`ROPE_MAX_LENGTH`, 20 %), where it is rigid again. Tuning in `coopTuning.ts`: `ropeStretch` 0.2,
+  `ropeStiffness` 240 (1/s² per unit of mass), `ropeDamping` 0.5 (damping ratio), `ropeRelax` 15 (1/s),
+  `ropeMaxWraps` 8.
+- Wraps around the fixed terrain only (solid tiles, glass and team-size walls included; one-way platforms,
+  gates, crates, balances, seesaws, moving platforms and bodies are not obstacles, as before). The pulley is
+  frictionless: the same tension all along the path.
+- The wraps are world state: saved, loaded, hashed, in the snapshots (snapshot version 4, protocol 6), replayed
+  by the prediction, cleared on a level start, a restart and a rebuilt team.
+
+How it works (`rope.ts`, `world.ts`):
+
+- Each link keeps an ordered list of wrap points (convex terrain corners: one solid cell of the four around a
+  grid point) with the way the path turns there (`CoopWorld.ropeWraps`). `sweepRope` runs twice a step (from
+  the step's start to the bodies' own moves, then over the rope's pulls, the mantle and Ruben's slide): each
+  end's move sweeps the triangle (its pivot, where it was, where it is); the first corner whose solid quarter
+  lies on the swept side wraps, and a wrap point next to an end is let go when the rope turns the other way
+  round it by more than about 1° (`UNWRAP_SIN`, so a rope lying across a corner does not flicker). The end
+  moves in two phases (end a, then end b), and the triangle covers the whole move, so no speed takes the rope
+  through a wall. A body put somewhere out of the blue (`placeBody`, entering the door) gets the shortest clear
+  path over 0, 1 or 2 corners (`placeWraps`).
+- Length = the sum of the path's parts. Every rule that looked at "the other end" now looks at the end's pivot
+  (its wrap point, or the other body): pull directions, hanging and holding, rise caps, the anchor's slide
+  direction, the swing cap, the mantle's direction and `haulsAway`. Straight links behave as before.
+- Elastic part: a link longer than 4.5 pulls a body in the air with a damped spring on its speed (towards its
+  pivot; force per unit of mass, so Ruben stretches it twice as much), and drags a body standing on something
+  by position along the ground (`ropeRelax` x dt: 12.5 % of the stretch per step), split by mobility
+  as before. A standing body is lifted only by the hard stop (with its haul budget): with a position lift a
+  friend standing steeply below hovered just off the floor, unable to push. The rope's upward speed is capped
+  at the haul speed (no trampoline). At 5.4 the old rigid solve applies (position passes, then the speed that
+  stretches the link is removed from bodies in the air).
+- A pull on a body never takes one of its riders past that rider's own hard stop (`riderShare`): a hauled
+  friend carrying a friend whose rope is held below used to drag that link to 6.6.
+- The mantle: over a wrapped lip it reaches 0.9 under the top (`MANTLE_WRAP_REACH`; the corner pull goes flat
+  at 30° with the feet 0.68 under it), and it is refused only when the rope pulls down more steeply than about
+  27° (`MANTLE_MAX_DROP`), not whenever the hauler is half a cell lower.
+- `computeLoads` still gives a hanging body's weight to its highest taut neighbour: with a pulley the weight
+  goes onto the anchor, not into the block (a friend hanging over a pulley from someone on a plate still
+  weighs on that plate).
+
+Measured (`coopRopeWrap.test.ts`, re-pins in the other rope tests; old -> new):
+
+- Unchanged behaviours: drag of an idle friend 3.500 cells/s (link 4.500 -> 4.908), even tug 0.000 (link at the
+  stop, 5.400), Ruben wins 2.333, anchor drift 0.150 and Ruben 2.00x (link 4.500 -> 4.644), haul caps 2.5 and
+  1.2 (onto the 6-high ledge in 1.80 -> 1.56 s, Ruben 3.59 -> 3.21 s).
+- Spring: a friend hanging still stretches a link by 0.144 (gravity / stiffness is 0.164; the step order makes
+  it a little less), a friend + Ruben chain 0.458 / 0.265; a friend dropped 2 cells onto the rope peaks at 5.09,
+  rebounds once to 4.60 and settles at 4.65 within 0.7 s; a tug sits at 5.400; let go, back to 4.53 in 0.24 s;
+  Ruben falling at 22 cells/s stops at 5.40.
+- Longest link: 4.85 -> 5.5 (stop + 0.1) in the chain tests and the random sandbox runs (20 seeds x 3 team
+  sizes x 3000 steps; measured worst 5.45, 5.47 in the 5-player haul). "Taken up": 0.3 per step as before; under the stop in 6 / 14
+  steps (2 / 3 bodies), at rest + 0.05 in 28 / 58 (was: at 4.5 in 8 / 15). Hanging over the sandbox trench:
+  the head 15.29-15.44 (was under 15.5: the path over the rim's corner is longer than the chord), link 4.64.
+- The pulley (the sandbox's): two friends walking off the pillar on either side hang 0.7 under the floors, held,
+  level when they leave together (any split holds: equal masses on a frictionless pulley), link 4.64; Ruben
+  against a friend: the friend up at the corner, Ruben at the rope's end just above the pit's bottom, rising at
+  most 1.2 cells/s. A friend standing 2 cells behind a 1-wide block holds a friend under its far lip (drift
+  0.150 / Ruben 0.300), pushing away holds, walking on hauls him over (rope back off the block).
+- Random play never takes the rope through the terrain (3 x 3000 steps, sampled every 0.02 cell), and a copy
+  loaded mid-run, wraps and all, ends with the same hash.
+- Budgets: a server step at 5 players (random keys, 3 x 3000 steps) median 18-38 µs, p95 33-128 µs (was 16-31 /
+  32-121; under 0.2 ms); replaying 20 steps at 5 players 0.50-0.90 ms (under 2 ms); prediction bench: drawn
+  links over the world's, along the path, p99.9 0.049, max 0.060.
+
+Drawing (`render/ropeLayout.ts`, `ropeView.ts`): each link goes through its wrap points; the parts between
+two corners are straight, the two end parts share the slack and sag. Near the rest length the orange cue fades
+in as before; past it the ink thins (4 to 2.5 px) and the overlay goes from orange to red, all red at the stop.
+The rope is stroked as an open path (closing it drew a chord under every slack rope).
+
+Dev tool: `?coopLocal=2&level=sandbox` opens the sandbox (now 80 wide; the pulley at its far right: a 2-wide
+pillar one cell above the floor between two 2-wide pits); `&spawn=61` starts the team right before the pulley
+(any column with five cells of floor), `&noruben` makes both bodies friends (with Ruben the pulley is
+lopsided: he sinks). With 2 players a 2-cell step stands against the sandbox's 4-cell wall.
+
+Levels after rope v2 (`check-coop-level --all`; not redesigned in this step): La Rentrée passes at 2-5. La
+Salle passes at 2 and 5, fails at 3 and 4 ("F0 drops onto the seesaw and stands on pad A": a bot goal stalls
+with the rope slack). Le Labo Réseau fails at 2-5 ("lower Ruben into the slot": the swing under the lip relied
+on a rope through the floor; the rope now wraps both corners of the lip, and with the anchor where the bots
+stop for the chord, Ruben hangs just under the lip, too high to reach the slot's floor). L'Amphi fails at 2-5
+("Ruben's neighbour jumps over the block and holds d": the rope goes over the block now and is too short).
+La Salle de TP fails at 2-5 ("Ruben pushes the tower": the rope runs down the duct's hole and round its corner,
+4.6-5.3 long where the chord was 3.1, so Ruben is held back). The shortcuts of these levels are not checked
+while their solutions fail.
+
 Status at the end of M4 (2026-11-26):
 
 - Done: step B is wired into the online screen (opt-in, `?predict=1`; step A stays the default because the
@@ -687,6 +783,10 @@ Status at the end of M4 (2026-11-26):
 - Next: M5 (levels 6 to 10c, polish, docs, final review), when Dorian asks.
 
 ## Open questions for Dorian
+
+- Rope v2: try the pulley (`?coopLocal=2&level=sandbox&spawn=61&noruben`) and the give. Is 20 % the right amount,
+  is the stretch cue (thinner, orange to red, all red at the stop) clear, does a hanging friend bounce too
+  much or too little (`ropeDamping`)? Levels 2 to 5 are being repaired for it.
 
 - Co-op "Réactivité": playtest the setting. Auto predicts under a 60 ms round trip and draws step A over
   80 ms (bench: the worst player's corrections start crossing 0.1 cell at about 78 ms, and always do by

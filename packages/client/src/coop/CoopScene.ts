@@ -27,6 +27,7 @@ import {
   encodeInput,
   parseCoopLevel,
   RESTART_HOLD_STEPS,
+  ROPE_MAX_LENGTH,
   terminalQuip,
   type CoopEvent,
   type CoopLevel,
@@ -54,7 +55,7 @@ import { loadCleared, markCleared } from "./progress";
 import { CoopBodyView } from "./render/coopBodyView";
 import { stackLabels } from "./render/labelLayout";
 import { captureFrame, lerpFrame, newFrame, type PropFrame } from "./render/propFrame";
-import { RopeView } from "./render/ropeView";
+import { RopeView, type RopeSegment } from "./render/ropeView";
 import { drawableTerrain, ThingViews } from "./render/thingViews";
 import { ClaudeBubbles } from "./ui/claudeBubble";
 import { CoopClearedScreen, type ClearedInfo, type HostChoice } from "./ui/coopCleared";
@@ -448,7 +449,7 @@ export class CoopScene extends Phaser.Scene {
     this.things = new ThingViews(this, this.level);
     this.stains = new Stains(this);
     this.effects = new Effects(this);
-    this.rope = new RopeView(this, COOP.ropeLength);
+    this.rope = new RopeView(this, COOP.ropeLength, ROPE_MAX_LENGTH);
     players.forEach((p, i) => {
       this.bodyViews.push(new CoopBodyView(this, p.color, p.name, p.isRuben, localKeys[i] !== null));
     });
@@ -754,11 +755,12 @@ export class CoopScene extends Phaser.Scene {
     const placed = labels.flatMap((l, i) => (l ? [{ i, box: l }] : []));
     const lifts = stackLabels(placed.map((p) => p.box));
     placed.forEach((p, k) => this.bodyViews[p.i]!.liftLabel(lifts[k]!));
-    const segments = [];
+    const segments: RopeSegment[] = [];
     for (let k = 0; k + 1 < world.chain.length; k++) {
       const a = boxes[world.chain[k]!];
       const b = boxes[world.chain[k + 1]!];
-      if (a && b) segments.push({ ax: a.x + a.w / 2, ay: a.y + a.h / 2, bx: b.x + b.w / 2, by: b.y + b.h / 2 });
+      // Through the corners the world's link wraps.
+      if (a && b) segments.push({ ax: a.x + a.w / 2, ay: a.y + a.h / 2, bx: b.x + b.w / 2, by: b.y + b.h / 2, points: world.rope[k]?.points ?? [] });
     }
     this.rope.draw(segments);
     this.objects.update(this.level.objects, frame.levelTick * COOP_DT);

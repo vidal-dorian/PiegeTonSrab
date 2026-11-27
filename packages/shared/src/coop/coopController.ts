@@ -63,6 +63,11 @@ export interface CoopBodyState {
 
 /** How far below the top of a wall a hauled body's feet can be and still climb over it, cells. */
 export const MANTLE_REACH = 0.6;
+/**
+ * ... when the rope wraps over that top (it pulls towards the corner, up the wall, and goes flat
+ * before the feet are level with the lip): a body's height.
+ */
+export const MANTLE_WRAP_REACH = 0.9;
 /** A mantle lifts the feet this far above the top, so the next step's fall does not catch them on the lip. */
 const MANTLE_CLEAR = 0.02;
 
@@ -314,12 +319,12 @@ export class CoopController extends CharacterController {
 
   /**
    * How far to lift the body to climb over a lip while the rope hauls it against a wall. The rope
-   * pulls centre to centre, so once the hauled body's centre is level with the hauler's, its feet
-   * are still under the edge: when the top of the wall on `side` is less than MANTLE_REACH above
-   * its feet, with room above the edge, this returns the lift (at most `maxRise`), else 0. The
-   * world does the move, through collisions and carrying riders.
+   * pulls towards the hauler or towards the corner it wraps, so the hauled body's feet stay under
+   * the edge: when the top of the wall on `side` is less than `reach` above its feet, with room
+   * above the edge, this returns the lift (at most `maxRise`), else 0. The world does the move,
+   * through collisions and carrying riders.
    */
-  mantleRise(side: -1 | 1, maxRise: number): number {
+  mantleRise(side: -1 | 1, maxRise: number, reach = MANTLE_REACH): number {
     if (this.grounded || maxRise <= 0) return 0;
     const w = this.tuning.bodyWidth;
     const h = this.tuning.bodyHeight;
@@ -327,7 +332,7 @@ export class CoopController extends CharacterController {
     const col = side > 0 ? Math.round(edge) : Math.round(edge) - 1;
     if (Math.abs(edge - (side > 0 ? col : col + 1)) > 0.02) return 0;
     const feet = this.y + h;
-    for (let r = Math.ceil(feet - MANTLE_REACH); r < feet - EPS; r++) {
+    for (let r = Math.ceil(feet - reach); r < feet - EPS; r++) {
       if (!isSolidCell(this.level, col, r) || isSolidCell(this.level, col, r - 1)) continue;
       const rise = Math.min(feet - r + MANTLE_CLEAR, maxRise);
       if (boxOverlapsSolid(this.level, this.x, this.y - rise, w, h)) return 0;

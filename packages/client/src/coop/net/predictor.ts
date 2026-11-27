@@ -25,7 +25,7 @@
  * the win. It stops just before such a step and waits for the next snapshot (the server may not
  * agree); while the server's own world is in a death freeze or won, the copy is that world.
  */
-import { COOP, CoopWorld, HELD_BITS, PRESS_BITS, COOP_HZ, type CoopWorldState } from "@game/shared/coop";
+import { COOP, CoopWorld, HELD_BITS, PRESS_BITS, COOP_HZ, type CoopController, type CoopWorldState } from "@game/shared/coop";
 import { captureFrame, copyFrame, lerpFrame, newFrame, type FrameBox, type PropFrame } from "../render/propFrame";
 
 export type DrawBox = FrameBox;
@@ -272,6 +272,55 @@ export class CoopPredictor {
       this.setOffset(node, n, bx + v.x, by + v.y);
       this.clampToTerrain(node, n, false);
     }
+    this.holdRiderLinks(bases, n);
+  }
+
+  /** How long link k is drawn when both ends' offsets are scaled by `s`, along its path (its wrap points stay put). */
+  private drawnLink(k: number, s: number): number {
+    const w = this.world;
+    const a = w.bodies[w.chain[k]!]!;
+    const b = w.bodies[w.chain[k + 1]!]!;
+    const oa = this.off.bodies[w.chain[k]!]!;
+    const ob = this.off.bodies[w.chain[k + 1]!]!;
+    const ax = a.cx + s * oa.x;
+    const ay = a.cy + s * oa.y;
+    const bx = b.cx + s * ob.x;
+    const by = b.cy + s * ob.y;
+    const p = w.rope[k]?.points ?? [];
+    if (p.length === 0) return Math.hypot(bx - ax, by - ay);
+    let len = Math.hypot(p[0]! - ax, p[1]! - ay) + Math.hypot(bx - p[p.length - 2]!, by - p[p.length - 1]!);
+    for (let i = 2; i < p.length; i += 2) len += Math.hypot(p[i]! - p[i - 2]!, p[i + 1]! - p[i - 1]!);
+    return len;
+  }
+
+  /**
+   * A rider takes its carrier's offset after the links are held, which can pull a link of the
+   * rider's longer than the world has it: then both ends' whole piles (bases and riders, crates
+   * included) shrink their offsets by a common share until the link fits. A common share keeps
+   * every rider on its carrier as drawn (it shrinks their difference too).
+   */
+  private holdRiderLinks(bases: readonly number[], n: number): void {
+    const w = this.world;
+    for (let k = 0; k + 1 < w.chain.length; k++) {
+      const ia = w.chain[k]!;
+      const ib = w.chain[k + 1]!;
+      if (bases[ia] === ia && bases[ib] === ib) continue;
+      if (!this.off.bodies[ia] || !this.off.bodies[ib]) continue;
+      const room = Math.max(w.rope[k]?.length ?? 0, COOP.ropeLength);
+      if (this.drawnLink(k, 1) <= room) continue;
+      let lo = 0;
+      let hi = 1;
+      for (let i = 0; i < 12; i++) {
+        const mid = (lo + hi) / 2;
+        if (this.drawnLink(k, mid) <= room) lo = mid;
+        else hi = mid;
+      }
+      for (let node = 0; node < w.nodeCount; node++) {
+        if (bases[node] !== bases[ia] && bases[node] !== bases[ib]) continue;
+        const [x, y] = this.offsetOf(node, n);
+        this.setOffset(node, n, x * lo, y * lo);
+      }
+    }
   }
 
   /** A rope link is drawn between the drawn bodies: their offsets never make it longer than it is in the world (or than the rope, slack). */
@@ -285,6 +334,11 @@ export class CoopPredictor {
       const oa = o[chain[k]!];
       const ob = o[chain[k + 1]!];
       if (!oa || !ob) continue;
+      const points = w.rope[k]?.points ?? [];
+      if (points.length > 0) {
+        this.holdWrapped(a, b, oa, ob, points, w.rope[k]!.length);
+        continue;
+      }
       const dx = a.x - b.x;
       const dy = a.y - b.y;
       const ex = oa.x - ob.x;
@@ -302,6 +356,34 @@ export class CoopPredictor {
       ob.x = mx - (t * ex) / 2;
       ob.y = my - (t * ey) / 2;
     }
+  }
+
+  /**
+   * A link wrapped around terrain corners is drawn through them: the drawn path (each drawn end to
+   * its corner, plus the corners' part) is never longer than in the world (or than the rope's rest
+   * length, slack). A shift of both ends together changes it too, so both offsets shrink by a common
+   * share until it fits.
+   */
+  private holdWrapped(a: CoopController, b: CoopController, oa: { x: number; y: number }, ob: { x: number; y: number }, points: readonly number[], worldLength: number): void {
+    const room = Math.max(worldLength, COOP.ropeLength);
+    const last = points.length - 2;
+    let interior = 0;
+    for (let i = 2; i < points.length; i += 2) interior += Math.hypot(points[i]! - points[i - 2]!, points[i + 1]! - points[i - 1]!);
+    const drawn = (s: number) =>
+      Math.hypot(a.cx + s * oa.x - points[0]!, a.cy + s * oa.y - points[1]!) + interior + Math.hypot(b.cx + s * ob.x - points[last]!, b.cy + s * ob.y - points[last + 1]!);
+    if (drawn(1) <= room) return;
+    // The drawn length is convex in the share and fits at 0 (the world's own path): bisect.
+    let lo = 0;
+    let hi = 1;
+    for (let i = 0; i < 12; i++) {
+      const mid = (lo + hi) / 2;
+      if (drawn(mid) <= room) lo = mid;
+      else hi = mid;
+    }
+    oa.x *= lo;
+    oa.y *= lo;
+    ob.x *= lo;
+    ob.y *= lo;
   }
 
   /**

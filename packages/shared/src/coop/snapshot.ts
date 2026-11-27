@@ -3,18 +3,21 @@
  *
  * Numbers that drive the simulation (positions, speeds, timers) stay float64, so a client that
  * loads a snapshot gets exactly the server's world (prediction resimulates from it); small
- * integers and flags are packed. About 85 bytes per body, then 8 bytes per prop number.
+ * integers and flags are packed. About 85 bytes per body, then 8 bytes per prop number, then the
+ * rope's wrap points: a count of links, then per link a count of points and 5 bytes per point.
  */
 import type { CoopBodyState } from "./coopController";
 import type { CoopWorldState } from "./world";
 
-const VERSION = 3;
+const VERSION = 4;
 const HEADER = 1 + 4 + 4 + 2 + 2 + 2 + 1 + 1 + 1 + 1 + 1 + 2;
 const BODY = 9 * 8 + 2 + 4 + 1 + 2 + 1 + 1 + 1;
 
 export function encodeWorld(s: CoopWorldState): Uint8Array {
   const n = s.bodies.length;
-  const buf = new ArrayBuffer(HEADER + n * BODY + s.props.length * 8);
+  let wrapBytes = 1;
+  for (const w of s.ropeWraps) wrapBytes += 1 + (w.length / 3) * 5;
+  const buf = new ArrayBuffer(HEADER + n * BODY + s.props.length * 8 + wrapBytes);
   const v = new DataView(buf);
   let o = 0;
   v.setUint8(o, VERSION);
@@ -66,6 +69,18 @@ export function encodeWorld(s: CoopWorldState): Uint8Array {
   for (const x of s.props) {
     v.setFloat64(o, x);
     o += 8;
+  }
+  v.setUint8(o, s.ropeWraps.length);
+  o += 1;
+  for (const w of s.ropeWraps) {
+    v.setUint8(o, w.length / 3);
+    o += 1;
+    for (let i = 0; i < w.length; i += 3) {
+      v.setInt16(o, w[i]!);
+      v.setInt16(o + 2, w[i + 1]!);
+      v.setInt8(o + 4, w[i + 2]!);
+      o += 5;
+    }
   }
   return new Uint8Array(buf);
 }
@@ -155,7 +170,20 @@ export function decodeWorld(bytes: Uint8Array): CoopWorldState {
     props.push(v.getFloat64(o));
     o += 8;
   }
+  const ropeWraps: number[][] = [];
+  const links = v.getUint8(o);
+  o += 1;
+  for (let k = 0; k < links; k++) {
+    const count = v.getUint8(o);
+    o += 1;
+    const w: number[] = [];
+    for (let i = 0; i < count; i++) {
+      w.push(v.getInt16(o), v.getInt16(o + 2), v.getInt8(o + 4));
+      o += 5;
+    }
+    ropeWraps.push(w);
+  }
   const squashing = bodies.map((_, i) => (squash & (1 << i)) !== 0);
   const inside = bodies.map((_, i) => (insideBits & (1 << i)) !== 0);
-  return { tick, levelTick, attempt, dying, victim, won, bodies, squashing, inside, props, restartHeld };
+  return { tick, levelTick, attempt, dying, victim, won, bodies, squashing, inside, props, restartHeld, ropeWraps };
 }

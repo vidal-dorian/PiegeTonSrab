@@ -21,6 +21,7 @@ import {
   COOP_DT,
   CoopWorld,
   parseCoopLevel,
+  ROPE_MAX_LENGTH,
   sandboxLevel,
   type CoopPlayer,
 } from "@game/shared/coop";
@@ -87,7 +88,8 @@ describe("rope: a standing anchor is not frozen by the friend hanging below it",
     expect(x2 - w.bodies[2]!.x).toBeGreaterThan(2.5);
     expect(x1 - w.bodies[1]!.x).toBeGreaterThan(2.5);
     expect(y0 - w.bodies[0]!.y).toBeGreaterThan(2);
-    expect(longest).toBeLessThan(COOP.ropeLength + 0.1);
+    // Was ropeLength + 0.1 with the rigid rope; the elastic one stretches to its stop (measured 5.400).
+    expect(longest).toBeLessThan(ROPE_MAX_LENGTH + 0.1);
     expect(w.dying).toBe(0);
   });
 
@@ -97,20 +99,26 @@ describe("rope: a standing anchor is not frozen by the friend hanging below it",
       const w = makeWorld(room(30, false), n);
       for (let i = 0; i < n; i++) w.placeBody(i, 10 + 9 * i, 20 - H);
       let fastest = 0;
+      let underStop = -1;
       let takenUp = -1;
-      for (let s = 0; s < 60; s++) {
+      for (let s = 0; s < 120; s++) {
         const before = w.bodies.map((b) => ({ x: b.x, y: b.y }));
         w.step(new Array<number>(n).fill(0));
         w.bodies.forEach((b, i) => {
           fastest = Math.max(fastest, Math.hypot(b.x - before[i]!.x, b.y - before[i]!.y));
         });
-        if (takenUp < 0 && longestLink(w) <= COOP.ropeLength + 0.01) takenUp = s + 1;
+        if (underStop < 0 && longestLink(w) <= ROPE_MAX_LENGTH + 0.01) underStop = s + 1;
+        if (takenUp < 0 && longestLink(w) <= COOP.ropeLength + 0.05) takenUp = s + 1;
       }
-      // Measured: 0.3 per step, back to length in 8 steps (2 bodies) and 15 (3 bodies). Before the
-      // fix a body was yanked 0.6 cells in one step (72 cells/s).
+      // Measured: 0.3 per step; back to the hard stop in 6 steps (2 bodies) and 14 (3 bodies), then
+      // the elastic part comes back to its rest length (+0.05) in 28 and 58 steps. With the rigid
+      // rope: back to 4.5 in 8 and 15 steps. Before the M1 fix a body was yanked 0.6 cells in one
+      // step (72 cells/s).
       expect(fastest, `${n} bodies`).toBeLessThanOrEqual(0.3 + 1e-9);
+      expect(underStop, `${n} bodies`).toBeGreaterThan(0);
+      expect(underStop, `${n} bodies`).toBeLessThanOrEqual(20);
       expect(takenUp, `${n} bodies`).toBeGreaterThan(0);
-      expect(takenUp, `${n} bodies`).toBeLessThanOrEqual(20);
+      expect(takenUp, `${n} bodies`).toBeLessThanOrEqual(70);
     }
   });
 });
@@ -179,7 +187,8 @@ describe("rope: a chain hanging below an idle anchor", () => {
         expect(r.died, label).toBe(false);
         expect(r.anchorStands, label).toBe(true);
         expect(r.allHang, label).toBe(true);
-        expect(r.longest, label).toBeLessThan(COOP.ropeLength + 0.05);
+        // Was ropeLength + 0.05 with the rigid rope; elastic, the drop stretches it (measured 5.235).
+        expect(r.longest, label).toBeLessThan(ROPE_MAX_LENGTH + 0.05);
       }
     });
   }

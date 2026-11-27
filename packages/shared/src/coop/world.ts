@@ -9,7 +9,9 @@
  * 2. Platforms, seesaws and balances move (props.moveKinematic).
  * 3. Bodies and crates ("nodes") move bottom-up (whoever stands on someone moves after them):
  *    each is first carried by what it stands on, then takes its own step.
- * 4. The rope pulls the chain back together (rope.ts); Ruben slides off any friend he landed on.
+ * 4. The rope wraps the terrain corners the bodies swept and pulls the chain back together
+ *    (rope.ts); a hauled body climbs over a lip; Ruben slides off any friend he landed on; the rope
+ *    wraps what those moves swept.
  * 5. Weights are measured; a hard landing on a seesaw fires it; plates, gates, the key, the door,
  *    terminals... react (props.interact).
  * 6. Deaths: a body in a hazard or below the level freezes the world for a moment, then the whole
@@ -25,13 +27,13 @@ import { isSolidCell } from "../level";
 import { HAZARD_INSET } from "../movement/tuning";
 import { boxHitsHazard, hazardsOf } from "../objects";
 import { boxesOverlap, EPS, OBJECT_COLLIDER_BASE, spansOverlap, type BoxCollider, type CoopSpace, type Support } from "./colliders";
-import { CoopController, type CoopBodyState } from "./coopController";
+import { CoopController, MANTLE_REACH, MANTLE_WRAP_REACH, type CoopBodyState } from "./coopController";
 import { COOP, COOP_DT, COOP_MOVEMENT, DEATH_FREEZE_STEPS, RESTART_HOLD_STEPS } from "./coopTuning";
 import { Fnv32 } from "./detMath";
 import { decodeInput, type CoopInput } from "./inputBits";
 import type { CoopLevel } from "./levelFormat";
 import { CoopProps, crateLaunchSpeed, sweepY, type CoopCrate, type PropEvent, type PropsHost } from "./props";
-import { solveRope, type RopeHost, type RopeLinkState } from "./rope";
+import { measureRope, placeWraps, solveRope, sweepRope, type RopeHost, type RopeLinkState, type RopeWraps } from "./rope";
 
 export interface CoopPlayer {
   /** Shown above the body. */
@@ -80,6 +82,8 @@ export interface CoopWorldState {
   props: number[];
   /** Steps R has been held by enough players (restart at RESTART_HOLD_STEPS). */
   restartHeld: number;
+  /** Each link's wrap points around the terrain (rope.ts RopeWraps), in chain order. */
+  ropeWraps: number[][];
 }
 
 /** What the referee counts for the end-of-level titles, per body, over every attempt. */
@@ -110,6 +114,11 @@ const GROUND_BLAME_S = 1.5;
 /** ... or on whoever pulled the victim by the rope (at least ROPE_BLAME_CELLS) up to this long before. */
 const ROPE_BLAME_S = 1;
 const ROPE_BLAME_CELLS = 0.3;
+/**
+ * A body hauled against a wall climbs over the lip unless the rope pulls it down more steeply than
+ * this (drop per cell across, about 27°) and by more than COOP.hangHeight.
+ */
+const MANTLE_MAX_DROP = 0.5;
 /** Hanging at least this long, then standing again, counts as a catch for the anchor, seconds. */
 const CATCH_MIN_S = 0.4;
 
@@ -120,6 +129,8 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
   readonly rope: RopeLinkState[] = [];
   /** Body indices in rope order (index order: friends in seat order, Ruben last). */
   readonly chain: number[] = [];
+  /** Each link's wrap points around the terrain corners (history: saved with the world). */
+  ropeWraps: RopeWraps[] = [];
   /** Steps since the level started (all attempts included). */
   tick = 0;
   /** Steps since the current attempt started (the platforms' clock). */
@@ -151,6 +162,9 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
   private startY: number[] = [];
   /** ... and its x (the rope never moves a friend back past it: bodies never push each other). */
   private startX: number[] = [];
+  /** Body centres when the step began, then before the rope's solve: where the rope's wraps sweep from. */
+  private ropeX: number[] = [];
+  private ropeY: number[] = [];
   /** Weight of each node (with what it carries), and what stands on each collider (by index). */
   private weights: number[] = [];
   private loads: number[] = [];
@@ -184,6 +198,7 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
       this.squashing.push(false);
       this.inside.push(false);
     });
+    for (let k = 0; k + 1 < n; k++) this.ropeWraps.push([]);
     this.props = new CoopProps(level, n);
     this.colliders.push(...this.props.colliders);
     const zeros = () => new Array<number>(n).fill(0);
@@ -267,6 +282,10 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
 
   solidCell(cx: number, cy: number): boolean {
     return isSolidCell(this.level.collision, cx, cy);
+  }
+
+  ropeSolid(cx: number, cy: number): boolean {
+    return isSolidCell(this.level.terrain, cx, cy);
   }
 
   moveStack(i: number, dx: number, dy: number): { dx: number; dy: number } {
@@ -433,7 +452,8 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
     });
     this.stats.opener = -1;
     this.stats.firstIn = -1;
-    this.rope.length = 0;
+    for (const w of this.ropeWraps) w.length = 0;
+    measureRope(this.bodies, this.chain, this.ropeWraps, this.rope);
     this.order = this.bottomUp();
     for (const b of this.bodies) b.refreshContacts();
     for (const c of this.props.crates) c.support = this.props.crateSupport(this.level.crateGrid, this.colliders, c);
@@ -449,8 +469,29 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
     b.vy = 0;
     this.syncCollider(i);
     for (const o of this.bodies) o.refreshContacts();
+    this.placeLinksOf(i);
     this.order = this.bottomUp();
     this.computeLoads();
+  }
+
+  /** Body i was put somewhere out of the blue: its links wrap the terrain as a rope put there would (no history). */
+  private placeLinksOf(i: number): void {
+    const k = this.chain.indexOf(i);
+    for (const link of [k - 1, k]) {
+      if (link < 0 || link + 1 >= this.chain.length) continue;
+      const a = this.bodies[this.chain[link]!]!;
+      const b = this.bodies[this.chain[link + 1]!]!;
+      placeWraps(this, a.cx, a.cy, b.cx, b.cy, this.ropeWraps[link]!);
+    }
+    measureRope(this.bodies, this.chain, this.ropeWraps, this.rope);
+  }
+
+  /** Remember the body centres the rope's wraps will sweep from. */
+  private markRope(): void {
+    this.bodies.forEach((b, i) => {
+      this.ropeX[i] = b.cx;
+      this.ropeY[i] = b.cy;
+    });
   }
 
   /** The level restarts for everyone (after a death: by -1; or R held by the team: the first holder). */
@@ -526,6 +567,7 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
     }
     const wasGrounded = this.bodies.map((b) => b.grounded);
     for (let i = 0; i < n; i++) this.prevSupport[i] = this.bodies[i]!.support;
+    this.markRope();
 
     this.props.moveKinematic(this);
 
@@ -547,11 +589,17 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
       }
     }
 
-    solveRope(this, this.chain, COOP.ropeLength, COOP_DT, this.rope);
+    // The rope wraps what the bodies' own moves swept, is solved, then wraps what the rope's pulls,
+    // the mantle and Ruben's slide swept.
+    sweepRope(this, this.chain, this.ropeWraps, this.ropeX, this.ropeY);
+    this.markRope();
+    solveRope(this, this.chain, this.ropeWraps, COOP_DT, this.rope);
     this.mantleHauled();
     for (let i = 0; i < n; i++) if (!this.inside[i]) this.bodies[i]!.refreshContacts();
 
     this.slideRubenOffFriends();
+    sweepRope(this, this.chain, this.ropeWraps, this.ropeX, this.ropeY);
+    measureRope(this.bodies, this.chain, this.ropeWraps, this.rope);
     this.updateRooted();
     this.computeLoads();
 
@@ -658,6 +706,8 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
     b.headCollider = -1;
     this.syncCollider(i);
     this.colliders[i]!.off = true;
+    // Teleported into the door: its links lie as a rope put there would.
+    this.placeLinksOf(i);
     if (this.stats.firstIn < 0) this.stats.firstIn = i;
   }
 
@@ -800,52 +850,66 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
     }
   }
 
+  /** The point of link k's path next to body i (its wrap point there, or the other end's centre). */
+  private pivotOf(k: number, i: number): { x: number; y: number } {
+    const l = this.rope[k]!;
+    const p = l.points;
+    if (p.length === 0) {
+      const o = this.bodies[l.a === i ? l.b : l.a]!;
+      return { x: o.cx, y: o.cy };
+    }
+    return l.a === i ? { x: p[0]!, y: p[1]! } : { x: p[p.length - 2]!, y: p[p.length - 1]! };
+  }
+
   /**
-   * A body the rope pulls sideways against a wall, with the hauler level with it or higher, climbs
-   * over the lip (CoopController.mantle) at the haul speed.
+   * A body the rope pulls sideways against a wall, towards its pivot (the corner it hangs over, or
+   * the hauler) level with it, higher, or lower but far to the side, climbs over the lip
+   * (CoopController.mantle) at the haul speed.
    */
   private mantleHauled(): void {
-    for (const l of this.rope) {
-      if (!l.taut) continue;
+    this.rope.forEach((l, k) => {
+      if (!l.taut) return;
       for (const [i, j] of [
         [l.a, l.b],
         [l.b, l.a],
       ] as const) {
         const b = this.bodies[i]!;
-        const anchor = this.bodies[j]!;
-        if (b.grounded || this.inside[i] || anchor.cy > b.cy + COOP.hangHeight) continue;
+        const pivot = this.pivotOf(k, i);
+        if (b.grounded || this.inside[i]) continue;
+        const drop = pivot.y - b.cy;
+        if (drop > COOP.hangHeight && drop > MANTLE_MAX_DROP * Math.abs(pivot.x - b.cx)) continue;
         // Only a hauled body climbs: someone up the rope walks away. One merely hanging near the lip does not.
-        if (!this.haulsAway(j, i, 0)) continue;
-        // Over a lip (the link bends over a corner), towards the corner; else towards an anchor well to the side.
-        const bent = !Number.isNaN(l.cornerX);
-        const dx = bent ? l.cornerX - b.cx : anchor.cx - b.cx;
-        if (!bent && Math.abs(dx) < 0.3 * l.length) continue;
+        if (!this.haulsAway(j, k, 0)) continue;
+        // Over a lip (the link wraps a corner), towards the corner; else towards an anchor well to the side.
+        const wrapped = l.points.length > 0;
+        const dx = pivot.x - b.cx;
+        if (!wrapped && Math.abs(dx) < 0.3 * l.length) continue;
         const cap = b.isRuben ? COOP.riseCap.ruben : COOP.riseCap.friend;
         const rose = this.stepStartY(i) - b.y;
-        const rise = b.mantleRise(dx > 0 ? 1 : -1, cap * COOP_DT - Math.max(0, rose));
+        const rise = b.mantleRise(dx > 0 ? 1 : -1, cap * COOP_DT - Math.max(0, rose), wrapped ? MANTLE_WRAP_REACH : MANTLE_REACH);
         if (rise > 0) {
           const got = this.moveStack(i, 0, -rise);
           if (got.dy < 0 && b.vy > 0) b.vy = 0;
         }
       }
-    }
+    });
   }
 
   /**
-   * Whether body j pulls the rope away from its neighbour `from`: it walks away from it (or braces),
-   * or the friend it stands on does, or it is held by a taut link to a friend further the same way
-   * who does (a pull through a friend standing still in the middle of the chain).
+   * Whether body j pulls link k away from its other end: it walks away from its pivot on that link
+   * (or braces), or the friend it stands on does, or it is held by a taut link to a friend further
+   * the same way who does (a pull through a friend standing still in the middle of the chain).
    */
-  private haulsAway(j: number, from: number, depth: number): boolean {
+  private haulsAway(j: number, k: number, depth: number): boolean {
     if (this.inside[j] || depth >= this.bodies.length) return false;
-    const away = Math.sign(this.bodies[j]!.cx - this.bodies[from]!.cx);
+    const away = Math.sign(this.bodies[j]!.cx - this.pivotOf(k, j).x);
     if (away === 0) return false;
     if (this.inputDir(j) === away || this.inputDir(this.pileBase(j)) === away) return true;
-    for (const l of this.rope) {
-      if (!l.taut || (l.a !== j && l.b !== j)) continue;
-      const k = l.a === j ? l.b : l.a;
-      if (k === from || Math.sign(this.bodies[k]!.cx - this.bodies[j]!.cx) !== away) continue;
-      if (this.haulsAway(k, j, depth + 1)) return true;
+    for (let k2 = 0; k2 < this.rope.length; k2++) {
+      const l = this.rope[k2]!;
+      if (k2 === k || !l.taut || (l.a !== j && l.b !== j)) continue;
+      if (Math.sign(this.pivotOf(k2, j).x - this.bodies[j]!.cx) !== away) continue;
+      if (this.haulsAway(l.a === j ? l.b : l.a, k2, depth + 1)) return true;
     }
     return false;
   }
@@ -1009,6 +1073,7 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
       inside: this.inside.slice(),
       props: this.props.save(),
       restartHeld: this.restartHeld,
+      ropeWraps: this.ropeWraps.map((w) => w.slice()),
     };
   }
 
@@ -1030,6 +1095,12 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
       this.colliders[i]!.off = x;
     });
     this.props.load(s.props, this.levelTick);
+    this.ropeWraps.forEach((w, k) => {
+      w.length = 0;
+      const saved = s.ropeWraps?.[k];
+      if (saved) w.push(...saved);
+    });
+    measureRope(this.bodies, this.chain, this.ropeWraps, this.rope);
     this.order = this.bottomUp();
     this.computeLoads();
   }
@@ -1051,6 +1122,10 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
     for (const q of s.squashing) f.bool(q);
     for (const q of s.inside) f.bool(q);
     for (const v of s.props) f.num(v);
+    for (const w of s.ropeWraps) {
+      f.num(w.length);
+      for (const v of w) f.num(v);
+    }
     return f.h;
   }
 }

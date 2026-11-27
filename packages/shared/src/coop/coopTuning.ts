@@ -15,8 +15,28 @@ export const COOP_HZ = SIM_HZ;
 export const COOP_DT = 1 / COOP_HZ;
 
 export const COOP = {
-  /** Rope length between two neighbours of the chain, body centre to body centre, cells. */
+  /**
+   * Rest length of the rope between two neighbours of the chain, cells, measured along its path:
+   * body centre, the terrain corners it wraps around, body centre. Shorter, it is slack and pulls
+   * nothing; longer, it pulls like a stiff rubber band, up to the hard stop (ropeStretch).
+   */
   ropeLength: 4.5,
+  /** How far a link stretches past its rest length before it stops dead, as a share of it (20 %: 5.4 cells). */
+  ropeStretch: 0.2,
+  /**
+   * Stiffness of a stretched link, 1/s² per unit of mass: a friend hanging still stretches it by
+   * gravity / ropeStiffness (about 0.25 cell; Ruben twice that).
+   */
+  ropeStiffness: 240,
+  /** Damping ratio of a friend bouncing on a fixed anchor (0.5: one small rebound, settled in about half a second). */
+  ropeDamping: 0.5,
+  /**
+   * A stretched link between bodies standing on something gives back this share of its stretch per
+   * second (1/s): their pull is a position pull, they keep their own speed.
+   */
+  ropeRelax: 15,
+  /** Terrain corners a link can wrap around (more: the rope goes through, as it did before wrapping). */
+  ropeMaxWraps: 8,
   /**
    * How easily a body is moved by the rope (multiplies 1 / mass). In the air a body follows the rope;
    * standing it resists; standing and pushing away from a friend who hangs below, it braces and holds.
@@ -56,6 +76,9 @@ export const COOP = {
   /** R held this long (by one player, from 3 players by half the team) restarts the level, seconds. */
   restartHold: 1.5,
 } as const;
+
+/** Longest a rope link gets along its path: the hard stop, cells. */
+export const ROPE_MAX_LENGTH = COOP.ropeLength * (1 + COOP.ropeStretch);
 
 /** COOP.deathFreeze in steps. */
 export const DEATH_FREEZE_STEPS = Math.round(COOP.deathFreeze * COOP_HZ);

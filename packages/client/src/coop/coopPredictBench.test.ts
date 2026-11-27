@@ -256,6 +256,27 @@ function p95(values: readonly number[]): number {
 
 const fmt = (v: number) => v.toFixed(3);
 
+/**
+ * How much longer link k is drawn than it is in the world (or than the rope's rest length, slack),
+ * along its path: from each drawn centre to the world's wrap points.
+ */
+function drawnLinkExcess(w: CoopWorld, f: readonly { x: number; y: number; w: number; h: number }[], k: number): number {
+  const a = f[w.chain[k]!]!;
+  const b = f[w.chain[k + 1]!]!;
+  const p = w.rope[k]!.points;
+  const ax = a.x + a.w / 2;
+  const ay = a.y + a.h / 2;
+  const bx = b.x + b.w / 2;
+  const by = b.y + b.h / 2;
+  let drawn = 0;
+  if (p.length === 0) drawn = Math.hypot(bx - ax, by - ay);
+  else {
+    drawn = Math.hypot(p[0]! - ax, p[1]! - ay) + Math.hypot(bx - p[p.length - 2]!, by - p[p.length - 1]!);
+    for (let i = 2; i < p.length; i += 2) drawn += Math.hypot(p[i]! - p[i - 2]!, p[i + 1]! - p[i - 1]!);
+  }
+  return drawn - Math.max(w.rope[k]!.length, COOP.ropeLength);
+}
+
 describe("co-op prediction bench (step B, the screen's PredictedPlay end to end)", { timeout: LONG }, () => {
   const results: string[] = [];
 
@@ -791,14 +812,7 @@ describe("co-op prediction bench (step B, the screen's PredictedPlay end to end)
             }
             wall = Math.max(wall, depthInTerrain(w, f[i]!));
           });
-          const chain = w.chain;
-          for (let k = 0; k + 1 < chain.length; k++) {
-            const a = f[chain[k]!]!;
-            const b = f[chain[k + 1]!]!;
-            const wa = w.bodies[chain[k]!]!;
-            const wb = w.bodies[chain[k + 1]!]!;
-            links.push(Math.hypot(a.x - b.x, a.y - b.y) - Math.max(Math.hypot(wa.x - wb.x, wa.y - wb.y), COOP.ropeLength));
-          }
+          for (let k = 0; k + 1 < w.chain.length; k++) links.push(drawnLinkExcess(w, f, k));
         }
       });
     }
@@ -829,15 +843,9 @@ describe("co-op prediction bench (step B, the screen's PredictedPlay end to end)
       // drawn (a hauled link stays stretched there while the hauler's budget holds it back).
       const f = me.play!.frame().bodies;
       const w = me.play!.world;
-      const chain = w.chain;
-      for (let k = 0; k + 1 < chain.length; k++) {
-        const a = f[chain[k]!]!;
-        const b = f[chain[k + 1]!]!;
-        const wa = w.bodies[chain[k]!]!;
-        const wb = w.bodies[chain[k + 1]!]!;
-        const world = Math.hypot(wa.x - wb.x, wa.y - wb.y);
-        stretched = Math.max(stretched, world - COOP.ropeLength);
-        worstLink = Math.max(worstLink, Math.hypot(a.x - b.x, a.y - b.y) - Math.max(world, COOP.ropeLength));
+      for (let k = 0; k + 1 < w.chain.length; k++) {
+        stretched = Math.max(stretched, w.rope[k]!.length - COOP.ropeLength);
+        worstLink = Math.max(worstLink, drawnLinkExcess(w, f, k));
       }
     });
     stopKeys(r.clients);

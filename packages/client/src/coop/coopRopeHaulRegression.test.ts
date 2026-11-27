@@ -5,11 +5,11 @@
  * - a walker carrying a friend on its head cannot outrun the rope that friend holds.
  */
 import { describe, expect, it } from "vitest";
-import { BIT_LEFT, BIT_RIGHT, COOP, COOP_DT, CoopWorld, parseCoopLevel, sandboxLevel, type CoopPlayer } from "@game/shared/coop";
+import { BIT_LEFT, BIT_RIGHT, COOP, COOP_DT, CoopWorld, parseCoopLevel, ROPE_MAX_LENGTH, sandboxLevel, type CoopPlayer } from "@game/shared/coop";
 
 const H = 0.9;
-/** Longest a link may get (4.5 plus what one step of a fall can add before the solve). */
-const MAX_LINK = 4.85;
+/** Longest a link may get along its path: the hard stop plus what one step can add (was 4.85 for the rigid 4.5 rope; measured worst 5.47). */
+const MAX_LINK = ROPE_MAX_LENGTH + 0.1;
 
 function team(n: number, rubenAt = -1): CoopPlayer[] {
   return Array.from({ length: n }, (_, i) => ({ name: `P${i}`, isRuben: i === rubenAt }));

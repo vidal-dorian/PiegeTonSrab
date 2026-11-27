@@ -2,16 +2,20 @@
  * The rope in chains of three or more: what the M1 review still found broken after the first fixes.
  * - A hauler pulls the whole chain up a wall through a friend standing still in the middle.
  * - A walker cannot outrun the rope, even with a friend standing right behind it.
- * - A link never stretches far past its length (4.5): not when both ends are stuck, not in a fuzz.
+ * - A link never stretches far past its hard stop (5.4): not when both ends are stuck, not in a fuzz.
  * - A pile lifted under a ceiling never moves its base into its rider.
  */
 import { describe, expect, it } from "vitest";
-import { BIT_JUMP, BIT_JUMP_PRESS, BIT_LEFT, BIT_RIGHT, CoopWorld, parseCoopLevel, sandboxLevel, type CoopPlayer } from "@game/shared/coop";
+import { BIT_JUMP, BIT_JUMP_PRESS, BIT_LEFT, BIT_RIGHT, CoopWorld, parseCoopLevel, ROPE_MAX_LENGTH, sandboxLevel, type CoopPlayer } from "@game/shared/coop";
 
 const H = 0.9;
 const W = 0.8;
-/** Longest a link may get in these scenarios (4.5 plus what one step of a fall can add before the solve). */
-const MAX_LINK = 4.85;
+/**
+ * Longest a link may get in these scenarios, along its path: the hard stop plus what one step can
+ * add before the solve. Was 4.85 for the rigid 4.5 rope; the elastic rope stops at 5.4 (measured
+ * worst here and in the fuzz: 5.47).
+ */
+const MAX_LINK = ROPE_MAX_LENGTH + 0.1;
 
 function team(n: number, rubenAt = -1): CoopPlayer[] {
   return Array.from({ length: n }, (_, i) => ({ name: `P${i}`, isRuben: i === rubenAt }));
@@ -125,10 +129,11 @@ describe("co-op rope: links never stretch", () => {
 
   it("a walker with a friend standing right behind it cannot outrun the friend it hauls", () => {
     // P0 at the foot of the sandbox 3-wall, P1 on top, P2 touching P1 from behind; P1 and P2 walk away.
+    // (P1 at x 17.2, not 17.8: measured along the rope over the lip, 17.8 starts the link at 5.79, past its stop.)
     const w = sandbox(3);
     w.placeBody(0, 14.2, 18 - H);
-    w.placeBody(1, 17.8, 15 - H);
-    w.placeBody(2, 17.0, 15 - H);
+    w.placeBody(1, 17.2, 15 - H);
+    w.placeBody(2, 16.4, 15 - H);
     const track = { worst: 0 };
     const up = stepsUntilUp(w, 0, 15, 360, () => [0, BIT_RIGHT, BIT_RIGHT], track);
     expect(track.worst).toBeLessThanOrEqual(MAX_LINK);
@@ -146,7 +151,7 @@ describe("co-op rope: links never stretch", () => {
     };
   }
 
-  it("random play on the sandbox (3 to 5 players, 20 seeds): no link ever passes 4.85", () => {
+  it("random play on the sandbox (3 to 5 players, 20 seeds): no link ever passes the hard stop + 0.1 (5.5)", () => {
     let worst = 0;
     let where = "";
     for (let seed = 1; seed <= 20; seed++) {

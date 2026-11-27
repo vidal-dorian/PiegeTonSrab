@@ -12,6 +12,7 @@ import {
   COOP_DT,
   CoopWorld,
   parseCoopLevel,
+  ROPE_MAX_LENGTH,
   sandboxLevel,
   type CoopLevelDef,
   type CoopPlayer,
@@ -212,7 +213,7 @@ describe("co-op rope", () => {
     return (w.bodies[i]!.x - x0) / (steps * COOP_DT);
   }
 
-  it("never stretches past its length in open space", () => {
+  it("never stretches past its hard stop in open space", () => {
     const w = makeWorld(flat(), 3);
     stand(w, 0, 30, 20);
     stand(w, 1, 34, 20);
@@ -222,7 +223,8 @@ describe("co-op rope", () => {
       for (const l of w.rope) worst = Math.max(worst, l.length);
       return [BIT_LEFT, s < 120 ? 0 : BIT_RIGHT, BIT_RIGHT | (s % 40 === 0 ? BIT_JUMP | BIT_JUMP_PRESS : BIT_JUMP)];
     });
-    expect(worst).toBeLessThanOrEqual(COOP.ropeLength + 0.01);
+    // Elastic rope (20 % give): before, a rigid 4.5 (worst 4.5 + 0.01); now the stop, measured 5.400.
+    expect(worst).toBeLessThanOrEqual(ROPE_MAX_LENGTH + 0.01);
   });
 
   it("a runner drags a passive friend at about half speed", () => {

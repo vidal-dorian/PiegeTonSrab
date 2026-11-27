@@ -57,12 +57,12 @@ Units are cells and seconds. A body is 0.8 wide and 0.9 high.
 | Jump | apex exactly 3.0 above the feet; a lone player climbs a step of 2, not 3 |
 | Towers | a 2-tower climbs a step of 3, a 3-tower 4, a 4-tower 5 (hard); 5 is never climbed without a step |
 | Jump across | about 5 cells centre to centre at run speed (a gap of about 5.8 at most, edge to edge) |
-| Rope | 4.5 cells centre to centre between chain neighbours; it goes through walls |
+| Rope | 4.5 cells of rest length between chain neighbours, measured along its path: it wraps around the corners of the fixed terrain (solid tiles; platforms, gates, crates, seesaws, balances and bodies never stop it) and keeps those wraps until it comes round them. Elastic past 4.5: a friend hanging still stretches it by about 0.15 (Ruben 0.3, a chain by the weight below each link), a runner dragging a friend by about 0.4, up to a hard stop at 5.4 (20 %). Over a lip the path is longer than the straight line: measure rope puzzles along the path (see "Rope v2" in HANDOFF.md) |
 | Ruben | weighs 2 (plates, seesaws, balances), pushes like 2, has a rope mass of 2; nobody can stand on him (he slides off and squashes the friend), he can carry friends |
 | Carrying | whoever carries someone (or a crate) cannot jump; nobody jumps off a base that is in the air |
 | Walls | no wall jump, no wall slide |
-| Hauling | walking away from a friend who hangs below hauls them up at most 2.5 cells/s (Ruben 1.2): about 2 to 3 s for a 3-cell wall; a hauled body climbs over a lip once its feet are within 0.6 of the top. A pull passes through friends standing still in the middle of the chain; a friend who has Ruben hanging below rises at Ruben's speed. A walker held by the rope never outruns it, not even with a friend right behind it or on its head |
-| Anchoring | an idle anchor slides towards the void at 0.15 cells/s per hanging mass (a friend 1, Ruben 2); walking away holds (and hauls) |
+| Hauling | walking away from a friend who hangs below hauls them up at most 2.5 cells/s (Ruben 1.2): about 2 to 3 s for a 3-cell wall; a hauled body climbs over a lip once its feet are within 0.6 of the top (0.9 when the rope wraps that lip), unless the rope pulls it down more steeply than about 27°. A pull passes through friends standing still in the middle of the chain; a friend who has Ruben hanging below rises at Ruben's speed. A walker held by the rope never outruns it, not even with a friend right behind it or on its head |
+| Anchoring | an idle anchor slides towards the corner its friend hangs over (or towards him) at 0.15 cells/s per hanging mass (a friend 1, Ruben 2); walking away holds (and hauls). Over a block (a pulley: the rope over its two top corners) two friends on either side hold each other |
 | Swinging | left/right pumps a hanging swing, at most 70° from vertical; an idle swing dies down |
 | Riders | whoever stands on a body moves with it: nobody walks out from under a friend |
 
