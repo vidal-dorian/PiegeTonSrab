@@ -147,9 +147,13 @@ the consequences for a map.
   inverted on the bench's own link (m) as a step that exists only while it is needed.
 - **Links climb as well as hold.** A friend standing on a head near a corridor mouth shortens the
   path round a lip by as much as a duct does, and a body in the air is a weak anchor: a neighbour
-  jumping with the climber gives it the slack a duct would (La Salle de TP, closed with a terminal
-  that opens a trap). When a beat forces someone to a place because of rope length, probe every
-  place of the same height, towers included, and jumps timed with the climber's.
+  jumping with the climber gives it the slack a duct would (La Salle de TP, closed with a plate in
+  the duct that holds a trap open). When a beat forces someone to a place because of rope length,
+  probe every place of the same height, towers included, and jumps timed with the climber's.
+- **A latch makes a visit, a plate makes a wait.** To make someone stay somewhere, use a plate,
+  not a terminal: the climber of La Salle de TP ran to the first fix's terminal and back on its
+  own. A gate on a plate shuts behind the last body to leave its way, so a haul through it needs a
+  lock (a terminal on the same link, used by the first one through) first.
 - **Plates read what stands on them, and the rope through things.** A crate weighs on plates (set
   `weight: 0` when it is a step, not a weight); a closed gate stops bodies but not the rope, so no
   haul passes one.
@@ -233,5 +237,6 @@ closed and accepted, deadly moments, Ruben's moment, communication moment.
   bare PC tower" with a standing jump (best feet exactly at the lip, 9.000). Left open by the
   integration's skeptic: the duct skipped at 4-5 players by a rider at the corridor mouth, and
   Ruben's own buffered climb (accepted, numbers in coop04.md). Fix round: the duct skip (also a
-  jump timed with the climber's from M's floor, at 3-5) is closed by a trap over the shaft that
-  opens at a terminal in the duct, from 3 players.
+  jump timed with the climber's from M's floor, at 3-5) is closed by a trap over the shaft, from 3
+  players; second fix round: the trap is held open by a plate in the duct (someone waits there),
+  not a terminal (the climber opened it and came back), and locked by the first one up.

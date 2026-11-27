@@ -913,6 +913,13 @@ three. All five levels pass `check-coop-level --all` at 2-5 players, every short
   two "duct skipped" shortcuts and `coop04Duct.test.ts`). Ruben's solo climb measured at 2 players (60 of
   288, accepted); « Ruben pousse comme deux » moved under the corridor's floor, off the name labels. Bot times
   20.9 / 22.8 / 24.1 / 26.8 s.
+  Second fix round: the latch let the climber open it from Ruben's head and come back (40 of 120 tries finished
+  at 3-5), so nobody waited in the duct. The trap is now held open by a plate in the duct's floor (x 10-11) and
+  locked by the first one up at a terminal beside the lip (« Bloque la trappe ») before the haul; the recess is
+  gone. New shortcut "the duct left empty" and a 72-try sweep per size in `coop04Duct.test.ts` (0 get up; 415 of
+  810 reached the attempt in a wider probe). Accepted: from 4 players another friend may hold the plate while
+  the climber's neighbour jumps along (10 / 9 of 15); Ruben up first cannot lock the trap (he drops back down
+  J). Bot times unchanged.
 
 Accepted shortcuts (details in the level notes): coop02, another order in beat 1, an idle anchor's slide as
 the lowering (if the one below leans in), the last one dropped onto the tile on purpose, two stepping off
@@ -954,7 +961,7 @@ Status at the end of M4 (2026-11-26):
   redesigned around the wraps (see "Rope wraps placed blocks"). La Salle can now be climbed by hauling from 3
   players (accepted). Done for levels 2-4 (see "Levels 2-4 redesigned for the wrapped rope"); three skeptic
   findings are left open there: decide whether Le Labo Réseau's idle-anchor death in beat 1 is worth a map
-  change (La Salle de TP's duct skip was closed with a terminal and a trap in the fix round).
+  change (La Salle de TP's duct skip was closed with a plate in the duct holding a trap open, in the fix rounds).
 
 - Co-op "Réactivité": playtest the setting. Auto predicts under a 60 ms round trip and draws step A over
   80 ms (bench: the worst player's corrections start crossing 0.1 cell at about 78 ms, and always do by
