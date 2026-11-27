@@ -172,7 +172,7 @@ because the apex is exactly 3.0, and a change of jump tuning would move them.
 | 3-tower in M (3 players) | 5 | top feet 1.8 | cannot lean into J: the PC tower's top (2) is above its feet; it can only jump onto the PC tower (and from there, the line above) |
 | 4-tower in M (4-5 players) | 5 | top feet 2.7, apex 5.7 | would reach: it stands on the sensor, the hatch is shut (its top bonks at 3.1) |
 | Human tower in J, the PC tower left one cell short (in M's right cell) | 5 | 2-3 players: top feet 0.9 / 1.8, apex 3.9 / 4.8; 4-5: 4 bodies, top feet 2.7 | 2-3: 1.1 / 0.2 short (the shortcut's best feet at 3 players: 0.2 under the lip). 4-5: they stand on J's sensor (weight 4 or more), the hatch is shut; with the sensor ignored the top gets up at 4 and 5. Three friends in J at 4-5 weigh 3 (hatch open) and are 0.2 short like at 3 |
-| Ruben + 2 friends stacked on the PC tower in J (4-5) | 5 | top feet 3.8 | would reach, but they weigh 4 on J's sensor: the hatch is shut. Ruben and one friend (the solution) weigh 3 |
+| Ruben + 2 friends stacked on the PC tower in J (4-5) | 5 | top feet 3.8 | would reach. They weigh 4 on J's sensor, but the hatch does not always shut: the top friend's body can sit in the hatch's cell (feet 10.2), and a gate never shuts on a body, so the hatch stays "blocked" open and the top friend gets up (fix-round skeptic, `fuzzh.ts` seed 44 run 278 at 4 players, with F0 on plate g). Covered by "any human tower standing on a PC tower" (Accepted); the hatch logic was not changed in this round. Ruben and one friend (the solution) weigh 3 |
 | Into the duct from M's floor, alone | 3 | apex 3.0 | **0.0, pinned**: it takes a leg-up (0 of 480 with a buffered jump, re-measured with the plate). From a head (feet 0.9, apex 3.9) the jumper is held against the duct floor's side and slides in once its feet clear it: 144 of 144 from the solution's pose at 3-5, re-measured with the plate |
 | Into the duct from Ruben's head on the PC tower | 0 (his head is 0.1 under the duct's floor) | a jump to the left, leaning on his head first | Ruben is the leg-up: the friend who will wait gets in 58, 72 and 74 of 160 tries at 3, 4 and 5 players and the level finishes (accepted: someone waits in the duct all the same) |
 | Into the duct from the bare PC tower in J | 1 | a jump from the tower's top (2) to the left | the tower is the leg-up: 11 of 72 tries at 3 players, re-measured with the plate (accepted: the duct is still used) |
@@ -434,7 +434,10 @@ the pull of a haul into a room under the lip (the reason there is none).
   so this is now open at every size (before critic round 4 the tower weighed 2 and shut the hatch
   at 4-5).
 - Other ways into the duct: Ruben gives the leg-up (above), the bare PC tower in J (11 of 72
-  tries), or one already in the duct hauls the next in over its mouth (the mantle over a wrapped
+  tries), the PC tower left one cell short in M's right cell (an easy solo step: 27 of 27 tries at
+  3 players, fix-round skeptic `shortstep.ts`; F1 hops onto it and into the duct and stands on g,
+  Ruben pushes the tower on into J and climbs it, F0, tied only to F1, jumps onto Ruben's head and
+  gets up), or one already in the duct hauls the next in over its mouth (the mantle over a wrapped
   lip). Any order works as long as someone stands on the plate when the climber jumps, the
   climber's other neighbour is in the duct (or jumps with it), and the one up locks the trap
   before the haul.

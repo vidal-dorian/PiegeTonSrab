@@ -937,6 +937,47 @@ Open after the integration's skeptic round (not fixed; each is in the level's no
 - coop04, the duct skipped at 4-5 players, and Ruben's solo climb at 2 players: closed and measured in the fix
   round (see La Salle de TP above).
 
+Fix round after the levels 2-4 redesign (2026-11-27; three lanes from 0fa5e90, each through a skeptic, then
+integrated on one branch):
+
+- Wall bob (rope engine): **left out.** Its commits are `35e30ca` ("stop the wall bob at its energy sources":
+  plain gravity on a rope-held body, tensions measured before they are applied, wall friction braked once,
+  Ruben's slide off a head never stretching his links) and `6535dfd` ("the anchor stops at its pivot, a pan
+  stops where the rope holds": `sinkRoom` for seesaw sides and balance pans). Its skeptic found regressions
+  against 0fa5e90: 23 strict regressions in a widened 6000-seed probe (14 past the stop, 5 still bad at 45 s;
+  all settle by 90 s), 33 in the reused gen probe (13 still bad at 45 s); and `sinkRoom` adds behaviour 0fa5e90
+  does not have: an endless 0.0417 pan dither (sandbox pan seed 1711; seed 989's 0.0208 dither doubled), two
+  setups that rest with a link at 5.426 / 5.425, past the 5.4 stop, for ever (seeds 1305, 1610: once a link is
+  past 5.4, `sinkRoom` returns 0 and nothing shortens it), and coop05's pulley pan stopping at 3.865-2.820 of
+  its 4 cells while Ruben's neighbour stands 3.4-4.6 cells away on the start floor (it frees up when he walks
+  closer; a real change in a shipped beat). What holds in it: endless wall bob 1272 of 32249 runs before, 60
+  after; check-level identical; pinned values unchanged; perf in budget. Probes and outputs:
+  `fixround/recheck-wallbob/` in the session scratchpad. Next try: keep `35e30ca`'s four rules, drop or rework
+  `sinkRoom` (it must shorten a link already past the stop), and settle the late transients before 45 s.
+- L'Amphi (coop03): cherry-picked (`4833e66`, `a99ba9e`): the bench's ceiling 2 over the bench, and the
+  trapdoor w a sliding platform (details above). **Open** (coop03.md, "Open"): at 3-5 players the leaver
+  (Ruben or a second friend) jumps left off the bench while the others walk to its far end and F0 on f opens
+  gate x; the rope goes taut, he hangs over w's left half, his weight re-arms the bench, w slides away and he
+  falls in, and the level is then won (20.9 s Ruben at 3 players, 20.1 s / 23.7 s two friends at 3 / 4; not
+  faster than the bots). Scripted counts of 2100 (this branch / 0fa5e90): Ruben 66 / 42 at 3 players, 0 / 18
+  at 4, 47 / 29 at 5; F1 63 / 70 at 3; F2 92 / 65 at 4; F3 28 / 46 at 5. At 2 players random play is clean
+  (0 of 8000, 0fa5e90: 42). Not a soft-lock and not a faster finish, but it breaks "one friend alone in the
+  cellar". Soft-locks with the platform were probed only by random play.
+- La Salle de TP (coop04): cherry-picked (`48b2c3b`, `b23452b`): the trap over the shaft held open by plate g
+  in the duct, locked at « Bloque la trappe » (details above). Its skeptic did not refute it (fuzz of 4800
+  runs: the trap never open without the plate, its hold or a body in its cell). Two doc fixes made here: the
+  PC tower left in M's right cell is an easy solo step into the duct (27 of 27 at 3 players; listed under
+  "Other ways into the duct"), and at 4-5 players a 3-stack on the PC tower in J does not always shut the
+  hatch (the top friend's body in the hatch's cell keeps it blocked open; covered by "any human tower
+  standing on a PC tower"). Signs checked on screen at 2-5 players: no overlap.
+- Integration: no conflicts but HANDOFF's open list (coop03's "Ruben hanging" item dropped, closed by its
+  lane). No level or bot change was needed. `npm test` 627 passed (47 files, the prediction bench included:
+  20-step replay at 5 players 0.51-1.32 ms), typecheck and build pass, `check-coop-level --all` all good,
+  `check-level --all` identical to 0fa5e90 but for timings.
+- Bot times (2 / 3 / 4 / 5 players): coop01 25.4 / 26.0 / 27.2 / 28.4 s, coop02 14.5 / 25.6 / 30.7 / 35.9 s,
+  coop03 16.2 / 17.9 / 19.2 / 21.9 s, coop04 20.9 / 22.8 / 24.1 / 26.8 s, coop05 15.7 / 17.5 / 20.2 / 23.5 s.
+- Still open from before: coop02's idle-team kill in beat 1 (above); coop02 is redesigned next.
+
 Status at the end of M4 (2026-11-26):
 
 - Done: step B is wired into the online screen (opt-in, `?predict=1`; step A stays the default because the

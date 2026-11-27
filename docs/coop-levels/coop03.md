@@ -467,12 +467,43 @@ Every way to be locked in has a way out:
   under the bench's end.
 - **A friend left below at the seat:** someone above stands on d. **Ruben left below:** he sits on
   c.
-- **Ruben** never gets through the trapdoor w, walking, jumping or dragged off the bench by the
-  rope, hanging from his neighbour on the bench, or with the free friend hopping under it (see the
-  shortcuts): leaving the bench towards w
-  he stands on m, and lands on w once it is back. He can get into the cellar only through e, from
+- **Ruben** never gets through the trapdoor w walking, jumping or dragged off the bench by the
+  rope, hanging from his neighbour on the bench from the aisle, or with the free friend hopping
+  under it (see the shortcuts): leaving the bench towards w he stands on m, and lands on w once it
+  is back. He can, though, by jumping left off the bench while the others walk to its far end (see
+  **Open** below: 3 and 5 players). He can get into the cellar only through e, from
   tier 1, and gets out the same way. The escape of two shut in the cellar was probed again with m
   (2 players, the tightest case): it works.
+
+## Open
+
+Found by the skeptic of the fix round (probes in the session scratchpad,
+`fixround/recheck-coop03/probes`, run with `./run.sh new|base|old FILE args`), not fixed:
+
+- **Open: the leaver hangs over w from the bench's far end (3-5 players).** The leaver (Ruben, or
+  a second friend) jumps left off the bench, plate p lets go and the trapdoor comes back; meanwhile
+  the others walk to the bench's right end, F0 on f opens gate x and frees the last cell. The rope
+  goes taut and the leaver hangs from them over w's left half (x 32.0-32.8, clear of m); a hanging
+  body weighs on its holder (`computeLoads`, hangHeight 0.5), so p reads W-1 again, w slides away in
+  one step and he falls in. It is the plate re-arming, so the platform's speed does not help. The
+  m-pit variant: a friend hanging inside m's box (x 33) keeps m from shutting when p re-arms.
+  - Scripted (`rjump.ts`, 2100 runs per row; this level / 0fa5e90 / the ceiling fix alone):
+    Ruben at 3 players 66 / 42 / 66, at 4 players 0 / 18 / 0, at 5 players 47 / 29 / 57; F1 at 3
+    players 63 / 70; F2 at 4 players 92 / 65; F3 at 5 players 28 / 46. Example: `rjump.ts 3 left`,
+    run `f0 1 oth 1 tw 0 jh 3 ll 60 rj 1`. 56 runs at 3 players and 33 at 5 get Ruben in here and
+    stay out on 0fa5e90.
+  - Random play near the bench (`rand.ts`, 2000-run sweep, stopped part-way; this level / 0fa5e90 /
+    the ceiling fix alone): 3 players, a friend 4 / 25 / 52; Ruben 2 / 36 / 74; pre-set 0 / 2 / 2.
+    At 2 players: 0 of 8000 (0fa5e90: 42).
+  - The level is then won (`win3.ts` replays the recorded inputs): Ruben in the cellar, won in
+    20.9 s (3 players, seed 1612); two friends in the cellar, won in 20.1 s (3 players, seed 274)
+    and 23.7 s (4 players, seed 108, F2 hanging in m's pit). None is faster than the bots (17.9 /
+    19.2 s), but each breaks "one friend alone in the cellar". No committed shortcut covers it (the
+    two hanging shortcuts only hop from the aisle).
+  - Fix ideas, untested: count a hanging body only on a support it was standing on when the bench
+    last let go (a latch on p), or keep w shut until the leaver is back on the bench or on the
+    aisle.
+- **Open: soft-locks with the platform** were probed only by random play (no stuck state found).
 
 ## Deviations from the plan, and why
 
