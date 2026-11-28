@@ -36,6 +36,15 @@ prints the time of each phase, or the failing phase with the world drawn at that
 
 - Rows of characters, same terrain as the race maps: `#` solid, `.` empty; race objects `^` floor
   spikes, `*` saw, `T` spring, `=` placed block.
+- Race objects only come in their default direction here: `^` points up, `T` throws up. The race
+  can turn its spikes and springs since main's 2026-11-26 rules, but a co-op row has no character
+  for that; turned spikes are the `spikes` thing below, and no level has a turned spring. The race
+  also made its spikes a solid block that kills through its pointed face; co-op levels keep the rule
+  they were built with: `^` is not solid (bodies, crates and the rope pass into its cell; La Salle
+  de TP drops its rack into a ditch of them) and kills a body in the bottom 0.45 of its cell unless
+  it moves up (`raceObjectHazards`, `isCoopSolidObject` in levelFormat.ts). They are drawn with the
+  race's new art (teeth filling the cell over a white plate). The race's protected start and finish
+  zones do not exist in co-op.
 - `=`, a placed block (drawn as a white riveted tile, never taken for terrain): solid for bodies
   and crates, and the rope wraps it like terrain (springs `T` too). The rope wraps all the fixed
   scenery; only the co-op things (gates, crates, A/B shelves, platforms, fragile floors) let it
