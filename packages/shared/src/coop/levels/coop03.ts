@@ -12,6 +12,7 @@
  *    plate d ("1", the first cells of the upper floor, right over the seat): whoever goes up
  *    through h and stands on d holds h for Ruben, with the rope straight through d to him.
  * 3. Le contrôle surprise (x 26-41): plate "W-1" (p, the bench, one cell above the aisle, two seats,
+ *    counting only what stands on it, not a friend hanging from a sitter,
  *    under a ceiling two cells over it: a friend on a head at most, so nobody stands high enough for
  *    Ruben to hang from him far out on the aisle and still be over the trapdoor before it shuts)
  *    opens the 2-cell trapdoor w just left of it; the one friend left free drops into the cellar
@@ -76,7 +77,9 @@ export const coop03: CoopLevelDef = {
     // 3. Le contrôle surprise. f (only a lone friend can stand on it, down in the cellar) frees the
     // team and shuts the key's gate n; r, once everyone is out, opens the cellar's door e.
     x: { kind: "gate", link: "libre" },
-    p: { kind: "plate", need: "W-1", link: "controle" },
+    // The bench counts only what stands on it: a friend hanging from a sitter weighed on it, so a
+    // leaver who jumped off and hung over the trapdoor re-armed it and fell in (fix round skeptic).
+    p: { kind: "plate", need: "W-1", standing: true, link: "controle" },
     // The trapdoor: a platform that slides 2 cells right, under the bench, while the bench holds
     // W-1, in one step (240 cells/s), and back in one step when it lets go. A gate here never shut
     // while the free friend below hopped with his head in it, and the one leaving the bench

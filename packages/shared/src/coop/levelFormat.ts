@@ -36,8 +36,12 @@ export type PlayersSpec = string;
 export type SpikeDir = "up" | "down" | "left" | "right";
 
 export type ThingDef =
-  /** A floor plate (its cells replace the floor): active while it carries `need` (exactly, with `exact`). */
-  | { kind: "plate"; need: WeightSpec; exact?: boolean; link: string; players?: PlayersSpec }
+  /**
+   * A floor plate (its cells replace the floor): active while it carries `need` (exactly, with
+   * `exact`). `standing`: only what stands on it counts (the bodies and crates on it and on each
+   * other's heads), not the friends hanging from them on the rope.
+   */
+  | { kind: "plate"; need: WeightSpec; exact?: boolean; standing?: boolean; link: string; players?: PlayersSpec }
   /** A gate: solid unless its link is on (inverted: the other way round). Never closes on anyone. */
   | { kind: "gate"; link: string; inverted?: boolean; players?: PlayersSpec }
   /**

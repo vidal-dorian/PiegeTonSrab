@@ -95,7 +95,7 @@ down to the stage.
 | `k` | still platform (a mover on link `marche`, which nothing drives) | tunnel floor, x 24: the seat's step | |
 | `c` | plate: the seat | floor of the 1 x 1 pocket at x 25, the tunnel's end | 2, `place` |
 | `x` | gate | x 36, rows 7-8, standing on the bench's last cell, up to the bench's low ceiling | `libre` |
-| `p` | plate: the bench | x 34-36, row 9: one cell above the aisle, the cellar under it; two seats (x stands on the third cell) | W-1, `controle` |
+| `p` | plate: the bench | x 34-36, row 9: one cell above the aisle, the cellar under it; two seats (x stands on the third cell); counts only what stands on it (`standing`: nobody hanging from a sitter weighs on it) | W-1, `controle` |
 | `m` | gate, **inverted**: the bench's end | x 33, row 9, at the bench's height, over w's right half | `controle` |
 | `w` | trapdoor: a platform (one-way, 0.4 thick) that slides 2 cells right, under the bench, at 240 cells/s (one step) while its link is on | aisle floor, x 32-33, right against the bench | `controle` |
 | `e` | the cellar's door (vertical gate) | x 37, rows 10-11: the cellar's side wall, onto tier 1 | `sortie` |
@@ -326,6 +326,7 @@ every shortcut fails in that phase at 2, 3, 4 and 5 players.
 | freeing the others before taking the key | F0 drops in and goes straight to f (n shuts), the team goes out onto tier 1 and keeps to its places, F0 goes back for the key | the rope holds F0 within a link of the team outside |
 | the free friend lets himself out with s (new) | F0, key in hand, steps on s and runs for e | s is 3 cells from e: e has shut before he gets there |
 | a tower over gate g | nobody on a; Ruben's neighbour climbs on Ruben at g and jumps | g reaches the ceiling |
+| Ruben hangs over the trapdoor from the bench's far end (new, whole-tree skeptic) | Ruben on the left seat, F0 dropped in; Ruben jumps left off the bench twice while the others walk to its far end and F0 walks right under it | the bench counts only what stands on it: Ruben's hang does not re-arm it, w stays shut and he lands on it (before `standing`: in the cellar at 3 players) |
 
 **Control experiment.** Scripts not committed: `.scratch-coop03-control.ts` and, for m,
 `c03fix/control.ts` in the session scratchpad. With the level weakened, the same bots get through their attempt phase at 2-5 players,
@@ -478,9 +479,10 @@ Every way to be locked in has a way out:
 ## Open
 
 Found by the skeptic of the fix round (probes in the session scratchpad,
-`fixround/recheck-coop03/probes`, run with `./run.sh new|base|old FILE args`), not fixed:
+`fixround/recheck-coop03/probes`, run with `./run.sh new|base|old FILE args`); the first was fixed
+in the final repair round (probes in `fixround/repair-all/probes/c03`, `./run.sh wt|new|base`):
 
-- **Open: the leaver hangs over w from the bench's far end (3-5 players).** The leaver (Ruben, or
+- **Fixed (2026-11-28): the leaver hangs over w from the bench's far end (3-5 players).** The leaver (Ruben, or
   a second friend) jumps left off the bench, plate p lets go and the trapdoor comes back; meanwhile
   the others walk to the bench's right end, F0 on f opens gate x and frees the last cell. The rope
   goes taut and the leaver hangs from them over w's left half (x 32.0-32.8, clear of m); a hanging
@@ -500,9 +502,24 @@ Found by the skeptic of the fix round (probes in the session scratchpad,
     and 23.7 s (4 players, seed 108, F2 hanging in m's pit). None is faster than the bots (17.9 /
     19.2 s), but each breaks "one friend alone in the cellar". No committed shortcut covers it (the
     two hanging shortcuts only hop from the aisle).
-  - Fix ideas, untested: count a hanging body only on a support it was standing on when the bench
-    last let go (a latch on p), or keep w shut until the leaver is back on the bench or on the
-    aisle.
+  - **Fix**: the bench counts only what stands on it (plate option `standing`, `levelFormat.ts`;
+    `CoopWorld.standingLoadOn`): a friend hanging from someone on the bench no longer weighs on it,
+    so a leaver's hang never re-arms it and he lands on the shut trapdoor. No intended move needs a
+    hanging weight on the bench (bot times unchanged: 16.2 / 17.9 / 19.2 / 21.9 s, the runs step
+    for step the same). Re-run (2100 runs per row, this tree / the integrated `73ac9d7` /
+    `0fa5e90`): Ruben at 3 players 0 / 66 / 42, at 4 players 0 / 0 / 18, at 5 players 0 / 47 / 29;
+    F1 at 3 players 0 / 63 / 70; F2 at 4 players 0 / 92 / 65; F3 at 5 players 0 / 28 / 46. Random
+    play near the bench (`rand.ts`, 1000 runs of 3 s each, seed 1; this tree / `73ac9d7` /
+    `0fa5e90`): 2 players 3 / 3 / 10, 3 players 3 / 6 / 22 (Ruben seated as in the solution) and
+    1 / 2 / 21 (on the left seat), 4 players 2 / 8 / 40; every hit left is one `73ac9d7` also has
+    (Ruben reaching the cellar through e once x is open, past the beat). The three recorded wins
+    (`win3.ts`) now stop with the leaver standing on the trapdoor. Kept as the shortcut "Ruben
+    hangs over the trapdoor from the bench's far end" (its attempt reaches the cellar at 3 players
+    without `standing`).
+  - What else it changes: the shortcuts "Ruben hanging from his neighbour on the bench" and "two
+    friends into the cellar, one hanging" relied on a hanging body opening w; it no longer does,
+    so both fail earlier (w stays shut). The notes below that count a hanging weight on the bench
+    describe the level before this fix. Nothing else in any level uses `standing`.
 - **Open: soft-locks with the platform** were probed only by random play (no stuck state found).
 
 ## Deviations from the plan, and why
@@ -556,10 +573,11 @@ Found by the skeptic of the fix round (probes in the session scratchpad,
   colliders come before things: a friend standing across a friend's head and a plate stands on the
   friend.
 - A body in the air under a taut rope "hangs" from a higher neighbour and weighs on whatever that
-  neighbour stands on. The seat is at floor level, so nobody can hang below it. On the bench a link
-  that carries a hanging body's weight is taut only far out on the aisle, and it goes slack again
-  too far from the trapdoor (see the shortcuts); a body floating at the end of a stretched rope
-  hangs too.
+  neighbour stands on, except on a plate with `standing` (the bench, since 2026-11-28: only what
+  stands on it counts). The seat is at floor level, so nobody can hang below it. Before the bench
+  had `standing`, a link that carried a hanging body's weight was taut only far out on the aisle,
+  and it went slack again too far from the trapdoor (see the shortcuts); a body floating at the
+  end of a stretched rope hangs too.
 - "A gate never closes on a body" makes every relay plate optional (the door wedge), and it is how
   two shut in the cellar let each other out. It is also why the trapdoor is a platform: a gate
   there was held open by the free friend hopping under it.

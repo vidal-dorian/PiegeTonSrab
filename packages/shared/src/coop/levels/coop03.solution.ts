@@ -859,6 +859,38 @@ export const shortcuts: Record<string, CoopSolution> = {
     return phases;
   },
 
+  /**
+   * Beat 3 (skeptic of the fix round): Ruben, on the left seat, jumps left off the bench (twice)
+   * while the others walk to its far end and F0, dropped in, walks right under it: the rope goes
+   * taut and Ruben hangs over the trapdoor's left half. A friend hanging from someone on the bench
+   * used to weigh on it, so the bench read W-1 again, the trapdoor slid away under him and he fell
+   * in (`rjump.ts 3 left`, run "f0 1 oth 1 tw 0 jh 3 ll 60 rj 1"). The bench now counts only what
+   * stands on it (`standing`): it stays short and he lands on the shut trapdoor.
+   */
+  "Ruben hangs over the trapdoor from the bench's far end": (n) => {
+    const left = shortcuts["Ruben walks off the bench into the trapdoor"]!(n).slice(0, -1);
+    const leap: Goal = {
+      label: "jump left off the bench, twice",
+      step(c) {
+        let b = c.t < 60 ? BIT_LEFT : 0;
+        if (c.t === 0 || c.t === 40) b |= BIT_JUMP | BIT_JUMP_PRESS;
+        else if ((c.t > 0 && c.t < 3) || (c.t > 40 && c.t < 43)) b |= BIT_JUMP;
+        return b;
+      },
+    };
+    const right: Goal = { label: "walk right", step: () => BIT_RIGHT };
+    return [
+      ...left,
+      { name: "F0 drops onto the trapdoor and in", do: { F0: walk(ON_W, never) }, until: feetBelow("F0", 11.95), timeout: 6 },
+      {
+        name: "ATTEMPT: Ruben jumps left off the bench, the others walk to its far end, F0 walks right",
+        do: { R: leap, F0: walk(35.5, never), "*": right },
+        until: feetBelow("R", 11.95),
+        timeout: 3,
+      },
+    ];
+  },
+
   /** Beat 3 in the wrong order: F0 drops in and stands on f first (the team goes out), then goes back for the key. */
   "freeing the others before taking the key": (n) => {
     const ctl = controle(n);

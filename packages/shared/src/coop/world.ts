@@ -172,6 +172,8 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
   /** Weight of each node (with what it carries), and what stands on each collider (by index). */
   private weights: number[] = [];
   private loads: number[] = [];
+  /** Loads counting only what stands (no hanging friends), for the plates that ask for it. */
+  private standingLoads: number[] = [];
   private standers: number[][] = [];
   // Referee bookkeeping (not saved).
   private groundLost: Array<{ by: number; why: BlameWhy; tick: number } | null> = [];
@@ -423,6 +425,10 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
 
   loadOn(id: number): number {
     return this.loads[this.colliderIndex(id)] ?? 0;
+  }
+
+  standingLoadOn(id: number): number {
+    return this.standingLoads[this.colliderIndex(id)] ?? 0;
   }
 
   downPressed(i: number): boolean {
@@ -844,6 +850,23 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
     this.loads = this.colliders.map(() => 0);
     this.standers.forEach((list, idx) => {
       for (const node of list) this.loads[idx]! += this.weights[node]!;
+    });
+    if (!this.props.plates.some((p) => p.standing)) return;
+    // The same without the friends hanging on the rope (plates with `standing`).
+    const memoS = new Array<number>(count).fill(-1);
+    const weighS = (node: number): number => {
+      if (memoS[node]! >= 0) return memoS[node]!;
+      if (visiting[node]) return 0;
+      visiting[node] = true;
+      let w = node < n ? (this.inside[node] ? 0 : this.bodies[node]!.mass) : this.props.crates[node - n]!.weight;
+      for (const r of riders[node]!) w += weighS(r);
+      visiting[node] = false;
+      memoS[node] = w;
+      return w;
+    };
+    this.standingLoads = this.colliders.map(() => 0);
+    this.standers.forEach((list, idx) => {
+      for (const node of list) this.standingLoads[idx]! += weighS(node);
     });
   }
 

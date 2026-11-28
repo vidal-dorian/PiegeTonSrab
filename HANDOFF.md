@@ -955,7 +955,7 @@ integrated on one branch):
   `fixround/recheck-wallbob/` in the session scratchpad. Next try: keep `35e30ca`'s four rules, drop or rework
   `sinkRoom` (it must shorten a link already past the stop), and settle the late transients before 45 s.
 - L'Amphi (coop03): cherry-picked (`4833e66`, `a99ba9e`): the bench's ceiling 2 over the bench, and the
-  trapdoor w a sliding platform (details above). **Open** (coop03.md, "Open"): at 3-5 players the leaver
+  trapdoor w a sliding platform (details above). **Open, fixed since** (see the final repair below; coop03.md, "Open"): at 3-5 players the leaver
   (Ruben or a second friend) jumps left off the bench while the others walk to its far end and F0 on f opens
   gate x; the rope goes taut, he hangs over w's left half, his weight re-arms the bench, w slides away and he
   falls in, and the level is then won (20.9 s Ruben at 3 players, 20.1 s / 23.7 s two friends at 3 / 4; not
@@ -991,8 +991,14 @@ integrated on one branch):
   `CoopWorld.slideRoom`). Landings, poses and bot runs are those of `219ffed` again (bot times 14.5 / 25.6 /
   30.7 / 35.9 s, `check-coop-level` identical), lip-slide deaths stay 0 at 2-5 (0 / 159 / 15 / 0 before in the
   placed sweep). Idle deaths left in beat 1 are the slot catcher's (1 / 3 / 3 / 0 of 400 random runs at 2-5,
-  also dead on `219ffed`, which had 12 / 40 / 47 / 39). coop03's Open trapdoor route is unchanged by this
-  (still worse than `0fa5e90` at 3-4 players for some leavers, better for others; see its Open entry).
+  also dead on `219ffed`, which had 12 / 40 / 47 / 39).
+- coop03 fix (2026-11-28, whole-tree skeptic): the leaver hanging over w from the bench's far end re-armed the
+  bench (a hanging friend weighed on his holder's plate) and fell in; worse than `0fa5e90` for some leavers
+  (Ruben 66 / 42 at 3 players, F2 92 / 65 at 4). New plate option `standing` (only what stands on it counts;
+  `CoopWorld.standingLoadOn`), set on the bench p only: 0 of 2100 in every row at 3-5 players (Ruben, F1, F2,
+  F3), random play near the bench at or below `73ac9d7` and `0fa5e90` everywhere. Bot runs unchanged (16.2 / 17.9
+  / 19.2 / 21.9 s); new shortcut "Ruben hangs over the trapdoor from the bench's far end" (reaches the cellar at
+  3 players without `standing`). No other level uses it.
 
 Status at the end of M4 (2026-11-26):
 

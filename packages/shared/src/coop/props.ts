@@ -128,6 +128,8 @@ export interface PlateState {
   collider: BoxCollider;
   need: number;
   exact: boolean;
+  /** Only what stands on it counts, not the friends hanging from it (PropsHost.standingLoadOn). */
+  standing: boolean;
   link: string;
   hold: number;
   active: boolean;
@@ -235,6 +237,8 @@ export interface PropsHost {
   isInside(i: number): boolean;
   /** Weight standing on the collider with this id after the last step. */
   loadOn(id: number): number;
+  /** The same, counting only what stands on it (no friend hanging from someone on it). */
+  standingLoadOn(id: number): number;
   /** Down was pressed this step by body i. */
   downPressed(i: number): boolean;
   /** Left/right input of body i this step. */
@@ -323,6 +327,7 @@ export class CoopProps {
             collider: make(t.x, t.y, t.w, t.h, "solid"),
             need: resolveWeight(d.need, players),
             exact: d.exact === true,
+            standing: d.standing === true,
             link: d.link,
             hold: 0,
             active: false,
@@ -712,7 +717,7 @@ export class CoopProps {
     const tick = host.levelTick;
     // Plates.
     for (const p of this.plates) {
-      p.load = host.loadOn(p.collider.id);
+      p.load = p.standing ? host.standingLoadOn(p.collider.id) : host.loadOn(p.collider.id);
       const on = host.standersOn(p.collider.id).filter((node) => node < this.bodyCount);
       // Someone stepped off: remembered for the blame if the link goes off.
       for (const b of p.on) if (!on.includes(b)) this.releasedBy.set(p.link, b);
