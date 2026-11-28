@@ -698,7 +698,7 @@ Decided with him:
   a little viscous friction since the review (`ropePulleyDamping`, below): otherwise the same tension all
   along the path.
 - The wraps are world state: saved, loaded, hashed, in the snapshots (snapshot version 4, protocol 6; 7 since
-  the review fixes changed the rules), replayed
+  the review fixes changed the rules; 8 since the fix round's `grip` floor and `standing` plates), replayed
   by the prediction, cleared on a level start, a restart and a rebuilt team.
 
 How it works (`rope.ts`, `world.ts`):
@@ -1022,9 +1022,9 @@ Status at the end of M4 (2026-11-26):
   is the stretch cue (thinner, orange to red, all red at the stop) clear, does a hanging friend bounce too
   much or too little (`ropeDamping`)? Decided: the rope wraps placed blocks `=` too, and levels 2 to 4 get
   redesigned around the wraps (see "Rope wraps placed blocks"). La Salle can now be climbed by hauling from 3
-  players (accepted). Done for levels 2-4 (see "Levels 2-4 redesigned for the wrapped rope"); three skeptic
-  findings are left open there: decide whether Le Labo Réseau's idle-anchor death in beat 1 is worth a map
-  change (La Salle de TP's duct skip was closed with a plate in the duct holding a trap open, in the fix rounds).
+  players (accepted). Done for levels 2-4 (see "Levels 2-4 redesigned for the wrapped rope"); the three skeptic
+  findings left open there were closed in the fix round (Le Labo Réseau's non-slip lip, L'Amphi's "standing"
+  bench, La Salle de TP's plate in the duct). Still open: the wall bob fix (left out, see the fix round).
 
 - Co-op "Réactivité": playtest the setting. Auto predicts under a 60 ms round trip and draws step A over
   80 ms (bench: the worst player's corrections start crossing 0.1 cell at about 78 ms, and always do by
