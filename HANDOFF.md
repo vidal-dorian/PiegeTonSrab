@@ -1062,6 +1062,47 @@ integrated on one branch):
   / 19.2 / 21.9 s); new shortcut "Ruben hangs over the trapdoor from the bench's far end" (reaches the cellar at
   3 players without `standing`). No other level uses it.
 
+Wave A (2026-11-28; two lanes from `5bfc5e9`, each through a skeptic, then integrated):
+
+- Main merge: **in**, fast-forwarded as is (`15190ec`, the real merge of `5bfc5e9` and main `03bb9fe`, then
+  `be10e56`, the race objects' rule pinned for co-op). Details under "Main merged" above. Its skeptic did not
+  refute it: check-coop-level identical to `5bfc5e9`, check-level identical to `03bb9fe` (timings aside), the
+  golden hashes pass on a clean `03bb9fe` copy, a whole-world hash of random play on every level at 2-5
+  players is the same on both trees, race and co-op rejoins work in the browser. `COOP_PROTOCOL_VERSION`
+  stays 8.
+- Wall bob, third try: **left out.** Its commits are on the branch `worktree-wf_d6f29581-a5d-2` (`10c198c`
+  = `35e30ca` cherry-picked, then `3865d71`, `bc38ce0`, `ae5c168`, `93fd637`, `0d46beb`, `eb8880c`, `6307a91`;
+  protocol 9). It cut the endless wall bob a lot (moving runs 2348 -> 189 on the builder's probe set, 1096
+  -> 143 on 16720 fresh runs; random play's longest link 5.4918, none past 5.5) with every check green and
+  the pinned values unchanged, but its skeptic refuted it on the strict 45 s rule: 29 + 8 regressions the
+  builder conceded, 18 more on fresh seeds, among them 5 endless prop flickers where `5bfc5e9` rests (2 in
+  coop05 at 5 players: random-play seed 41 at 10 s of presses, a 2-step pan cycle 2.0592 <-> 2.0384 with
+  body 0 switching between body 3's head and the pan; seed 24 at 15 s), a sandbox seesaw flicker from
+  `0d46beb`, a link resting at 5.971 (sandbox pan seed 61404, from `eb8880c`; 5.335 on base), and coop05's
+  pulley pan with a friend (not Ruben) on pan l stopping at 3.865-2.755 of its 4 cells for a neighbour 3.4-4.6
+  cells away. Probes and outputs: `waveA/wb3/`, `waveA/wbR/`, `waveA/verify-wallbob/` and
+  `waveA/recheck-wallbob/` (harness in `h/`, comparisons in `cmp-full.txt` and `cmp-fresh.txt`) in the session
+  scratchpad. Next try: start from `6307a91`, fix the pan / head contact switch (a body alternating between a
+  head and a pan in one step), make `eb8880c`'s "lifted" rule check that the stop really lifts the held body,
+  and keep a friend on coop05's pan l sinking its full 4 cells.
+- Checks on the integrated tree (`be10e56`): `npm test` 722 passed (55 files; golden test and prediction bench
+  included: 20-step replay at 5 players 0.37-0.69 ms median), typecheck and build pass, `check-coop-level --all`
+  all good, `check-level --all` all good. Server step at 5 players (the budget test's setup) median
+  0.03-0.07 ms. Pinned probe unchanged: idle drag 3.500 (Ruben 2.333 / 4.667), Ruben tug 2.333, anchor drift
+  0.150 / 0.300, haul caps 2.5 / 1.2, longest link 5.400. Random play (1,152,000 steps, 2-5 players): longest
+  link 5.5108, 1 step past 5.5 (coop02, 2 players, seed 1, t = 31.39 s), the same as on `5bfc5e9`.
+  Browser (server 2655, Vite 5655): a race round with a guest reloading mid-race (back in the race at once,
+  2 players on the host, both reach the score screen); co-op level 1 with 3 contexts (by link and by a
+  lower-case code; same names, seats and bodies everywhere; a reload is back with the level restarted after
+  31 s). No console errors.
+- Bot times (2 / 3 / 4 / 5 players) unchanged: coop01 25.4 / 26.0 / 27.2 / 28.4 s, coop02 14.5 / 25.6 / 30.7 /
+  35.9 s, coop03 16.2 / 17.9 / 19.2 / 21.9 s, coop04 20.9 / 22.8 / 24.1 / 26.8 s, coop05 15.7 / 17.5 / 20.2 /
+  23.5 s.
+- Open: the wall bob (above); co-op rooms do not use main's comeback key yet (a reloaded player waits for the
+  30 s window, see "Main merged"); race spikes in co-op levels are drawn with main's taller teeth but still
+  kill at 0.45 of the cell, so a body sinks into the teeth before it dies (cosmetic); the 1 random-play step
+  past 5.5 in coop02 (pre-existing).
+
 Status at the end of M4 (2026-11-26):
 
 - Done: step B is wired into the online screen (opt-in, `?predict=1`; step A stays the default because the
