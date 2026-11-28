@@ -8,5 +8,6 @@ import { coop02 } from "./levels/coop02";
 import { coop03 } from "./levels/coop03";
 import { coop04 } from "./levels/coop04";
 import { coop05 } from "./levels/coop05";
+import { coop07 } from "./levels/coop07";
 
-export const COOP_LEVELS: readonly CoopLevelDef[] = [coop01, coop02, coop03, coop04, coop05];
+export const COOP_LEVELS: readonly CoopLevelDef[] = [coop01, coop02, coop03, coop04, coop05, coop07];

@@ -4,12 +4,12 @@
  * Roles: R is Ruben, F0..F3 the friends in seat order (the chain is F0-F1-...-R). F0, the free end
  * of the chain, climbs the staircase; Ruben hits the alcove's switch on the signal. At 2 players
  * Ruben stands alone in the alcove; from 3 the others wait in it with him, F1 at its front (F0's
- * rope reaches him there, not further in), Ruben at its back under his switch. At the top F0 hits
- * the reading room's switch, and the alcove comes out one by one onto shelf L2 and is hauled up,
- * Ruben last. Map, beats and numbers: docs/coop-levels/coop07.md.
+ * rope reaches him there, not further in), Ruben at its back under his switch. At the top the roles
+ * swap: the last one up hits the reading room's switch for the next one in the alcove, who runs out
+ * onto L2 and jumps on the signal, Ruben last. Map, beats and numbers: docs/coop-levels/coop07.md.
  */
 import { BIT_DOWN, BIT_DOWN_PRESS, BIT_JUMP, BIT_JUMP_PRESS, BIT_LEFT, BIT_RIGHT } from "../inputBits";
-import { cond, enter, friends, jumpTo, mount, roleIndex, seq, wait, walk, when, type CoopSolution, type Goal, type Phase, type Role } from "../bots";
+import { cond, enter, friends, hold, jumpTo, mount, roleIndex, seq, wait, walk, when, type CoopSolution, type Goal, type Phase, type Role } from "../bots";
 import type { CoopWorld } from "../world";
 
 // --- Helpers ---------------------------------------------------------------------------------
@@ -126,7 +126,7 @@ function fillAlcove(n: number): Phase[] {
   {
     const take: Phase["do"] = {};
     inAlcove.forEach((r, m) => (take[r] = walk(finalSpot(m), { ...never, tol: 0.12 })));
-    phases.push({ name: "2. the alcove takes its places: Ruben at the back under his switch, F1 at the front", do: take, until: cond.all(...inAlcove.map((r, m) => cond.near(r, finalSpot(m), 0.2))), timeout: 8 });
+    phases.push({ name: n === 2 ? "2. Ruben under the alcove's switch" : "2. the alcove takes its places: Ruben at the back under his switch, F1 at the front", do: take, until: cond.all(...inAlcove.map((r, m) => cond.near(r, finalSpot(m), 0.2))), timeout: 8 });
   }
   return phases;
 }
@@ -304,7 +304,7 @@ function towerOnL1(n: number): Phase[] {
 
 
 /** The reading room's hitter (the last one in, under h) hits: A, L2 is back and the room's mouth shuts. */
-function hitForL2(n: number): Phase {
+function hitForL2(): Phase {
   return { name: "F0 hits h: L2 (A) is back, the room's mouth shuts", do: { F0: hop() }, until: active("A"), timeout: 3 };
 }
 
@@ -312,7 +312,7 @@ function hitForL2(n: number): Phase {
 function frontOntoL2(n: number): Phase[] {
   const r = chain(n)[1]!;
   return [
-    hitForL2(n),
+    hitForL2(),
     { name: `${r} runs out of the alcove and jumps onto L2`, do: { [r]: runJump(26.9, L2_X) }, until: cond.all(cond.standsAbove(r, 7), cond.near(r, L2_X, 0.6)), timeout: 4 },
   ];
 }
@@ -396,7 +396,7 @@ export const shortcuts: Record<string, CoopSolution> = {
       ...sas(n),
       ...escalier(n),
       ...intoRoom(),
-      hitForL2(n),
+      hitForL2(),
       { name: `ATTEMPT: F0 walks off with ${r} still in the alcove`, do: { F0: walk(19, never) }, until: cond.all(cond.standsAbove(r, 5), (w) => body(w, r).cx < 26.5), timeout: 8 },
       ...swap(n, 2),
       ...reserve(n),
@@ -425,6 +425,62 @@ export const shortcuts: Record<string, CoopSolution> = {
     { name: "ATTEMPT: F0 runs off the key's shelf and leaps for the door", do: { F0: seq(walk(13.4, never), leap(2.5)) }, until: cond.inside("F0"), timeout: 5 },
     { name: "everyone through the door", do: { "*": () => enter() }, until: cond.won, timeout: 30 },
   ],
+};
+
+// --- Recoveries: a mistake, then the way back, played to the end ---------------------------
+
+export const recoveries: Record<string, CoopSolution> = {
+  /**
+   * Beat 2, the first hit before F0 jumps: L1 goes under his feet. He drops onto the fragile planks
+   * across the pit, one under the rim (they hold a friend; at 2 players he first hangs a little over
+   * them, until Ruben's slide lets him down), hops back onto the rim's end, Ruben hits again (B: L1
+   * is back) and the climb starts over.
+   */
+  "the first hit too early": (n) => [
+    ...sas(n),
+    ...fillAlcove(n),
+    ...ontoL1(),
+    { name: "MISTAKE: Ruben hits before F0 jumps: L1 goes", do: { R: hop() }, until: active("A"), timeout: 3 },
+    // Held short by the rope (the hitter deep in the alcove at 2 players) he hangs just over the planks, against the rim, until the hitter's slide lets him down.
+    { name: "F0 drops onto the planks", do: {}, until: (w) => body(w, "F0").grounded && feetOf(w, "F0") > 11.9, timeout: 10 },
+    { name: "F0 hops back onto the rim's end", do: { F0: walk(RIM_END) }, until: cond.all(cond.standsAbove("F0", 11), cond.near("F0", RIM_END, 0.3)), timeout: 4 },
+    { name: "Ruben hits again: L1 is back", do: { R: hop() }, until: active("B"), timeout: 3 },
+    ...ontoL1(),
+    ...hit1(),
+    ...hit2(),
+    ...inversion(n),
+    ...reserve(n),
+  ],
+
+  /**
+   * Beat 3, the reading room hits before the climber (Ruben at 2 players, F1 from 3) jumps from L2:
+   * L2 goes and he drops towards L1 (B, back under him); held to the alcove he may hang just left of
+   * it and swings onto it. He hops back into the alcove's front (the one behind steps back) and the
+   * round is played again.
+   */
+  "the room's hit too early": (n) => {
+    const c = chain(n);
+    const r = c[1]!;
+    const nb = c[2];
+    return [
+      ...sas(n),
+      ...escalier(n),
+      ...intoRoom(),
+      ...swap(n).slice(0, 3),
+      { name: `MISTAKE: F0 hits h before ${r} jumps: L2 goes`, do: { F0: hop() }, until: active("B"), timeout: 3 },
+      {
+        name: `${r} drops and swings onto L1`,
+        do: { [r]: seq(wait(0.6), hold(1)) },
+        until: cond.all(cond.standsAbove(r, 9), (w) => feetOf(w, r) > 8.9),
+        timeout: 5,
+      },
+      ...(nb ? [{ name: `${nb} steps back from the alcove's front`, do: { [nb]: walk(25.3, { ...never, tol: 0.15 }) }, until: cond.near(nb, 25.3, 0.25), timeout: 4 } as Phase] : []),
+      { name: `${r} hops back into the alcove's front`, do: { [r]: seq(jumpTo(26.2), walk(ALCOVE_FRONT, never)) }, until: cond.all(cond.standsAbove(r, 8), cond.near(r, ALCOVE_FRONT, 0.3)), timeout: 5 },
+      { name: "F0 back under h", do: { F0: walk(UNDER_H, { ...never, tol: 0.1 }) }, until: cond.near("F0", UNDER_H, 0.15), timeout: 4 },
+      ...swap(n),
+      ...reserve(n),
+    ];
+  },
 };
 
 /** Run towards x from where the body is and jump at once (full jump), steering to x and pressing ↓ in the air; done once landed or inside. */
