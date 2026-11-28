@@ -11,14 +11,17 @@
  * 2. L'escalier (x 23-30): Ruben stands in the reading alcove (x 23-26, floor top 8, 2 high) under
  *    its switch (f at x 25 at 2 players; b at its back, x 23, from 3, with F1 at its front, the
  *    only spot F0's rope reaches from the top of his climb). F0 jumps from the rim's end onto L1 (B,
- *    top 9), then « 3, 2, 1, frappe ! »: he jumps, Ruben hits, L2 (A, top 7) appears under his
- *    feet; again, and L3 (B, top 5) appears, level with the reading room. The cap over L1 (x 29-30)
- *    and L3 cover all of L1: no tower skips the hits. A hit too early drops him onto the fragile
- *    planks x, one under the rim (a friend holds on them; the pit under them is a catch pit).
- * 3. L'inversion (x 25-29): the room's mouth m is shut whenever L2 is there (A), so nobody jumps from
- *    L2 into the room, and hauling the alcove up jams. The one up hits the room's switch h (A: L2
- *    is back), the alcove's front one runs out onto L2, and the room hits again on his jump (B: L3
- *    under him, the mouth open): the climbers now hit for the hitter, Ruben last.
+ *    top 9), then « 3, 2, 1, saute ! »: he jumps, Ruben hits right after, L2 (A, top 7) appears
+ *    under his feet; again, and L3 (B, top 5) appears, level with the reading room. L2 and L3 never
+ *    appear on a head (spareHeads): a hit up to 0.1 s before the jump still works. The cap over L1
+ *    (x 29-30) and L3 cover all of L1: no tower skips the hits. A hit too early drops him into the
+ *    dip under the stack, one under the rim, from which he hops back out.
+ * 3. L'inversion (x 23-29): the room's mouth m is shut whenever L2 is there (A), so nobody jumps from
+ *    L2 into the room. The one up hits the room's switch h (A: L2 is back), the alcove's front one
+ *    runs out onto L2, and the room hits again on his jump (B: L3 under him, the mouth open): the
+ *    climbers now hit for the next one, Ruben last. h hangs at x 24, so whoever hits it stands
+ *    clear of the mouth and m always shuts behind the hit. The turnstile o keeps the room 4 cells
+ *    deep (too short to haul a climber up to the mouth) until the whole team stood on its mat t.
  * 4. La réserve (x 2-15): the room arrives in B: the footbridge e (A) to the door is gone, the
  *    key's shelf q (B) is there and its cage (bars u, v, w: A) open. The carrier takes the key on
  *    q; the hit of r (A) drops him onto e, over a deadly pit. Standing on e at a B hit kills.
@@ -33,7 +36,7 @@ export const coop07: CoopLevelDef = {
     "################################",
     "################################",
     "##.........uKv........o..###.###",
-    "##D.........w..r......o..h##.###",
+    "##D.........w..r......o.h.##.###",
     "##D........qqq........o...m..###",
     "##eeeeeeeeeeee#########ttt#33..#",
     "##............#########b.f.....#",
@@ -61,7 +64,8 @@ export const coop07: CoopLevelDef = {
     g: { kind: "grip" },
     // The reading room's mouth: shut while L2 is there (A), so nobody jumps from L2 into the room.
     m: { kind: "shelf", group: "A" },
-    // 3. L'inversion: the reading room's switch, for the ones still in the alcove.
+    // 3. L'inversion: the reading room's switch, for the ones still in the alcove (x 24: whoever
+    // reaches it is clear of the mouth).
     h: { kind: "switch" },
     // The room's turnstile: shut until the whole team stood on the mat t in front of it (then for
     // good). Until then the room is 4 cells deep: too short to haul a climber up to the mouth.
@@ -81,7 +85,7 @@ export const coop07: CoopLevelDef = {
     { x: 10.5, y: 11.55, text: "Tout le monde dans le sas !" },
     // 2. L'escalier.
     { x: 18.5, y: 6.45, text: "Alcôve : Ruben frappe" },
-    { x: 18.5, y: 7.45, text: "« 3, 2, 1, frappe ! »" },
+    { x: 18.5, y: 7.45, text: "« 3, 2, 1, saute ! » puis frappe" },
     // 3. L'inversion.
     { x: 19.5, y: 2.55, text: "Salle de lecture", print: true },
     { x: 18.5, y: 8.45, text: "Puis la salle frappe pour l'alcôve" },

@@ -85,13 +85,13 @@ Units are cells and seconds. A body is 0.8 wide and 0.9 high.
 
 | Thing | Behaviour |
 |---|---|
-| `plate` | In the floor (its cells replace floor cells). Active while it carries `need` (`exact`: exactly). Weight = everything standing on it, with what stands on them and the friends hanging from them on the rope (`standing`: without the hanging friends, only what stands; L'Amphi's bench). `need` can be `"W"`, `"W-1"`, `"W-2"`: the team's weight (friends 1, Ruben 2) minus some. Stays active 0.15 s after its weight goes. |
+| `plate` | In the floor (its cells replace floor cells). Active while it carries `need` (`exact`: exactly). Weight = everything standing on it, with what stands on them and the friends hanging from them on the rope (`standing`: without the hanging friends, only what stands; L'Amphi's bench). `need` can be `"W"`, `"W-1"`, `"W-2"`: the team's weight (friends 1, Ruben 2) minus some. Stays active 0.15 s after its weight goes (`latch`: once active, it stays active until the restart; La BU's turnstile mat). |
 | `gate` | Solid unless its `link` is on (`inverted`: the other way round). A link is on when any plate of that link is active, or a terminal set it. Never closes on a body or a crate. |
 | `crate` | Its cells give its size (1x1 box, 1x2 PC tower, 3x1 server rack...). Moves only when a row of grounded players pressing towards it has a total strength of at least `need` (friend 1, Ruben 2), at 2.2 cells/s; never pushes anyone. Weighs `weight` (default: its need). Falls; can be stood on; stays on a head it falls on. Back home when it leaves the level or touches `~`. Stopped by `|`. |
 | `seesaw` | One row, odd width ≥ 3: two pads around a fixed middle cap. The heavier side goes down (0.75 below level, the other side 0.75 above); equal weights bring it back level. A fall of 1.5 or more onto the raised side snaps it and throws whoever stands on the other side up by 1.4 x fall x falling weight / launched weight, at most 8. The rope still holds the thrown friend (plan the targets within rope reach). |
 | `pan` | Two pans with the same `balance` id: the heavier drops `step` (1) cell per unit of weight difference, at most `travel` (2), at 2.5 cells/s. Weight counters are drawn on them. The rising pad or pan of a seesaw or balance never goes through anyone: it stops (and the other side with it) where what stands on it meets a ceiling, or under a body or crate landing on it. |
 | `mover` | A one-way platform (jump through from below) moving between its cells and +(dx, dy): on the clock (`period` s for a return trip, `phase`), or while `link` is on, or while it carries `need` (at `speed`, 2.5 cells/s). `arc: { px, py, degrees, period }` swings it like a lamp from a pivot cell. |
-| `switch` + `shelf` | Hitting the switch from below swaps the active shelf group (A at the start). A shelf cell turns solid only once nobody is in it. |
+| `switch` + `shelf` | Hitting the switch from below swaps the active shelf group (A at the start). A shelf cell turns solid only once nobody is in it (`spareHeads`: nor within 0.5 over a head, so it never appears on a head and a climber whose own shelf went a moment before his jump, within the coyote time, still goes up through it and lands on it; La BU's staircase). |
 | `terminal` | ↓ in front of it sets `link` on (or off). When Ruben uses it, it does the opposite and Claude answers something absurd. Terminals with the same `together` act only if all are used within 1 s. |
 | `fragile` | Breaks under a weight of 2 or more (Ruben, or two friends), back at the restart. |
 | `spikes` | `dir` up/down/left/right: a deadly strip 0.45 deep at the base of their cell. |
@@ -168,6 +168,15 @@ the consequences for a map.
 - **Plates read what stands on them, and the rope through things.** A crate weighs on plates (set
   `weight: 0` when it is a step, not a weight); a closed gate stops bodies but not the rope, so no
   haul passes one.
+- **A timed hit must forgive both ways.** Two humans counting down never press on the same step.
+  A shelf that appears over a standing climber's head shuts on him if the hit comes a step before
+  his jump: make it `spareHeads` (it then waits for him, within the coyote time). Sweep the
+  hitter's press against the climber's (La BU: 0.1 s early to 0.4-0.56 s late), and write the sign
+  for the middle of that window (« 3, 2, 1, saute ! » puis frappe: the hitter reacts to the jump).
+- **A switch by a doorway shelf keeps the hitter out of the doorway.** A shelf cell stays open
+  while a body overlaps it: if a body can hit the switch with part of it in the shelf's cell, the
+  shelf does not shut behind the hit (La BU's room hitter slid out through its mouth). Hang the
+  switch so that every body that can reach it is clear of the shelf.
 - **Prove the mistakes too.** `recoveries` in a solution file are played to the end at every size: a
   mistake players will make and the way back. A trap that can bury a body (a crate pushed onto
   someone in a pit) needs one.
