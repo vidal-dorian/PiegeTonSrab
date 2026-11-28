@@ -21,7 +21,7 @@
  * - The top row must be solid (catapults and towers must not leave the level).
  */
 import { isSolidCell, parseLevel, type Level, type LevelLabel } from "../level";
-import { OBJECT_DEFS, prepareObjects, withSolidObjects, type PlacedObject } from "../objects";
+import { hazardsOf, OBJECT_DEFS, prepareObjects, withSolidObjects, type Hazard, type PlacedObject } from "../objects";
 import { COOP } from "./coopTuning";
 
 /**
@@ -146,7 +146,7 @@ export interface CoopLevel {
   terrain: Level;
   /**
    * Collision grid of the players: terrain plus the solid race objects ("=" placed blocks,
-   * springs). Static (the co-op things are colliders, not cells), so it is also the grid the rope
+   * springs; never the race spikes, see raceObjectHazards). Static (the co-op things are colliders, not cells), so it is also the grid the rope
    * wraps around (CoopWorld.ropeSolid): nothing fixed stops bodies and lets the rope through.
    */
   collision: Level;
@@ -169,6 +169,31 @@ export interface CoopLevel {
   killY: number;
   /** Deadline wall for this team size, or null. */
   deadline: { x0: number; delay: number; speed: number } | null;
+}
+
+/**
+ * Race spikes "^" in a co-op level: how deep their deadly part is, cells, from the bottom of their
+ * cell. The race turned its spikes into solid blocks that kill through their pointed face (main,
+ * 2026-11-26); co-op levels keep the rule they were designed and checked with: floor spikes that
+ * are not solid and kill a body in the bottom of their cell unless it moves up.
+ */
+export const COOP_RACE_SPIKES_DEPTH = 0.45;
+
+/** Whether a race object of a co-op level is a solid cell (a block, a spring; not spikes, see COOP_RACE_SPIKES_DEPTH). */
+export function isCoopSolidObject(obj: PlacedObject): boolean {
+  return OBJECT_DEFS[obj.kind].solid && obj.kind !== "spikes";
+}
+
+/**
+ * What a race object of a co-op level kills with at time `t`, seconds. The co-op format only
+ * writes the race objects in their default direction ("^" floor spikes, "T" springs throwing up,
+ * "*" saws): turned spikes are the co-op spikes thing (`kind: "spikes"`, with its `dir`), and no
+ * co-op level has a turned spring.
+ */
+export function raceObjectHazards(obj: PlacedObject, t: number): Hazard[] {
+  if (obj.kind !== "spikes") return hazardsOf(obj, t);
+  // face 3 (up): spares a body moving up, the old "only when falling" rule.
+  return [{ shape: "rect", x: obj.x, y: obj.y + 1 - COOP_RACE_SPIKES_DEPTH, w: 1, h: COOP_RACE_SPIKES_DEPTH, face: 3 }];
 }
 
 /** Characters with a fixed meaning (everything else must be in the legend). */
@@ -270,7 +295,9 @@ export function parseCoopLevel(def: CoopLevelDef, players: number = COOP.maxPlay
 
   const terrain = parseLevel({ name: def.name, rows, labels: def.signs ?? [] });
   const objects = prepareObjects(terrain, terrain.initialObjects);
-  const collision = withSolidObjects(terrain, objects);
+  // Race spikes keep their co-op rule (raceObjectHazards): not solid, so they stay out of the
+  // bodies' and crates' grid and of the rope's (La Salle de TP drops its rack into a ditch of them).
+  const collision = withSolidObjects(terrain, objects.filter(isCoopSolidObject));
   const crateSolid = collision.solid.slice();
   for (const at of stops) crateSolid[at] = true;
   const crateGrid: Level = { ...collision, solid: crateSolid };

@@ -27,14 +27,39 @@ describe("objects", () => {
     expect(boxHitsHazard(corner, hz!, 0)).toBe(false);
   });
 
-  it("spikes kill when landing or walking into them, not when jumping up through them", () => {
+  it("spikes kill through their pointed face only, and spare a body moving away from it", () => {
+    // Upward spikes at (5, 5): a thin strip just above the cell.
     const [hz] = hazardsOf(spikes, 0);
-    const onSpikes: Box = { x: 5.1, y: 5.2, w: 0.8, h: 0.7 };
-    expect(boxHitsHazard(onSpikes, hz!, 2)).toBe(true);
-    expect(boxHitsHazard(onSpikes, hz!, 0)).toBe(true);
-    expect(boxHitsHazard(onSpikes, hz!, -5)).toBe(false);
-    const above: Box = { x: 5.1, y: 4.5, w: 0.8, h: 0.5 };
+    // Trap test body (HAZARD_INSET smaller than the real one) standing on top: its feet at 4.9.
+    const onTop: Box = { x: 5.2, y: 4.0, w: 0.6, h: 0.9 };
+    expect(boxHitsHazard(onTop, hz!, 2)).toBe(true); // landing
+    expect(boxHitsHazard(onTop, hz!, 0)).toBe(true); // standing
+    expect(boxHitsHazard(onTop, hz!, -5)).toBe(false); // leaving upwards
+    const above: Box = { x: 5.1, y: 4.0, w: 0.6, h: 0.8 }; // feet at 4.8, above the strip
     expect(boxHitsHazard(above, hz!, 2)).toBe(false);
+    // Standing on the floor right next to the block (the trap body never reaches its side).
+    const beside: Box = { x: 4.3, y: 5.1, w: 0.6, h: 0.8 };
+    expect(boxHitsHazard(beside, hz!, 0, 7)).toBe(false);
+    // Each direction kills on its own face, not when moving away from it.
+    const at = (dir: 0 | 1 | 2) => hazardsOf({ ...spikes, dir }, 0)[0]!;
+    const right: Box = { x: 6.05, y: 5.1, w: 0.6, h: 0.8 }; // touching the right face
+    expect(boxHitsHazard(right, at(0), 0, -3)).toBe(true);
+    expect(boxHitsHazard(right, at(0), 0, 0)).toBe(true);
+    expect(boxHitsHazard(right, at(0), 0, 3)).toBe(false);
+    expect(boxHitsHazard(right, at(2), 0, -3)).toBe(false); // the left face points the other way
+    const left: Box = { x: 4.35, y: 5.1, w: 0.6, h: 0.8 };
+    expect(boxHitsHazard(left, at(2), 0, 3)).toBe(true);
+    expect(boxHitsHazard(left, at(2), 0, -3)).toBe(false);
+    const below: Box = { x: 5.2, y: 6.05, w: 0.6, h: 0.8 }; // head under the bottom face
+    expect(boxHitsHazard(below, at(1), -6)).toBe(true);
+    expect(boxHitsHazard(below, at(1), 0)).toBe(true);
+    expect(boxHitsHazard(below, at(1), 4)).toBe(false);
+    expect(boxHitsHazard(below, hz!, -6)).toBe(false); // upward spikes don't kill from below
+  });
+
+  it("spikes are solid, like a block", () => {
+    const level = parseLevel(testLevel);
+    expect(isSolidCell(withSolidObjects(level, [spikes]), 5, 5)).toBe(true);
   });
 
   it("findKiller returns the object that killed", () => {
@@ -45,7 +70,8 @@ describe("objects", () => {
 
   describe("findKiller when several hazards touch in the same step", () => {
     const sp = (id: number, x: number, ownerId?: string): PlacedObject => ({ id, kind: "spikes", x, y: 7, ...(ownerId ? { ownerId } : {}) });
-    const body = (x: number): Box => ({ x: x + 0.1, y: 7.2, w: 0.6, h: 0.7 });
+    // Feet (of the trap test body) at 6.9: in the deadly strip on top of spikes on row 7.
+    const body = (x: number): Box => ({ x: x + 0.1, y: 6.2, w: 0.6, h: 0.7 });
     const killer = (objs: PlacedObject[], x: number, prefs?: Parameters<typeof findKiller>[4]) =>
       findKiller(objs, body(x), 1, 0, prefs)?.id;
 

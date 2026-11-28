@@ -10,6 +10,12 @@
  * recorded on a git-archive copy of 4aec1cb as well. Every step of every scenario feeds the exact float64 bits of the body's state into a
  * hash, so any change in arithmetic or order shows up.
  *
+ * Re-recorded when main was merged into the co-op branch (main 03bb9fe: turned springs, solid
+ * spikes), on a git-archive copy of 03bb9fe with this file dropped in, never on the merged tree:
+ * every trajectory kept its value; La Jungle's reach graph changed (its spikes are solid blocks
+ * now); the two "turned springs and spikes" scenarios were added to cover main's sideways and
+ * downward spring throws, which the hooks the co-op controller overrides (moveX, moveY) now carry.
+ *
  * To re-record after an intended change of the race mode (from packages/client):
  *   GOLDEN_RECORD=1 npx vitest run controllerGolden --silent=false --reporter=verbose
  */
@@ -94,7 +100,7 @@ function inputStream(seed: number): () => StepInput {
 }
 
 /** Coverage counters, printed when recording, to check the scenarios exercise what they should. */
-const coverage = { wallSlide: 0, swing: 0, airborne: 0, stunned: 0 };
+const coverage = { wallSlide: 0, swing: 0, airborne: 0, stunned: 0, sideThrows: 0, downThrows: 0 };
 
 function hashState(f: Fnv, c: CharacterController): void {
   if (c.wallSliding) coverage.wallSlide++;
@@ -250,6 +256,59 @@ function springWallRun(): string {
   return f.hex();
 }
 
+/** A room for the turned objects (main, 2026-11-26): springs on both walls, the floor and the ceiling, and solid spikes. */
+const TURNED_ROOM: LevelDefinition = {
+  name: "turned springs and spikes",
+  rows: [
+    "####################",
+    "#..................#",
+    "#..................#",
+    "#..................#",
+    "#..................#",
+    "#..................#",
+    "#..................#",
+    "#..................#",
+    "#S.................#",
+    "####################",
+  ],
+};
+
+/**
+ * Random play among springs facing right, left, down and up and spikes (solid blocks) on the floor
+ * and a wall: covers the sideways throw (moveX), the throw down from a ceiling spring (moveY) and
+ * standing on spikes.
+ */
+function turnedRun(seed: number, steps: number): string {
+  const room = parseLevel(TURNED_ROOM);
+  const placed: PlacedObject[] = [
+    { id: 1, kind: "spring", x: 1, y: 7, dir: 0 },
+    { id: 2, kind: "spring", x: 1, y: 5, dir: 0 },
+    { id: 3, kind: "spring", x: 18, y: 7, dir: 2 },
+    { id: 4, kind: "spring", x: 18, y: 4, dir: 2 },
+    { id: 5, kind: "spring", x: 6, y: 1, dir: 1 },
+    { id: 6, kind: "spring", x: 14, y: 1, dir: 1 },
+    { id: 7, kind: "spring", x: 6, y: 8, dir: 3 },
+    { id: 8, kind: "spring", x: 14, y: 8 },
+    { id: 9, kind: "spikes", x: 10, y: 8, dir: 3 },
+    { id: 10, kind: "spikes", x: 11, y: 8 },
+    { id: 11, kind: "spikes", x: 1, y: 2, dir: 0 },
+  ];
+  const c = new CharacterController(withSolidObjects(room, prepareObjects(room, placed)), { ...DEFAULT_MOVEMENT });
+  const next = inputStream(seed);
+  const f = new Fnv();
+  for (let i = 0; i < steps; i++) {
+    const bounces = c.bounceCount;
+    c.step(DT, next());
+    if (c.bounceCount !== bounces) {
+      if (c.vy > 0) coverage.downThrows++;
+      else if (Math.abs(c.vx) > DEFAULT_MOVEMENT.runSpeed) coverage.sideThrows++;
+    }
+    if (c.fellOut) c.respawn();
+    hashState(f, c);
+  }
+  return f.hex();
+}
+
 /** A vine (rope 3.5 cells from y = 3) that reaches down near the floor: the floor is within its reach. */
 const SHORT_VINE_ROOM: LevelDefinition = {
   name: "short vine room",
@@ -332,7 +391,7 @@ function graphFingerprint(def: LevelDefinition): string {
   return f.hex();
 }
 
-/** Recorded on the untouched controller (main, 4aec1cb). */
+/** Recorded on the untouched controller (main, 4aec1cb), then on main 03bb9fe (see the header). */
 const GOLDEN = {
   trajectories: {
     "random 1": "e5ee565f",
@@ -345,6 +404,8 @@ const GOLDEN = {
     "vines 8": "fd755a37",
     "spring by a wall + buffered jump": "4190e915",
     "vine drop, land, jump back": "fb7422e7",
+    "turned springs and spikes 9": "58682cc8",
+    "turned springs and spikes 10": "3a95fec4",
   } as Record<string, string>,
   graphs: {
     "Le Parc": "896e8cf3",
@@ -355,7 +416,7 @@ const GOLDEN = {
     "Le Puits": "0aa70a58",
     "Le Grand Huit": "ba13d252",
     "Le Labyrinthe": "ff6f8d47",
-    "La Jungle": "19f43ba0",
+    "La Jungle": "54efc4d3",
     "Le Pont": "0b55eb1f",
     "Test du personnage": "fa4f093e",
   } as Record<string, string>,
@@ -372,6 +433,8 @@ const TRAJECTORIES: Record<string, () => string> = {
   "vines 8": () => vineRun(8, 6000),
   "spring by a wall + buffered jump": springWallRun,
   "vine drop, land, jump back": vineDropRun,
+  "turned springs and spikes 9": () => turnedRun(9, 6000),
+  "turned springs and spikes 10": () => turnedRun(10, 6000),
 };
 
 describe("race-mode controller golden values", () => {

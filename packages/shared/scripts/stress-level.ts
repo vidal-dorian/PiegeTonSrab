@@ -9,22 +9,30 @@
  * --jobs: parallel worker processes (default: one per core). --dump: also print each seed's
  * map after the last round. --show: only print the race line used by the placement policy.
  *
- * It uses the real rules from src/ (canPlaceAt, PathGuard, prepareObjects, drawOffer,
- * objectsForRound), so a rule change there is followed automatically. Everything is
- * deterministic from (map, seed) except the measured times.
+ * It uses the real rules from src/ (canPlaceAt, canPlaceObject, supportFirst, PathGuard,
+ * prepareObjects, drawOffer, objectsForRound), so a rule change there is followed
+ * automatically; the protected start and finish zones come in through canPlaceAt.
+ * Everything is deterministic from (map, seed) except the measured times.
  *
  * One round, as in session.ts:
  * - every player draws objectsForRound() objects with drawOffer();
- * - players are applied in a random validation order, each object one at a time through
- *   canPlaceAt + PathGuard.tryAdd, like endPlacement. The placement screen shows refusals
- *   live, so a player who gets "would block the path" tries another cell: up to
- *   MAX_TRIES cells per object, then the object counts as lost;
+ * - players are applied in a random validation order, each hand in supportFirst order and
+ *   each object one at a time through canPlaceObject + PathGuard.tryAdd, like endPlacement.
+ *   The placement screen shows refusals live, so a player who gets "would block the path"
+ *   tries another cell: up to MAX_TRIES cells per object, then the object counts as lost;
+ * - directions: springs and cannons get a random one; spikes get a random one among the
+ *   directions that have a block behind them at that cell, and a cell where none has is
+ *   skipped without counting a try (the preview shows spikes cannot go there);
  * - the objects are re-prepared (cannon lines, vine ropes) and the reach graph is rebuilt:
  *   that build is the server's cost at the next end of placement and at every countdown
  *   (and every client builds it once per placement screen for its preview);
  * - from round 2, dead players drop BLOCKS_PER_ROUND platforms through a frozenRanges
  *   PathGuard, like onBlock. Blocks vanish at the end of the round (HANDOFF.md), so they
- *   are measured but never carried over.
+ *   are measured but never carried over. The protected zones apply (canPlaceAt); the
+ *   server's other block rules (no block within BLOCK_CLEARANCE of a living player, the
+ *   path kept from where each living player stands) need player positions during the race,
+ *   which this simulator does not have, so they are left out: its blocks are a little
+ *   freer than real ones.
  *
  * Placement policy (a plausible player, not an optimal one): each candidate cell is picked
  * on the race line with probability RACE_LINE_SHARE, else anywhere canPlaceAt allows.
@@ -48,10 +56,12 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   buildReachGraph,
   canPlaceAt,
+  canPlaceObject,
   createRng,
   DEFAULT_GAME_CONFIG,
   DEFAULT_MOVEMENT,
   drawOffer,
+  isProtectedCell,
   objectsForRound,
   OBJECT_DEFS,
   parseLevel,
@@ -60,12 +70,16 @@ import {
   prepareObjects,
   RACE_LEVELS,
   reachableWithout,
+  supportFirst,
   type Dir,
   type Level,
   type LevelDefinition,
+  type ObjectKind,
   type PlacedObject,
   type ReachGraph,
 } from "../src/index";
+
+const DIRS: readonly Dir[] = [0, 1, 2, 3];
 
 const here = dirname(fileURLToPath(import.meta.url));
 const levelsDir = join(here, "../src/levels");
@@ -347,10 +361,27 @@ function hashString(s: string): number {
 /** PathGuard keeps its graph private; the simulator peeks at it only to count full rebuilds. */
 const guardGraph = (guard: PathGuard) => (guard as unknown as { graph: ReachGraph }).graph;
 
-/** The map as check-level draws it, with reachable standing cells (·). */
+/**
+ * Map glyph of an object, by direction for spikes, springs and cannons (Dir order: right,
+ * down, left, up). Same glyphs as check-level.ts (kept in step by hand: both are scripts).
+ */
+function objectGlyph(o: PlacedObject): string {
+  const dir = o.dir ?? (o.kind === "cannon" ? 2 : 3);
+  switch (o.kind) {
+    case "cannon":
+      return [">", "U", "<", "A"][dir]!;
+    case "spikes":
+      return ["}", "v", "{", "^"][dir]!;
+    case "spring":
+      return ["]", "Y", "[", "T"][dir]!;
+    default:
+      return { saw: "*", platform: "=", vine: "V" }[o.kind];
+  }
+}
+
+/** The map as check-level draws it, with reachable standing cells (·) and the protected zones (_). */
 function render(level: Level, objects: readonly PlacedObject[], g: ReachGraph): string {
   const objAt = new Map(objects.map((o) => [o.y * level.width + o.x, o]));
-  const charOf: Record<string, string> = { saw: "*", spikes: "^", platform: "=", spring: "T", vine: "V" };
   const lines: string[] = [];
   for (let y = 0; y < level.height; y++) {
     let line = "";
@@ -360,7 +391,8 @@ function render(level: Level, objects: readonly PlacedObject[], g: ReachGraph): 
       if (level.solid[k]) line += "#";
       else if (x === level.start.x && y === level.start.y) line += "S";
       else if (level.finish && x === level.finish.x && y === level.finish.y) line += "F";
-      else if (o) line += o.kind === "cannon" ? [">", "U", "<", "A"][o.dir ?? 2]! : charOf[o.kind]!;
+      else if (o) line += objectGlyph(o);
+      else if (isProtectedCell(level, x, y)) line += "_";
       else if (g.edges.has(k)) line += "·";
       else line += " ";
     }
@@ -432,24 +464,39 @@ function simulate(def: LevelDefinition, seed: number, players: number, rounds: n
     let acceptedMs = 0;
     let rebuilds = 0;
     let maxCheckMs = 0;
-    const pickCell = (): number | null => {
-      // A player never clicks an occupied cell (the screen shows it), so this is not a try.
+    // A cell and a direction for `kind`. A player never clicks an occupied cell, nor a cell
+    // where spikes have nothing to lean on in any direction (the preview shows both), so those
+    // are not tries. Spikes take a random direction among the supported ones; other rotatable
+    // objects any direction.
+    const pickCell = (kind: ObjectKind): { c: number; dir?: Dir } | null => {
       for (let k = 0; k < 50; k++) {
         const onLine = line.size > 0 && rng() < RACE_LINE_SHARE;
         if (!onLine && anywhere.length === 0) return null;
         const c = onLine ? line.pick(rng) : pickFrom(rng, anywhere);
-        if (canPlaceAt(level, guard.objects, c % w, Math.floor(c / w))) return c;
+        const x = c % w;
+        const y = Math.floor(c / w);
+        if (!canPlaceAt(level, guard.objects, x, y)) continue;
+        if (OBJECT_DEFS[kind].needsSupport) {
+          const dirs = DIRS.filter((dir) => canPlaceObject(level, guard.objects, { kind, x, y, dir }));
+          if (dirs.length > 0) return { c, dir: pickFrom(rng, dirs) };
+          continue;
+        }
+        return OBJECT_DEFS[kind].rotatable ? { c, dir: pickFrom(rng, DIRS) } : { c };
       }
       return null;
     };
     for (const p of order) {
-      for (const kind of hands[p]!) {
+      // Same order as endPlacement: objects that lean on a block go last in a hand.
+      for (const { kind } of supportFirst(hands[p]!.map((kind) => ({ kind })))) {
+        if (kind === "eraser") continue; // not drawn (eraserChance 0), here for the type
         let placed = false;
         for (let t = 0; t < MAX_TRIES && !placed; t++) {
-          const c = pickCell();
-          if (c === null) break;
-          const obj: PlacedObject = { id: nextId, kind, x: c % w, y: Math.floor(c / w), ownerId: `p${p}` };
-          if (OBJECT_DEFS[kind].rotatable) obj.dir = Math.floor(rng() * 4) as Dir;
+          const pick = pickCell(kind);
+          if (pick === null) break;
+          const obj: PlacedObject = { id: nextId, kind, x: pick.c % w, y: Math.floor(pick.c / w), ownerId: `p${p}` };
+          if (pick.dir !== undefined) obj.dir = pick.dir;
+          // pickCell already checked it against guard.objects; kept to mirror endPlacement.
+          if (!canPlaceObject(level, guard.objects, obj)) continue;
           tries++;
           const before = guardGraph(guard);
           const [ok, ms] = timed(() => guard.tryAdd(obj));

@@ -4,6 +4,7 @@ import { CoopLobbyScene } from "./coop/CoopLobbyScene";
 import { CoopScene } from "./coop/CoopScene";
 import { startDevRoute } from "./coop/devRoutes";
 import { IntroScene } from "./coop/intro/IntroScene";
+import { watchGameLoop } from "./errors";
 import { GameScene } from "./scenes/GameScene";
 import { LobbyScene } from "./scenes/LobbyScene";
 import { MenuScene } from "./scenes/MenuScene";
@@ -52,6 +53,8 @@ function startGame(): void {
   });
   // Dev builds: ?intro opens the co-op story intro directly (see coop/devRoutes.ts).
   game.events.once(Phaser.Core.Events.READY, () => startDevRoute(game));
+  // One exception in a frame would otherwise stop the game for good (see errors.ts).
+  watchGameLoop(game);
   // Dev builds only: lets browser tests start a scene and read its state (window.game.scene...).
   if (import.meta.env.DEV) (window as unknown as { game?: Phaser.Game }).game = game;
 

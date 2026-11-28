@@ -5,7 +5,7 @@
  * which makes it testable and keeps the feel identical at any frame rate.
  * Units are cells and seconds; y grows downwards, so a negative vy means moving up.
  */
-import { boxOverlapsSolid, cellSpan, isBouncyCell, isSolidCell, spawnCell, type Level } from "../level";
+import { bounceDirAt, boxOverlapsSolid, cellSpan, isBouncyCell, isSolidCell, spawnCell, type Level } from "../level";
 import { VINE_GRAB_HALF_WIDTH, type Vine } from "../objects";
 import { deriveMovement, type DerivedMovement, type MovementTuning } from "./tuning";
 
@@ -424,14 +424,39 @@ export class CharacterController {
     const [x0, x1] = cellSpan(this.x, w);
     // Steps are much shorter than a cell, so only the leading column can newly overlap.
     const col = dx > 0 ? x1 : x0;
+    let hit = false;
     for (let cy = y0; cy <= y1; cy++) {
       if (isSolidCell(this.level, col, cy)) {
-        this.x = dx > 0 ? col - w : col + 1;
-        this.vx = 0;
-        return true;
+        hit = true;
+        break;
       }
     }
-    return false;
+    if (!hit) return false;
+    this.x = dx > 0 ? col - w : col + 1;
+    this.vx = 0;
+    // Running or jumping into the face of a sideways spring: thrown back the other way, with a hop.
+    const facing = dx > 0 ? 2 : 0;
+    for (let cy = y0; cy <= y1; cy++) {
+      if (bounceDirAt(this.level, col, cy) !== facing) continue;
+      const t = this.tuning;
+      this.vx = (dx > 0 ? -1 : 1) * t.springSideSpeed;
+      this.vy = Math.min(this.vy, -Math.sqrt(2 * this.derived.gravity * t.springSideHeight));
+      this.controlLockTimer = Math.max(this.controlLockTimer, t.springSideLock);
+      this.facing = dx > 0 ? -1 : 1;
+      this.springThrow(col, cy);
+      break;
+    }
+    return true;
+  }
+
+  /** Bookkeeping shared by every spring bounce: jump state cleared, bounce counted for the caller. */
+  private springThrow(cx: number, cy: number): void {
+    this.rising = false;
+    this.grounded = false;
+    this.jumpBufferTimer = 0;
+    this.coyoteTimer = 0;
+    this.bounceCount++;
+    this.lastBounceCell = cy * this.level.width + cx;
   }
 
   /** Move vertically against the grid. Returns true if the floor or a ceiling stopped the body (a spring bounce counts). */
@@ -462,11 +487,15 @@ export class CharacterController {
       for (let cx = x0; cx <= x1; cx++) {
         if (!isBouncyCell(this.level, cx, row)) continue;
         this.vy = -this.derived.springVelocity;
-        this.rising = false;
-        this.jumpBufferTimer = 0;
-        this.coyoteTimer = 0;
-        this.bounceCount++;
-        this.lastBounceCell = row * this.level.width + cx;
+        this.springThrow(cx, row);
+        break;
+      }
+    } else {
+      // Head into a spring on the ceiling: thrown down.
+      for (let cx = x0; cx <= x1; cx++) {
+        if (bounceDirAt(this.level, cx, row) !== 1) continue;
+        this.vy = this.tuning.springDownSpeed;
+        this.springThrow(cx, row);
         break;
       }
     }

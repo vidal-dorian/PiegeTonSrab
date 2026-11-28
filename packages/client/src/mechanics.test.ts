@@ -4,6 +4,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   bodiesOverlap,
+  boxHitsHazard,
   buildReachGraph,
   contactWith,
   cannonBalls,
@@ -22,6 +23,8 @@ import {
   PathGuard,
   placementKeepsPath,
   prepareObjects,
+  spawnCell,
+  staticHazards,
   TIMING,
   vinesOf,
   withSolidObjects,
@@ -48,13 +51,59 @@ describe("cannon", () => {
   });
 
   it("measures its line of fire up to the first solid cell", () => {
-    const [right] = prepareObjects(corridor, [{ id: 1, kind: "cannon", x: 5, y: 1, dir: 0 }]);
-    expect(right!.range).toBe(13); // cells 6..18, the wall is at x = 19
-    const [left] = prepareObjects(corridor, [
-      { id: 1, kind: "cannon", x: 5, y: 1, dir: 2 },
-      { id: 2, kind: "platform", x: 2, y: 1 },
+    const [right] = prepareObjects(corridor, [
+      { id: 1, kind: "cannon", x: 5, y: 1, dir: 0 },
+      { id: 2, kind: "platform", x: 14, y: 1 },
     ]);
-    expect(left!.range).toBe(2); // cells 4 and 3, stopped by the platform
+    expect(right!.range).toBe(8); // cells 6..13, stopped by the platform
+    const [left] = prepareObjects(corridor, [
+      { id: 1, kind: "cannon", x: 12, y: 1, dir: 2 },
+      { id: 2, kind: "platform", x: 9, y: 1 },
+    ]);
+    expect(left!.range).toBe(2); // cells 11 and 10, stopped by the platform
+  });
+
+  it("never fires into the start zone, whatever the direction", () => {
+    // S at (1, 2): the start zone is x -2..4 (inside the level: 0..4), rows -1 to 2.
+    const [left] = prepareObjects(corridor, [{ id: 1, kind: "cannon", x: 6, y: 1, dir: 2 }]);
+    expect(left!.range).toBe(1); // cell 5, then the zone
+    const [edge] = prepareObjects(corridor, [{ id: 1, kind: "cannon", x: 5, y: 1, dir: 2 }]);
+    expect(edge!.range).toBe(0); // right on the edge of the zone: no shot at all
+    const open = parseLevel({
+      name: "open",
+      rows: ["..........", "..........", "..........", "..........", "..........", "..S......F", "##########"],
+    });
+    // Start zone: x -1..5, rows 2 to 5. Pointing down at seat 1 (x = 1).
+    const [down] = prepareObjects(open, [{ id: 1, kind: "cannon", x: 1, y: 0, dir: 1 }]);
+    expect(down!.range).toBe(1); // row 1, the zone starts at row 2
+    const hazards = staticHazards(down!);
+    for (let seat = 0; seat < 5; seat++) {
+      const c = spawnCell(open, seat);
+      const body = { x: c.x + (1 - tuning.bodyWidth) / 2, y: c.y + 1 - tuning.bodyHeight, w: tuning.bodyWidth, h: tuning.bodyHeight };
+      expect(hazards.some((h) => boxHitsHazard(body, h, 0))).toBe(false);
+    }
+    // In the column between the two zones (x 6), the same cannon fires down to the floor.
+    const [far] = prepareObjects(open, [{ id: 1, kind: "cannon", x: 6, y: 0, dir: 1 }]);
+    expect(far!.range).toBe(5); // rows 1 to 5, down to the floor
+  });
+
+  it("never fires into the finish zone either", () => {
+    // F at (18, 2): the finish zone is x 16..20, rows 0 to 4.
+    const [right] = prepareObjects(corridor, [{ id: 1, kind: "cannon", x: 5, y: 1, dir: 0 }]);
+    expect(right!.range).toBe(10); // cells 6..15, not the wall at x = 19
+    const open = parseLevel({
+      name: "open",
+      rows: ["..........", "..........", "..........", "..........", "..........", "..S......F", "##########"],
+    });
+    // F at (9, 5): finish zone x 7..11, rows 3 to 7. Straight down on the flag:
+    const [down] = prepareObjects(open, [{ id: 1, kind: "cannon", x: 9, y: 0, dir: 1 }]);
+    expect(down!.range).toBe(2); // rows 1 and 2
+    // Its balls break above the zone: none ever reaches the flag cell.
+    const flag = { x: 9, y: 5, w: 1, h: 1 };
+    for (let t = 0; t < 4; t += 0.05) {
+      for (const b of cannonBalls(down!, t)) expect(b.y).toBeLessThan(3);
+    }
+    expect(staticHazards(down!).some((h) => boxHitsHazard(flag, h, 0))).toBe(false);
   });
 
   it("fires on a fixed schedule: balls are a pure function of the round clock", () => {
@@ -67,7 +116,7 @@ describe("cannon", () => {
     // Same time, same answer: nothing accumulates.
     expect(cannonBalls(cannon!, first + 0.5)).toEqual(cannonBalls(cannon!, first + 0.5));
     // The ball breaks on the wall before the next one leaves.
-    const flight = 13 / CANNON_BALL_SPEED;
+    const flight = 10 / CANNON_BALL_SPEED; // range 10: it stops at the finish zone
     expect(cannonBalls(cannon!, first + flight + 0.05)).toEqual([]);
     expect(cannonBalls(cannon!, first + CANNON_PERIOD + 0.01)).toHaveLength(1);
   });
@@ -539,9 +588,12 @@ describe("session: contacts and vines", () => {
     s.handle("a", { type: "start" });
     io.advance(TIMING.carouselSpin + TIMING.carouselHold);
     const hand = io.lastTo("placement", "a")!.offer;
-    const objects = hand.map((kind, i) => ({ kind, x: 3 + i * 2, y: 0, dir: 3 as const }));
+    expect(hand).not.toContain("spikes"); // they would need a block behind them
+    // Outside the start zone (x 0..3) and the finish zone (x 17..19).
+    const objects = hand.map((kind, i) => ({ kind, x: 5 + i * 2, y: 0, dir: 3 as const }));
     s.handle("a", { type: "placement", objects, done: true });
     const placed = io.lastTo("countdown", "a")!.objects.filter((o) => o.ownerId === "a");
+    expect(placed).toHaveLength(hand.length);
     for (const o of placed) {
       if (o.kind === "cannon") expect(o).toMatchObject({ dir: 3, range: expect.any(Number) });
       else expect(o.dir).toBeUndefined();
@@ -582,9 +634,9 @@ describe("review fixes", () => {
 
   it("a stunned player can neither grab a vine nor jump off one", () => {
     const room = parseLevel({ name: "r", rows: ["##########", "#........#", "#........#", "#........#", "#........#", "#........#", "#S.......#", "##########"] });
-    const objects = prepareObjects(room, [{ id: 1, kind: "vine", x: 4, y: 1 }]);
+    const objects = prepareObjects(room, [{ id: 1, kind: "vine", x: 6, y: 1 }]);
     const c = new CharacterController(withSolidObjects(room, objects), tuning);
-    c.x = 4.1;
+    c.x = 6.1;
     c.y = 3.5;
     c.grounded = false;
     c.slam(0, 0.5);
@@ -597,11 +649,12 @@ describe("review fixes", () => {
   });
 
   it("a vine rope stops above the floor, and a vine with one free cell has none", () => {
+    // Vines at x 6, out of the start zone (x 0..4): a rope never hangs into it.
     const room = parseLevel({ name: "r", rows: ["##########", "#........#", "#........#", "#S.......#", "##########"] });
-    const [low] = prepareObjects(room, [{ id: 1, kind: "vine", x: 4, y: 1 }]);
+    const [low] = prepareObjects(room, [{ id: 1, kind: "vine", x: 6, y: 1 }]);
     expect(low!.range).toBe(2);
     expect(vinesOf([low!])[0]!.length + tuning.bodyHeight / 2).toBeLessThanOrEqual(2);
-    const [tiny] = prepareObjects(room, [{ id: 2, kind: "vine", x: 4, y: 2 }]);
+    const [tiny] = prepareObjects(room, [{ id: 2, kind: "vine", x: 6, y: 2 }]);
     expect(tiny!.range).toBe(1);
     expect(vinesOf([tiny!])).toEqual([]);
   });

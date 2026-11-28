@@ -7,16 +7,21 @@
  * The Colyseus room on the server wraps it, and the offline solo mode runs the very same
  * class inside the browser.
  */
-import { parseLevel, type Level, type LevelDefinition } from "./level";
+import { bodyInSpawnZone, isSolidCell, parseLevel, SPAWN_CONTACT_MARGIN, type Level, type LevelDefinition } from "./level";
 import { DEFAULT_MOVEMENT } from "./movement/tuning";
 import {
-  canPlaceAt,
+  defaultDir,
   erasableAt,
   hasErasable,
   OBJECT_DEFS,
+  objectPlacementProblem,
+  placementProblem,
   prepareObjects,
+  supportFirst,
+  withSolidObjects,
   type CardKind,
   type Dir,
+  type ObjectKind,
   type PlacedObject,
 } from "./objects";
 import { erasureKeepsPath, PathGuard } from "./reachability";
@@ -43,6 +48,7 @@ import {
   type RaceStatus,
   type RefusedObject,
   type ServerMessage,
+  type ServerMessageOf,
 } from "./protocol";
 import { RACE_LEVELS } from "./levelList";
 
@@ -62,6 +68,11 @@ type Phase = "lobby" | "carousel" | "placement" | "countdown" | "race" | "raceEn
 
 interface Player {
   id: string;
+  /**
+   * Random key the player's browser keeps (localStorage) and sends when joining, so that
+   * after a reload, a closed tab or a long disconnection it can take its place back.
+   */
+  key: string;
   name: string;
   color: number;
   connected: boolean;
@@ -80,6 +91,12 @@ interface Player {
   pushedBy: string | null;
   placedBlock: boolean;
   lastBlockRequest: number;
+  /**
+   * Last cell this player was seen standing on that the race's path graph knows (y * width
+   * + x), or -1. A dead player's block must keep the finish reachable from there too, so a
+   * block dropped while someone is in mid-air can't shut them in.
+   */
+  lastStandCell: number;
 }
 
 export class GameSession {
@@ -112,6 +129,11 @@ export class GameSession {
   /** "stomper>victim" -> time of the last accepted stomp. */
   private lastStomp = new Map<string, number>();
 
+  /** The end-of-game message, sent again to a player who reconnects on the end screen. */
+  private overMsg: ServerMessageOf<"over"> | null = null;
+  /** The last round's score message, sent again to a player who reconnects on the score screen. */
+  private scoreMsg: ServerMessageOf<"score"> | null = null;
+
   private timers: Array<() => void> = [];
   private ghostTimer: (() => void) | null = null;
 
@@ -127,16 +149,28 @@ export class GameSession {
   // --- Players ------------------------------------------------------------------
 
   /** Returns an error message (in French, shown to the player) or null if the player joined. */
-  addPlayer(id: string, rawName: string): string | null {
-    if (this.phase !== "lobby") return "La partie a déjà commencé.";
+  addPlayer(id: string, rawName: string, rawKey: unknown = ""): string | null {
+    const key = cleanKey(rawKey);
+    if (this.phase !== "lobby") {
+      // A player of this game coming back (page reloaded, tab closed, connection lost for
+      // longer than the reconnection window): they take their place back.
+      const back = this.returningPlayer(rawName, key);
+      if (!back) return "La partie a déjà commencé. Pour reprendre ta place, rejoins avec le même pseudo.";
+      this.takeOver(back, id);
+      return null;
+    }
     if (this.players.size >= MAX_PLAYERS) return `Le salon est plein (${MAX_PLAYERS} joueurs).`;
     // The colour index is also the player's spawn seat (spawnCell, level.ts): unique in the
     // room, so each body starts on its own cell of the spawn pad. Clients read it from the lobby.
     const used = new Set([...this.players.values()].map((p) => p.color));
     const color = Array.from({ length: MAX_PLAYERS }, (_, i) => i).find((c) => !used.has(c)) ?? 0;
     const name = cleanName(rawName) || `Joueur ${this.players.size + 1}`;
+    // One key per room: two tabs of one browser share it, and a comeback must find the
+    // right player. The second tab simply has none (it can still come back by pseudo).
+    const uniqueKey = key && ![...this.players.values()].some((q) => q.key === key) ? key : "";
     this.players.set(id, {
       id,
+      key: uniqueKey,
       name,
       color,
       connected: true,
@@ -151,11 +185,88 @@ export class GameSession {
       pushedBy: null,
       placedBlock: false,
       lastBlockRequest: -Infinity,
+      lastStandCell: -1,
     });
     if (!this.hostId) this.hostId = id;
     this.broadcastLobby();
     return null;
   }
+
+  /**
+   * The player of this game a newcomer is, if any, in this order:
+   * 1. a disconnected player with the same browser key;
+   * 2. the only disconnected player with the same name (another device, or a second tab of
+   *    the same browser: keys are unique per room, so that tab has none, see addPlayer);
+   * 3. a player still seen connected with the same key: a reload a few seconds ago, whose old
+   *    connection is not detected dead yet. That old connection is then closed (onTakeover).
+   * A name alone never takes the place of someone still playing.
+   */
+  private returningPlayer(rawName: string, key: string): Player | null {
+    const players = this.inGamePlayers();
+    const byKey = key ? players.find((p) => p.key === key) : undefined;
+    if (byKey && !byKey.connected) return byKey;
+    const name = cleanName(rawName).toLowerCase();
+    const byName = name ? players.filter((p) => !p.connected && p.name.toLowerCase() === name) : [];
+    if (byName.length === 1) return byName[0]!;
+    return byKey ?? null;
+  }
+
+  /**
+   * Player `p` comes back under the connection `newId`: same seat, colour, score and objects.
+   * Everything the session keys by player id is renamed, then the player is brought up to
+   * date like after a reconnection. The old connection, if it still exists, now names nobody.
+   */
+  private takeOver(p: Player, newId: string): void {
+    const old = p.id;
+    if (old === newId) return;
+    // Still seen connected (the old connection is not detected dead yet): treat it as gone
+    // first, so its vines are let go for everyone and its last pose stops counting.
+    if (p.connected) {
+      this.releaseVines(old);
+      p.pose = null;
+    }
+    const rename = (id: string | null | undefined) => (id === old ? newId : id);
+    const renameKeys = <V>(m: Map<string, V>) => new Map([...m].map(([k, v]) => [rename(k)!, v] as const));
+    p.id = newId;
+    this.players = renameKeys(this.players);
+    this.scores = renameKeys(this.scores);
+    this.refused = renameKeys(this.refused);
+    this.unplaced = renameKeys(this.unplaced);
+    if (this.hostId === old) this.hostId = newId;
+    for (const o of [...this.objects, ...(this.raceGuard?.objects ?? [])]) {
+      if (o.ownerId === old) (o as PlacedObject).ownerId = newId;
+    }
+    for (const q of this.players.values()) {
+      q.killedBy = rename(q.killedBy) ?? null;
+      q.pushedBy = rename(q.pushedBy) ?? null;
+    }
+    for (const [vine, holder] of this.vineHolders) this.vineHolders.set(vine, rename(holder)!);
+    this.lastStomp = new Map(
+      [...this.lastStomp].map(([k, t]) => [k.split(">").map((id) => rename(id)).join(">"), t] as const),
+    );
+    if (this.overMsg) {
+      const totals = Object.fromEntries(Object.entries(this.overMsg.totals).map(([id, v]) => [rename(id)!, v]));
+      this.overMsg = { ...this.overMsg, winner: rename(this.overMsg.winner)!, totals };
+    }
+    if (this.scoreMsg) {
+      const totals = Object.fromEntries(Object.entries(this.scoreMsg.totals).map(([id, v]) => [rename(id)!, v]));
+      const lines = this.scoreMsg.lines.map((l) => ({ ...l, playerId: rename(l.playerId)! }));
+      this.scoreMsg = { ...this.scoreMsg, totals, lines };
+    }
+    // The other clients rename what they keep by id, then get the lobby with the new id.
+    this.io.broadcast({ type: "renamed", from: old, to: newId });
+    // Back in the game: like a reconnection (a race restarts from the spawn, resync).
+    this.setConnected(newId, true);
+    // On the end screen, the others redraw it with the new id (winner, totals).
+    if (this.phase === "over" && this.overMsg) this.io.broadcast(this.overMsg);
+    this.onTakeover?.(old, newId);
+  }
+
+  /**
+   * Called after a player was taken back under a new connection (see takeOver), with the
+   * old connection id: the room closes that connection if it is still open.
+   */
+  onTakeover: ((oldId: string, newId: string) => void) | null = null;
 
   /** The player left for good. */
   removePlayer(id: string): void {
@@ -186,6 +297,11 @@ export class GameSession {
     if (connected) this.resync(id);
     else this.onPlayerGone(p);
     this.broadcastLobby();
+  }
+
+  /** Whether this connection id is a player (not one whose place was taken back). */
+  hasPlayer(id: string): boolean {
+    return this.players.has(id);
   }
 
   get isEmpty(): boolean {
@@ -229,6 +345,10 @@ export class GameSession {
       case "pose":
         if (this.phase === "race" && p.status === "running") {
           p.pose = { x: num(msg.x), y: num(msg.y), facing: msg.facing === -1 ? -1 : 1, slide: !!msg.slide };
+          if (this.level && this.raceGuard) {
+            const cell = standCellOf(p.pose, this.level);
+            if (this.raceGuard.knowsCell(cell)) p.lastStandCell = cell;
+          }
         }
         return;
       case "died":
@@ -352,7 +472,7 @@ export class GameSession {
       if (i < 0 || !Number.isInteger(o.x) || !Number.isInteger(o.y)) return null;
       available.splice(i, 1);
       const choice: PlacementChoice = { kind: o.kind, x: o.x, y: o.y };
-      if (o.kind !== "eraser" && OBJECT_DEFS[o.kind].rotatable) choice.dir = cleanDir(o.dir);
+      if (o.kind !== "eraser" && OBJECT_DEFS[o.kind].rotatable) choice.dir = cleanDir(o.dir, o.kind);
       out.push(choice);
     }
     return out;
@@ -393,13 +513,16 @@ export class GameSession {
     const guard = new PathGuard(this.level, prepareObjects(this.level, remaining), DEFAULT_MOVEMENT);
     for (const p of order) {
       const refused = this.refused.get(p.id)!;
-      for (const c of p.choice) {
+      // Objects that lean on a block go after the player's other objects, so spikes can lean
+      // on a platform placed in the same hand (the client checks the hand in the same order).
+      for (const c of supportFirst(p.choice)) {
         if (c.kind === "eraser") continue;
         const obj: PlacedObject = { id: this.nextObjectId, kind: c.kind, x: c.x, y: c.y, ownerId: p.id };
         if (c.dir !== undefined) obj.dir = c.dir;
-        if (!canPlaceAt(this.level, guard.objects, c.x, c.y)) {
-          const taken = guard.objects.some((o) => o.x === c.x && o.y === c.y);
-          refused.push({ kind: c.kind, reason: taken ? "taken" : "invalid" });
+        const problem = objectPlacementProblem(this.level, guard.objects, obj);
+        if (problem) {
+          const reason = problem === "taken" ? "taken" : problem === "support" ? "support" : "invalid";
+          refused.push({ kind: c.kind, reason });
         } else if (guard.tryAdd(obj)) this.nextObjectId++;
         else refused.push({ kind: c.kind, reason: "path" });
       }
@@ -427,6 +550,7 @@ export class GameSession {
       p.pushedBy = null;
       p.placedBlock = false;
       p.lastBlockRequest = -Infinity;
+      p.lastStandCell = -1;
       this.sendCountdown(p);
     }
     this.vineHolders.clear();
@@ -533,19 +657,33 @@ export class GameSession {
     const x = msg.x;
     const y = msg.y;
     if (!Number.isInteger(x) || !Number.isInteger(y)) return refuse("Case invalide.");
-    if (!canPlaceAt(this.level, this.raceGuard.objects, x, y)) return refuse("Case occupée.");
-    // Not on or right next to a living player, so nobody ends up inside a block.
+    const problem = placementProblem(this.level, this.raceGuard.objects, x, y);
+    if (problem === "protected") return refuse("Pas dans la zone de départ ni près de l'arrivée.");
+    if (problem) return refuse("Case occupée.");
+    const block: PlacedObject = { id: this.nextObjectId, kind: "platform", x, y, ownerId: p.id };
+    // Never shut a living player in (decided 2026-11-26: a dead player's block must not be a
+    // way to trap someone). Three checks, from the cheapest:
+    // 1. Not within BLOCK_CLEARANCE cells of a living player's body: the block appears
+    //    TIMING.blockDelay after this, and the pose is a little old, so the player may have
+    //    moved closer meanwhile.
+    // 2. The finish stays reachable from where each living player is and from anywhere they
+    //    could get to before the block turns solid: the cell they stand on or would land on
+    //    falling straight down, the last cell they were seen standing on, and the stand
+    //    cells they can reach from there in the time the block takes to appear
+    //    (BLOCK_LOOKAHEAD), so a block can't close a dead end they are running into.
+    // 3. A player the path graph can't place (on a vine, somewhere the graph never reached)
+    //    gets a wider clearance instead, since the path check can't speak for them.
+    const collision = withSolidObjects(this.level, this.raceGuard.objects);
+    const from: number[] = [];
     for (const q of this.inGamePlayers()) {
       if (q.status !== "running" || !q.pose) continue;
-      const near = q.pose.x - 1 < x + 1 && q.pose.x + 2 > x && q.pose.y - 1 < y + 1 && q.pose.y + 2 > y;
-      if (near) return refuse("Trop près d'un joueur.");
+      if (blockNearBody(q.pose, x, y, BLOCK_CLEARANCE)) return refuse("Trop près d'un joueur.");
+      const cells = landingCellsOf(q.pose, collision).filter((c) => this.raceGuard!.knowsCell(c));
+      if (cells.length === 0 && blockNearBody(q.pose, x, y, BLOCK_CLEARANCE_UNKNOWN)) return refuse("Trop près d'un joueur.");
+      if (q.lastStandCell >= 0) cells.push(q.lastStandCell);
+      from.push(...reachableSoon(q.pose, cells, this.level, this.raceGuard));
     }
-    const block: PlacedObject = { id: this.nextObjectId, kind: "platform", x, y, ownerId: p.id };
-    // Nor shut a living player in: the finish must stay reachable from where each one stands.
-    const standing = this.inGamePlayers()
-      .filter((q) => q.status === "running" && q.pose)
-      .map((q) => standCellOf(q.pose!, this.level!));
-    if (!this.raceGuard.keepsPathFrom(standing, block)) return refuse("Enfermerait un joueur.");
+    if (!this.raceGuard.keepsPathFrom(from, block)) return refuse("Enfermerait un joueur.");
     if (!this.raceGuard.tryAdd(block)) return refuse("Bloquerait le chemin vers l'arrivée.");
     this.nextObjectId++;
     p.placedBlock = true;
@@ -565,6 +703,15 @@ export class GameSession {
     if (p.pose && victim.pose) {
       const far = Math.abs(p.pose.x - victim.pose.x) > STOMP_MAX_DISTANCE || Math.abs(p.pose.y - victim.pose.y) > STOMP_MAX_DISTANCE;
       if (far) return;
+      // Players never touch each other in the start zone (decided 2026-11-26).
+      if (this.level) {
+        const m = DEFAULT_MOVEMENT;
+        // Shrunk by the lag allowance: only bodies clearly inside, so a stomp a client sent from
+        // just outside is not dropped because the pose here is a little old.
+        const k = -SPAWN_CONTACT_MARGIN;
+        if (bodyInSpawnZone(this.level, p.pose.x, p.pose.y, m.bodyWidth, m.bodyHeight, k)) return;
+        if (bodyInSpawnZone(this.level, victim.pose.x, victim.pose.y, m.bodyWidth, m.bodyHeight, k)) return;
+      }
     }
     const now = this.io.now();
     if (now - this.raceStartsAt < TIMING.contactGrace) return;
@@ -660,14 +807,15 @@ export class GameSession {
     }));
     const rs = scoreRound(results, this.cfg, players.length === 1);
     for (const l of rs.lines) this.scores.set(l.playerId, (this.scores.get(l.playerId) ?? 0) + l.total);
-    this.io.broadcast({
+    this.scoreMsg = {
       type: "score",
       round: this.round,
       verdict: rs.verdict,
       lines: rs.lines,
       totals: Object.fromEntries(this.scores),
       endsAt: this.io.now() + this.cfg.scoreTime * 1000,
-    });
+    };
+    this.io.broadcast(this.scoreMsg);
     this.later(() => this.afterScore(), this.cfg.scoreTime * 1000);
   }
 
@@ -679,7 +827,8 @@ export class GameSession {
     }
     this.clearTimers();
     this.phase = "over";
-    this.io.broadcast({ type: "over", winner, totals: Object.fromEntries(this.scores), rounds: this.round });
+    this.overMsg = { type: "over", winner, totals: Object.fromEntries(this.scores), rounds: this.round };
+    this.io.broadcast(this.overMsg);
     this.broadcastLobby();
   }
 
@@ -691,8 +840,17 @@ export class GameSession {
     if (!p) return;
     this.io.send(id, { type: "lobby", lobby: this.lobbyInfo() });
     if (this.phase === "lobby" || !p.inGame) return;
-    this.io.send(id, { type: "gameStart", levelIndex: this.levelIndex, spinMs: 0, holdMs: 0 });
-    if (this.phase === "placement") {
+    // The game screen (re)starts on this game's level with the scores so far, then gets the
+    // current phase. A client coming from the lobby screen (page reloaded) needs the
+    // gameStart to open the game screen at all.
+    const totals = Object.fromEntries(this.scores);
+    this.io.send(id, { type: "gameStart", levelIndex: this.levelIndex, spinMs: 0, holdMs: 0, totals });
+    if (this.phase === "over") {
+      // The end screen again, with its buttons.
+      if (this.overMsg) this.io.send(id, this.overMsg);
+    } else if (this.phase === "score") {
+      if (this.scoreMsg) this.io.send(id, this.scoreMsg);
+    } else if (this.phase === "placement") {
       this.sendPlacement(p);
       this.broadcastPlacedStatus();
     } else if (this.phase === "countdown" || this.phase === "race" || this.phase === "raceEnd") {
@@ -715,6 +873,11 @@ export class GameSession {
   }
 }
 
+/** Browser keys are short random strings; anything else is ignored. */
+function cleanKey(raw: unknown): string {
+  return typeof raw === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(raw) ? raw : "";
+}
+
 function cleanName(raw: unknown): string {
   return String(raw ?? "")
     .replace(/[\u0000-\u001f]/g, "")
@@ -730,8 +893,70 @@ function standCellOf(pose: PlayerPose, level: Level): number {
   return cy * level.width + cx;
 }
 
-function cleanDir(v: unknown): Dir {
-  return v === 0 || v === 1 || v === 2 || v === 3 ? v : 2;
+function cleanDir(v: unknown, kind: ObjectKind): Dir {
+  return v === 0 || v === 1 || v === 2 || v === 3 ? v : defaultDir(kind);
+}
+
+/** No dead player's block within this many cells of a living player's body. */
+export const BLOCK_CLEARANCE = 2;
+/** The same, for a living player the path graph can't place (see onBlock). */
+const BLOCK_CLEARANCE_UNKNOWN = 4;
+
+/**
+ * How far a running player may get before a dead player's block turns solid: TIMING.blockDelay
+ * plus the age of the pose and the network delay, about 0.45 s. That is up to 4 cells
+ * sideways at run speed, a jump up, a fall down; and a few moves of the path graph.
+ */
+const BLOCK_LOOKAHEAD = { side: 4, up: 3, down: 10, hops: 5 };
+
+/**
+ * Stand cells a living player at `pose`, starting from `cells`, may get to before a block
+ * turns solid: within BLOCK_LOOKAHEAD.hops moves of the path graph, inside the box
+ * BLOCK_LOOKAHEAD draws around the body.
+ */
+function reachableSoon(pose: PlayerPose, cells: readonly number[], level: Level, guard: PathGuard): number[] {
+  const m = DEFAULT_MOVEMENT;
+  const L = BLOCK_LOOKAHEAD;
+  const x0 = Math.floor(pose.x) - L.side;
+  const x1 = Math.floor(pose.x + m.bodyWidth) + L.side;
+  const y0 = Math.floor(pose.y) - L.up;
+  const y1 = Math.floor(pose.y + m.bodyHeight) + L.down;
+  const inBox = (cell: number) => {
+    const cx = cell % level.width;
+    const cy = Math.floor(cell / level.width);
+    return cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1;
+  };
+  return guard.cellsWithin(cells, L.hops, inBox);
+}
+
+/** Whether the cell (x, y) is within `margin` cells of the body at `pose` (box grown by margin on every side). */
+function blockNearBody(pose: PlayerPose, x: number, y: number, margin: number): boolean {
+  const m = DEFAULT_MOVEMENT;
+  return (
+    pose.x - margin < x + 1 && pose.x + m.bodyWidth + margin > x && pose.y - margin < y + 1 && pose.y + m.bodyHeight + margin > y
+  );
+}
+
+/**
+ * Cells a body at `pose` stands on, or would land on falling straight down from where it is
+ * (one per column under the body, deduplicated): where the path check starts for a player.
+ */
+function landingCellsOf(pose: PlayerPose, collision: Level): number[] {
+  const m = DEFAULT_MOVEMENT;
+  const cells = new Set<number>();
+  const top = Math.max(0, Math.floor(pose.y + m.bodyHeight - 0.01));
+  const cols = [Math.floor(pose.x + m.bodyWidth / 2), Math.floor(pose.x + 0.01), Math.floor(pose.x + m.bodyWidth - 0.01)];
+  for (const cx of cols) {
+    if (cx < 0 || cx >= collision.width) continue;
+    for (let cy = top; cy < collision.height; cy++) {
+      if (isSolidCell(collision, cx, cy)) break;
+      if (isSolidCell(collision, cx, cy + 1)) {
+        cells.add(cy * collision.width + cx);
+        break;
+      }
+    }
+  }
+  return [...cells];
 }
 
 function num(v: unknown): number {

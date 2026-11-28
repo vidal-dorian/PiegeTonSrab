@@ -3,7 +3,8 @@
  * game, an object can have no accepted cell left anywhere: the placement screen then
  * discards it so the player can validate the rest instead of waiting for the timer.
  *
- * The answer must match the session's own check (canPlaceAt, then PathGuard: a quick search
+ * The answer must match the session's own check (canPlaceObject: a free cell outside the
+ * protected zones, and a block behind spikes in the direction tried; then PathGuard: a quick search
  * on the existing reach graph, and a full rebuild when the quick check says "blocked"), and
  * must not freeze the screen. So it is a generator that does one check per step:
  * 1. the quick check on every candidate cell (a fraction of a millisecond each), stopping at
@@ -15,7 +16,7 @@
  */
 import {
   buildReachGraph,
-  canPlaceAt,
+  canPlaceObject,
   DEFAULT_MOVEMENT,
   footprintCells,
   OBJECT_DEFS,
@@ -40,14 +41,19 @@ export interface FindRoomOptions {
   now?: () => number;
 }
 
-/** Every placement of `kind` that canPlaceAt allows, in each direction for a cannon. */
+/**
+ * Every placement of `kind` that canPlaceObject allows, in each direction for a rotatable
+ * kind (cannon, spikes, spring): spikes only count in a direction that has a block behind.
+ */
 export function candidates(level: Level, objects: readonly PlacedObject[], kind: ObjectKind): PlacedObject[] {
   const dirs: Array<Dir | undefined> = OBJECT_DEFS[kind].rotatable ? [0, 1, 2, 3] : [undefined];
   const out: PlacedObject[] = [];
   for (let y = 0; y < level.height; y++) {
     for (let x = 0; x < level.width; x++) {
-      if (!canPlaceAt(level, objects, x, y)) continue;
-      for (const dir of dirs) out.push(dir === undefined ? { id: 0, kind, x, y } : { id: 0, kind, x, y, dir });
+      for (const dir of dirs) {
+        const c: PlacedObject = dir === undefined ? { id: 0, kind, x, y } : { id: 0, kind, x, y, dir };
+        if (canPlaceObject(level, objects, c)) out.push(c);
+      }
     }
   }
   return out;

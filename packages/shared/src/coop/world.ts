@@ -25,13 +25,13 @@
  */
 import { isSolidCell } from "../level";
 import { HAZARD_INSET } from "../movement/tuning";
-import { boxHitsHazard, hazardsOf } from "../objects";
+import { boxHitsHazard } from "../objects";
 import { boxesOverlap, EPS, OBJECT_COLLIDER_BASE, spansOverlap, type BoxCollider, type CoopSpace, type Support } from "./colliders";
 import { CoopController, MANTLE_REACH, MANTLE_WRAP_REACH, type CoopBodyState } from "./coopController";
 import { COOP, COOP_DT, COOP_MOVEMENT, DEATH_FREEZE_STEPS, RESTART_HOLD_STEPS } from "./coopTuning";
 import { Fnv32 } from "./detMath";
 import { decodeInput, type CoopInput } from "./inputBits";
-import type { CoopLevel } from "./levelFormat";
+import { raceObjectHazards, type CoopLevel } from "./levelFormat";
 import { CoopProps, crateLaunchSpeed, sweepY, type CoopCrate, type PropEvent, type PropsHost } from "./props";
 import { measureRope, placeWraps, solveRope, sweepRope, type RopeHost, type RopeLinkState, type RopeWraps } from "./rope";
 
@@ -1086,7 +1086,7 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
       if (b.y > this.level.killY) cause = "fall";
       else {
         for (const obj of this.level.objects) {
-          if (hazardsOf(obj, t).some((hz) => boxHitsHazard(box, hz, b.vy))) {
+          if (raceObjectHazards(obj, t).some((hz) => boxHitsHazard(box, hz, b.vy))) {
             cause = "hazard";
             break;
           }

@@ -10,7 +10,7 @@
  *   static cell that stops bodies but lets the rope through.
  */
 import { describe, expect, it } from "vitest";
-import { isSolidCell, OBJECT_DEFS } from "@game/shared";
+import { isSolidCell } from "@game/shared";
 import {
   ALL_BITS,
   BIT_DOWN_PRESS,
@@ -25,6 +25,7 @@ import {
   CoopWorld,
   decodeWorld,
   encodeWorld,
+  isCoopSolidObject,
   parseCoopLevel,
   ROPE_MAX_LENGTH,
   sandboxLevel,
@@ -393,7 +394,14 @@ describe("rope v2: placed blocks are scenery", () => {
         const w = new CoopWorld(parseCoopLevel(def, n), team(n, n - 1));
         const { collision } = w.level;
         for (const o of w.level.objects) {
-          if (OBJECT_DEFS[o.kind].solid) expect(w.ropeSolid(o.x, o.y), `${def.id} at ${n}: ${o.kind} at (${o.x}, ${o.y})`).toBe(true);
+          const label = `${def.id} at ${n}: ${o.kind} at (${o.x}, ${o.y})`;
+          if (isCoopSolidObject(o)) expect(w.ropeSolid(o.x, o.y), label).toBe(true);
+          // Race spikes are solid in the race since main's turned spikes, never in co-op levels
+          // (La Salle de TP's rack drops into a ditch of them): neither bodies nor the rope stop there.
+          if (o.kind === "spikes") {
+            expect(isSolidCell(collision, o.x, o.y), label).toBe(false);
+            expect(w.ropeSolid(o.x, o.y), label).toBe(false);
+          }
         }
         for (let y = 0; y < collision.height; y++) {
           for (let x = 0; x < collision.width; x++) {

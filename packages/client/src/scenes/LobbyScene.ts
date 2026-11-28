@@ -26,7 +26,7 @@ export class LobbyScene extends Phaser.Scene {
     this.link.onStatus = (status) => {
       if (status === "lost") overlay.showNotice("Connexion perdue, reconnexion…", 0);
       else if (status === "back") overlay.showNotice("Reconnecté");
-      else this.leave("Déconnecté du serveur.");
+      else this.leave(this.link.closeMessage ?? "Déconnecté du serveur.");
     };
     this.link.setHandler((msg) => {
       if (msg.type === "lobby") {

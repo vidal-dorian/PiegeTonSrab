@@ -43,6 +43,10 @@ const BODY_FIELDS: Array<[keyof MovementTuning, Range]> = [
 
 const INTERACTION_FIELDS: Array<[keyof MovementTuning, Range]> = [
   ["springHeight", { label: "ressort (cases)", min: 3, max: 12, step: 0.1 }],
+  ["springSideSpeed", { label: "ressort mural, vitesse (cases/s)", min: 6, max: 30, step: 0.5 }],
+  ["springSideHeight", { label: "ressort mural, saut (cases)", min: 0, max: 4, step: 0.1 }],
+  ["springSideLock", { label: "ressort mural, verrou (s)", min: 0, max: 0.6, step: 0.01 }],
+  ["springDownSpeed", { label: "ressort au plafond (cases/s)", min: 4, max: 22, step: 0.5 }],
   ["stompBounceHeight", { label: "rebond sur tête (cases)", min: 1, max: 8, step: 0.1 }],
   ["stompSlamSpeed", { label: "écrasement (cases/s)", min: 0, max: 40, step: 0.5 }],
   ["stunTime", { label: "étourdi (s)", min: 0, max: 2, step: 0.05 }],

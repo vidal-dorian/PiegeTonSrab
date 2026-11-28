@@ -9,6 +9,7 @@ import {
   OBJECT_DEFS,
   POINTS,
   TIMING,
+  type CardKind,
   type LevelDefinition,
   type ServerMessage,
   type SessionIO,
@@ -65,6 +66,17 @@ const openField: LevelDefinition = {
   rows: ["....................", "....................", "S..................F", "####################"],
 };
 
+/**
+ * Legal cells of the open field for a hand (the start zone covers x 0..3, the finish zone
+ * x 17..19): objects in the air on row `y` from column x0, spikes (they can't float) on the
+ * floor pointing up from column floorX.
+ */
+function spots(offer: readonly CardKind[], x0: number, floorX: number, y = 0) {
+  let air = x0;
+  let floor = floorX;
+  return offer.map((kind) => (kind === "spikes" ? { kind, x: floor++, y: 2, dir: 3 as const } : { kind, x: air++, y }));
+}
+
 /** Players a, b, c in a running race (contact grace over); "a" placed traps in the air. */
 function toRace() {
   const io = new FakeIO();
@@ -72,11 +84,12 @@ function toRace() {
   for (const id of ["a", "b", "c"]) s.addPlayer(id, id.toUpperCase());
   s.handle("a", { type: "start" });
   io.advance(TIMING.carouselSpin + TIMING.carouselHold);
-  for (const [id, x0] of [["a", 3], ["b", 8], ["c", 13]] as const) {
+  for (const [id, x0, floorX] of [["a", 4, 14], ["b", 8, 15], ["c", 11, 16]] as const) {
     const offer = io.last("placement", id)!.offer;
-    s.handle(id, { type: "placement", objects: offer.map((kind, i) => ({ kind, x: x0 + i, y: 0 })), done: true });
+    s.handle(id, { type: "placement", objects: spots(offer, x0, floorX), done: true });
   }
   const objects = io.last("countdown", "a")!.objects;
+  for (const id of ["a", "b", "c"]) expect(io.last("countdown", id)!.refusedObjects).toEqual([]);
   const trap = objects.find((o) => o.ownerId === "a" && OBJECT_DEFS[o.kind].family === "kill");
   expect(trap).toBeDefined();
   io.advance(TIMING.countdown + TIMING.contactGrace);
@@ -209,11 +222,14 @@ describe("rejoining in the middle of a race", () => {
     for (const id of ids) s.addPlayer(id, id.toUpperCase());
     s.handle("a", { type: "start" });
     io.advance(TIMING.carouselSpin + TIMING.carouselHold);
+    // Two objects each: rows 0 and 1 of x 4..11, spikes side by side on the floor at x 12..16
+    // (one floor cell per player, so two spikes never leave a one-cell gap to land in).
     for (const [i, id] of ids.entries()) {
       const offer = io.last("placement", id)!.offer;
-      s.handle(id, { type: "placement", objects: offer.map((kind, j) => ({ kind, x: 2 + i * 3 + j, y: 0 })), done: true });
+      s.handle(id, { type: "placement", objects: spots(offer, 4 + (i % 3) * 3, 12 + i, i < 3 ? 0 : 1), done: true });
     }
     const objects = io.last("countdown", "a")!.objects;
+    for (const id of ids) expect(io.last("countdown", id)!.refusedObjects).toEqual([]);
     const cTrap = objects.find((o) => o.ownerId === "c" && OBJECT_DEFS[o.kind].family === "kill")!;
     expect(cTrap).toBeDefined();
     io.advance(TIMING.countdown + TIMING.contactGrace);

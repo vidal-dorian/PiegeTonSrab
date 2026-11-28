@@ -10,11 +10,14 @@ import { Client, type Room } from "@colyseus/sdk";
 import {
   GameSession,
   JOIN_REFUSED_CODE,
-  ROOM_NAME,
   SERVER_PORT,
+  TAKEN_OVER_CODE,
+  TAKEN_OVER_REASON,
   type ClientMessage,
   type ServerMessage,
 } from "@game/shared";
+import { ClockSync } from "./clock";
+import { playerKey, rememberRoomInUrl } from "./playerKey";
 
 export interface GameLink {
   readonly myId: string;
@@ -27,6 +30,10 @@ export interface GameLink {
   setHandler(handler: ((msg: ServerMessage) => void) | null): void;
   /** Connection status changes: lost (trying to reconnect), back, or closed for good. */
   onStatus: ((status: "lost" | "back" | "closed") => void) | null;
+  /** Once closed: why, in French for the player, when the server said (else null). */
+  readonly closeMessage: string | null;
+  /** Whether the connection is down right now (between "lost" and "back", or closed). */
+  readonly isLost: boolean;
   /** Estimated server time, milliseconds. */
   serverNow(): number;
   leave(): void;
@@ -34,14 +41,18 @@ export interface GameLink {
 
 /** Message queue and handler handoff shared by every link (race and co-op). */
 export abstract class BaseLink<S = ServerMessage> {
+  closeMessage: string | null = null;
+  isLost = false;
   private handler: ((msg: S) => void) | null = null;
   private queue: S[] = [];
   onStatus: ((status: "lost" | "back" | "closed") => void) | null = null;
 
   setHandler(handler: ((msg: S) => void) | null): void {
     this.handler = handler;
-    // One message at a time: a message can make its handler step down (a scene switch), and what
-    // is left then waits for the next handler instead of going to the one that left.
+    // One at a time, and only while this handler is still the one set: a handler that lets go
+    // in the middle (GameScene on gameStart, LobbyScene when the game starts, a co-op scene
+    // switch) leaves the rest, in order, to the next one. Messages that arrive meanwhile are
+    // queued behind them.
     while (handler && this.handler === handler && this.queue.length > 0) handler(this.queue.shift()!);
   }
 
@@ -73,8 +84,11 @@ const FIRST_MESSAGE_TIMEOUT_MS = 8000;
 export async function joinRoom(name: string, code: string | null, roomName: string, version: number): Promise<JoinedRoom> {
   const client = new Client(serverUrl());
   let room: Room;
+  // `key` lets a player who reloaded the page take their place back in a running race (see
+  // playerKey.ts); `version` is checked by the co-op rooms. Each room reads what it needs.
+  const options = { name, version, key: playerKey() };
   try {
-    room = code ? await client.joinById(code.toUpperCase(), { name, version }) : await client.create(roomName, { name, version });
+    room = code ? await client.joinById(code.toUpperCase(), options) : await client.create(roomName, options);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     // The session said why (game already started, new version...), in French: show it as is.
@@ -103,6 +117,8 @@ export async function joinRoom(name: string, code: string | null, roomName: stri
     throw e;
   });
   const mode = (firstMessage as { type?: string }).type === "coopLobby" ? "coop" : "race";
+  // Reloading the page now lands on the menu with this room's code filled in (?salon=ABCD).
+  rememberRoomInUrl(room.roomId);
   return {
     room,
     mode,
@@ -122,30 +138,57 @@ export function serverUrl(): string {
   return `${protocol}//${location.hostname}:${SERVER_PORT}`;
 }
 
+/**
+ * Messages that are pointless once they are late, so they are not sent while the connection
+ * is down. The network layer keeps only the last few messages sent while offline
+ * (Colyseus: 10), and poses go out every 50 ms: without this they would push out, within
+ * half a second, the messages that matter ("died", "finished", the dead player's block...).
+ * A ping sent offline would also come back with a meaningless round trip.
+ */
+export function skipWhileOffline(msg: ClientMessage): boolean {
+  // Vine grabs and stomps are stale too: the session releases the vines of a player who
+  // drops, and on reconnection the run restarts from the spawn. Replayed after the resync,
+  // an old "vine hold" would lock that vine for everyone.
+  return msg.type === "pose" || msg.type === "ping" || msg.type === "vine" || msg.type === "stomp";
+}
+
 export class OnlineLink extends BaseLink implements GameLink {
   readonly online = true;
   readonly myId: string;
-  /** serverTime ≈ Date.now() + offset, measured with ping/pong. */
-  private offset = 0;
-  private bestRtt = Infinity;
+  private clock = new ClockSync();
+  /** False between a dropped connection and its reconnection. */
+  private connected = true;
   private pingTimer: number;
 
   private constructor(
     private room: Room,
-    joined?: JoinedRoom,
+    joined: JoinedRoom,
   ) {
     super();
     this.myId = room.sessionId;
-    if (joined) joined.setSink((payload) => this.receive(payload as ServerMessage));
-    else room.onMessage("*", (_type, payload) => this.receive(payload as ServerMessage));
-    room.onDrop(() => this.onStatus?.("lost"));
-    room.onReconnect(() => this.onStatus?.("back"));
-    room.onLeave(() => {
+    joined.setSink((payload) => this.receive(payload as ServerMessage));
+    room.onDrop(() => {
+      this.connected = false;
+      this.isLost = true;
+      this.onStatus?.("lost");
+    });
+    room.onReconnect(() => {
+      this.connected = true;
+      this.isLost = false;
+      // The route may have changed: measure the clock again quickly.
+      this.pingBurst();
+      this.onStatus?.("back");
+    });
+    room.onLeave((code) => {
+      this.connected = false;
+      this.isLost = true;
+      // The session took this player back under another connection: say so, not "server down".
+      if (code === TAKEN_OVER_CODE) this.closeMessage = TAKEN_OVER_REASON;
       window.clearInterval(this.pingTimer);
       this.onStatus?.("closed");
     });
     // A burst of pings to sync the clock quickly, then one every 2 seconds.
-    for (let i = 0; i < 5; i++) window.setTimeout(() => this.ping(), i * 150);
+    this.pingBurst();
     this.pingTimer = window.setInterval(() => this.ping(), 2000);
   }
 
@@ -154,27 +197,17 @@ export class OnlineLink extends BaseLink implements GameLink {
     return new OnlineLink(joined.room, joined);
   }
 
-  /** Create a new room, or join one by its code. Throws with a French message on failure. */
-  static async connect(name: string, code: string | null): Promise<OnlineLink> {
-    const client = new Client(serverUrl());
-    try {
-      const room = code ? await client.joinById(code.toUpperCase(), { name }) : await client.create(ROOM_NAME, { name });
-      return new OnlineLink(room);
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      // The session said why (game already started...), in French: show it as is.
-      if ((e as { code?: unknown }).code === JOIN_REFUSED_CODE && message) throw new Error(message);
-      if (code && /not found|locked|full/i.test(message)) throw new Error(`Salon ${code.toUpperCase()} introuvable ou plein.`);
-      throw new Error(`Impossible de joindre le serveur (${serverUrl()}). Est-il lancé ?`);
-    }
-  }
-
   send(msg: ClientMessage): void {
+    if (!this.connected && skipWhileOffline(msg)) return;
     this.room.send(msg.type, msg);
   }
 
+  /**
+   * Server time, from the monotonic clock: a jump of this machine's wall clock does not move
+   * it. Before the first pong, this machine's wall clock stands in.
+   */
   serverNow(): number {
-    return Date.now() + this.offset;
+    return this.clock.serverNow(performance.now(), Date.now());
   }
 
   leave(): void {
@@ -182,19 +215,18 @@ export class OnlineLink extends BaseLink implements GameLink {
     void this.room.leave(true);
   }
 
+  private pingBurst(): void {
+    for (let i = 0; i < 5; i++) window.setTimeout(() => this.ping(), i * 150);
+  }
+
   private ping(): void {
-    this.send({ type: "ping", c: Date.now() });
+    // `c` is echoed back: performance.now, so the round trip ignores wall clock jumps.
+    this.send({ type: "ping", c: performance.now() });
   }
 
   private receive(msg: ServerMessage): void {
     if (msg.type === "pong") {
-      // Keep the measurement with the shortest round trip: it has the least uncertainty.
-      const now = Date.now();
-      const rtt = now - msg.c;
-      if (rtt <= this.bestRtt * 1.2) {
-        this.bestRtt = Math.min(this.bestRtt, rtt);
-        this.offset = msg.s + rtt / 2 - now;
-      }
+      this.clock.addSample(msg.c, performance.now(), msg.s);
       return;
     }
     this.deliver(msg);
@@ -213,7 +245,8 @@ export class LocalLink extends BaseLink implements GameLink {
     const post = (msg: ServerMessage) => queueMicrotask(() => this.deliver(msg));
     this.session = new GameSession(
       {
-        now: () => Date.now(),
+        // The monotonic clock on both sides: a jump of the wall clock must not end a race.
+        now: () => performance.now(),
         send: (_id, msg) => post(msg),
         broadcast: post,
         setTimeout: (fn, ms) => {
@@ -237,7 +270,7 @@ export class LocalLink extends BaseLink implements GameLink {
   }
 
   serverNow(): number {
-    return Date.now();
+    return performance.now();
   }
 
   leave(): void {

@@ -5,7 +5,8 @@
  */
 import Phaser from "phaser";
 import {
-  canPlaceAt,
+  objectPlacementProblem,
+  objectsLeaningOn,
   OBJECT_DEFS,
   parseLevel,
   prepareObjects,
@@ -13,6 +14,7 @@ import {
   testLevel,
   vinesOf,
   withSolidObjects,
+  type Dir,
   type Level,
   type LevelDefinition,
   type ObjectKind,
@@ -24,6 +26,7 @@ import { DebugEditor } from "../debug/editor";
 import { debugView, liveStats } from "../debug/debugState";
 import { InputSource } from "../input";
 import { drawLevel } from "../render/levelView";
+import { drawProtectedZones } from "../render/zoneView";
 import { ObjectViews } from "../render/objectViews";
 import { PlayerView, PLAYER_COLORS } from "../render/playerView";
 import { Stains } from "../render/stains";
@@ -64,6 +67,8 @@ export class SoloScene extends Phaser.Scene {
   private message = "";
 
   private gridGfx!: Phaser.GameObjects.Graphics;
+  /** The protected start and finish zones, shown while the editor is on. */
+  private zoneGfx!: Phaser.GameObjects.Graphics;
   private trailGfx!: Phaser.GameObjects.Graphics;
   private hud!: Phaser.GameObjects.Text;
   private banner!: Phaser.GameObjects.Text;
@@ -92,6 +97,8 @@ export class SoloScene extends Phaser.Scene {
     this.followCam = new FollowCamera(tuning.camera, VIEW_CELLS_X, VIEW_CELLS_Y, this.level.width, this.level.height);
 
     this.gridGfx = drawLevel(this, this.level).grid;
+    this.zoneGfx = this.add.graphics().setDepth(1.2).setVisible(false);
+    drawProtectedZones(this.zoneGfx, this.level, CELL_PX);
     this.stains = new Stains(this);
     this.objectViews = new ObjectViews(this);
     this.objectViews.sync(this.objects);
@@ -125,8 +132,8 @@ export class SoloScene extends Phaser.Scene {
 
     this.controls = new InputSource();
     this.editor = new DebugEditor(this, {
-      onCellClicked: (x, y, kind) => this.toggleObjectAt(x, y, kind),
-      canPlace: (x, y) => this.canPlace(x, y),
+      onCellClicked: (x, y, kind, dir) => this.toggleObjectAt(x, y, kind, dir),
+      whyNot: (x, y, kind, dir) => this.whyNot(x, y, kind, dir),
       hasObjectAt: (x, y) => this.objects.some((o) => o.x === x && o.y === y),
     });
     this.controls.onKey = (code) => {
@@ -213,20 +220,46 @@ export class SoloScene extends Phaser.Scene {
     this.message = `Arrivée ! ${t.toFixed(2)} s${record ? " · record" : ""}\nR pour rejouer`;
   }
 
-  private canPlace(x: number, y: number): boolean {
-    if (!canPlaceAt(this.level, this.objects, x, y)) return false;
-    // Never place a platform inside the character.
+  /**
+   * Why this object can't go here, or null: the game's own rule (objectPlacementProblem:
+   * protected zones, spikes against a block), and never inside the character.
+   */
+  private whyNot(x: number, y: number, kind: ObjectKind, dir: Dir | undefined): string | null {
+    switch (objectPlacementProblem(this.level, this.objects, { kind, x, y, ...(dir !== undefined ? { dir } : {}) })) {
+      case "outside":
+      case "terrain":
+        return "pas dans le décor";
+      case "protected":
+        return "pas dans la zone de départ ni près de l'arrivée";
+      case "taken":
+        return "case déjà prise";
+      case "support":
+        return "les pics doivent toucher un bloc (R pour les tourner)";
+      case null:
+        break;
+    }
     const m = tuning.movement;
     const c = this.player.controller;
-    return !(c.x < x + 1 && c.x + m.bodyWidth > x && c.y < y + 1 && c.y + m.bodyHeight > y);
+    return c.x < x + 1 && c.x + m.bodyWidth > x && c.y < y + 1 && c.y + m.bodyHeight > y ? "sur le personnage" : null;
   }
 
-  private toggleObjectAt(x: number, y: number, kind: ObjectKind): void {
+  private toggleObjectAt(x: number, y: number, kind: ObjectKind, dir: Dir | undefined): void {
     const existing = this.objects.findIndex((o) => o.x === x && o.y === y);
-    if (existing >= 0) this.objects.splice(existing, 1);
-    else if (this.canPlace(x, y)) {
+    if (existing >= 0) {
+      // Removing a block that spikes lean on would leave them floating: take the spikes too
+      // (and spikes leaning on those, since spikes are a solid block too).
+      const gone = new Set<PlacedObject>();
+      const queue = [this.objects[existing]!];
+      while (queue.length > 0) {
+        const o = queue.pop()!;
+        if (gone.has(o)) continue;
+        gone.add(o);
+        queue.push(...objectsLeaningOn(this.objects, o));
+      }
+      this.objects = this.objects.filter((o) => !gone.has(o));
+    } else if (this.whyNot(x, y, kind, dir) === null) {
       const obj: PlacedObject = { id: this.nextObjectId++, kind, x, y };
-      if (OBJECT_DEFS[kind].rotatable) obj.dir = this.editor.dir;
+      if (OBJECT_DEFS[kind].rotatable && dir !== undefined) obj.dir = dir;
       this.objects.push(obj);
     } else return;
     this.objects = prepareObjects(this.level, this.objects);
@@ -267,6 +300,7 @@ export class SoloScene extends Phaser.Scene {
 
   private updateHud(): void {
     this.gridGfx.setVisible(debugView.showGrid);
+    this.zoneGfx.setVisible(this.editor.enabled);
     this.hud.setVisible(debugView.showHud);
     this.banner.setVisible(this.message !== "");
     this.banner.setText(this.message);
@@ -288,7 +322,8 @@ export class SoloScene extends Phaser.Scene {
     if (!debugView.showHud) return;
     const best = bestTimes.get(this.level.name);
     this.hud.setText([
-      "Q/A ← · D → · Espace/Z/↑ saut · S/↓ lâcher la liane · R recommencer · N niveau suivant · Échap menu",
+      // In the editor, R turns the object (as in the game) instead of restarting.
+      `Q/A ← · D → · Espace/Z/↑ saut · S/↓ lâcher la liane · ${this.editor.enabled ? "" : "R recommencer · "}N niveau suivant · Échap menu`,
       `${this.level.name} · temps ${this.player.time.toFixed(2)} s · record ${best !== undefined ? best.toFixed(2) + " s" : "-"} · morts ${this.deaths}`,
       this.editor.status(),
     ]);

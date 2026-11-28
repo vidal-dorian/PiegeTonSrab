@@ -15,10 +15,11 @@ import {
   SPIKES_HEIGHT,
   sawAngle,
   vineRopeLength,
+  type Dir,
   type PlacedObject,
 } from "@game/shared";
 import { CELL_PX } from "../config";
-import { INK, ORANGE, OUTLINE, RED, SHADOW_X, SHADOW_Y, WHITE } from "./levelView";
+import { INK, LINE, ORANGE, OUTLINE, RED, SHADOW_X, SHADOW_Y, WHITE } from "./levelView";
 
 const SAW_TEETH = 9;
 /** Shadows sit under every object body, above the terrain and the stains. */
@@ -56,8 +57,8 @@ export class ObjectViews {
     const alive = new Map(objects.map((o) => [o.id, o]));
     for (const [id, v] of this.views) {
       const o = alive.get(id);
-      // Recreate when the object changed (a cannon turned, a line got shorter).
-      if (!o || o.x !== v.obj.x || o.y !== v.obj.y || o.dir !== v.obj.dir || o.range !== v.obj.range || o.kind !== v.obj.kind) {
+      // Recreate when the object changed (a cannon, spikes or a spring turned, a line got shorter).
+      if (!o || o.x !== v.obj.x || o.y !== v.obj.y || dirOf(o) !== dirOf(v.obj) || o.range !== v.obj.range || o.kind !== v.obj.kind) {
         for (const p of v.parts) p.destroy();
         this.views.delete(id);
       }
@@ -74,7 +75,7 @@ export class ObjectViews {
     }
   }
 
-  /** A spring just threw this player up: squash it for a moment (local feedback only). */
+  /** A spring just threw this player (any direction): squash it for a moment (local feedback only). */
   bounce(id: number): void {
     const v = this.views.get(id);
     if (v) v.bouncedAt = this.now;
@@ -151,23 +152,33 @@ export class ObjectViews {
         break;
       }
       case "spikes": {
-        const h = SPIKES_HEIGHT * CELL_PX;
+        // A solid block that kills through its pointed face only: a white plate on the side it
+        // leans on, red teeth filling the rest of the cell. Drawn pointing up around (0, 0) and
+        // turned as a whole, so every direction gets the same art.
+        orient(view, dirOf(obj));
+        const h = CELL_PX / 2;
+        const plateTop = h - (1 - SPIKES_HEIGHT) * CELL_PX;
         const n = 3;
-        const bottom = py + CELL_PX;
         const w = (CELL_PX - 4) / n;
-        const pts: Phaser.Math.Vector2[] = [new Phaser.Math.Vector2(px + 2, bottom)];
+        // Teeth run from the plate (their foot hides under it) to the deadly face, the cell edge.
+        const teeth: Phaser.Math.Vector2[] = [new Phaser.Math.Vector2(-h + 2, plateTop + 3)];
         for (let i = 0; i < n; i++) {
-          pts.push(new Phaser.Math.Vector2(px + 2 + (i + 0.5) * w, bottom - h));
-          pts.push(new Phaser.Math.Vector2(px + 2 + (i + 1) * w, bottom - (i < n - 1 ? 3 : 0)));
+          teeth.push(new Phaser.Math.Vector2(-h + 2 + (i + 0.5) * w, -h + 1));
+          teeth.push(new Phaser.Math.Vector2(-h + 2 + (i + 1) * w, i < n - 1 ? plateTop : plateTop + 3));
         }
+        const plate = { x: -h + 1, y: plateTop, w: CELL_PX - 2, h: h - 1 - plateTop };
         shadow.fillStyle(INK, 1);
-        shadow.fillPoints(pts.map((p) => new Phaser.Math.Vector2(p.x + SHADOW_X, p.y)), true);
+        shadow.fillPoints(teeth, true);
+        shadow.fillRoundedRect(plate.x, plate.y, plate.w, plate.h, 4);
         g.fillStyle(RED, 1);
-        g.fillPoints(pts, true);
+        g.fillPoints(teeth, true);
         g.lineStyle(OUTLINE, INK, 1);
-        g.strokePoints(pts, true, true);
-        g.lineStyle(OUTLINE + 0.5, INK, 1);
-        g.lineBetween(px + 1, bottom - 1, px + CELL_PX - 1, bottom - 1);
+        g.strokePoints(teeth, true, true);
+        g.fillStyle(WHITE, 1);
+        g.fillRoundedRect(plate.x, plate.y, plate.w, plate.h, 4);
+        hatch(g, plate.x + 2, plate.y + 2, plate.w - 4, plate.h - 4);
+        g.lineStyle(OUTLINE, INK, 1);
+        g.strokeRoundedRect(plate.x + 0.5, plate.y, plate.w - 1, plate.h - 0.5, 4);
         break;
       }
       case "platform": {
@@ -209,13 +220,17 @@ export class ObjectViews {
         break;
       }
       case "spring": {
+        // Drawn facing up around (0, 0) and turned: the base sits on the side it leans on.
+        orient(view, dirOf(obj));
+        const h = CELL_PX / 2;
         shadow.fillStyle(INK, 1);
-        shadow.fillRoundedRect(px + 4 + SHADOW_X, py + CELL_PX - 10 + SHADOW_Y, CELL_PX - 8, 9, 3);
+        shadow.fillRoundedRect(-h + 4, h - 10, CELL_PX - 8, 9, 3);
         g.fillStyle(WHITE, 1);
-        g.fillRoundedRect(px + 4, py + CELL_PX - 10, CELL_PX - 8, 9, 3);
+        g.fillRoundedRect(-h + 4, h - 10, CELL_PX - 8, 9, 3);
         g.lineStyle(OUTLINE, INK, 1);
-        g.strokeRoundedRect(px + 4, py + CELL_PX - 10, CELL_PX - 8, 9, 3);
+        g.strokeRoundedRect(-h + 4, h - 10, CELL_PX - 8, 9, 3);
         addLive();
+        orientLive(view);
         break;
       }
       case "vine": {
@@ -313,25 +328,26 @@ export class ObjectViews {
   private drawSpringLive(v: View, t: number): void {
     const g = v.live!;
     g.clear();
-    const px = v.obj.x * CELL_PX;
-    const py = v.obj.y * CELL_PX;
+    // Local frame (see orient): the pad faces local up, the base is at local bottom, so the
+    // squash always compresses along the spring's direction.
+    const h = CELL_PX / 2;
     const since = t - v.bouncedAt;
     const squash = since >= 0 && since < 0.2 ? 1 - since / 0.2 : 0;
-    const top = py + 2 + squash * 14;
-    const bottom = py + CELL_PX - 10;
+    const top = -h + 2 + squash * 14;
+    const bottom = h - 10;
     // Coil.
     g.lineStyle(3, INK, 1);
     const coils = 3;
     const y0 = top + 9;
     const step = (bottom - y0) / coils;
-    let prevX = px + CELL_PX / 2;
+    let prevX = 0;
     let prevY = y0;
     for (let i = 0; i < coils; i++) {
       const ya = y0 + step * i;
       const pts = [
-        [px + 10, ya + step * 0.25],
-        [px + CELL_PX - 10, ya + step * 0.75],
-        [px + CELL_PX / 2, ya + step],
+        [-h + 10, ya + step * 0.25],
+        [h - 10, ya + step * 0.75],
+        [0, ya + step],
       ] as const;
       for (const [x, y] of pts) {
         g.lineBetween(prevX, prevY, x, y);
@@ -339,13 +355,15 @@ export class ObjectViews {
         prevY = y;
       }
     }
-    // Orange pad on top, with its shadow.
+    // Orange pad on the face, with its shadow: the offset is turned back so the shadow still
+    // falls down and right on screen whatever way the spring faces.
+    const s = localOffset(dirOf(v.obj), SHADOW_X, SHADOW_Y - 2);
     g.fillStyle(INK, 1);
-    g.fillRoundedRect(px + 2 + SHADOW_X, top + SHADOW_Y - 2, CELL_PX - 4, 9, 4);
+    g.fillRoundedRect(-h + 2 + s.x, top + s.y, CELL_PX - 4, 9, 4);
     g.fillStyle(ORANGE, 1);
-    g.fillRoundedRect(px + 2, top, CELL_PX - 4, 9, 4);
+    g.fillRoundedRect(-h + 2, top, CELL_PX - 4, 9, 4);
     g.lineStyle(OUTLINE, INK, 1);
-    g.strokeRoundedRect(px + 2, top, CELL_PX - 4, 9, 4);
+    g.strokeRoundedRect(-h + 2, top, CELL_PX - 4, 9, 4);
   }
 
   private drawVineLive(v: View, holder: { x: number; y: number } | null, t: number): void {
@@ -387,6 +405,60 @@ export class ObjectViews {
   destroy(): void {
     for (const v of this.views.values()) for (const p of v.parts) p.destroy();
     this.views.clear();
+  }
+}
+
+/**
+ * Turn of the art for each Dir: rotatable objects are drawn facing up (Dir 3) around their
+ * cell centre and turned clockwise on screen. Up stays exactly 0 so the classic art is untouched.
+ */
+const DIR_ANGLE: Record<Dir, number> = { 0: Math.PI / 2, 1: Math.PI, 2: -Math.PI / 2, 3: 0 };
+
+/**
+ * Put the body and the shadow of a rotatable object around its cell centre, turned to `dir`.
+ * The shadow is moved in screen space, so it falls down and right like every other shadow.
+ */
+function orient(view: View, dir: Dir): void {
+  const [shadow, g] = view.parts;
+  const cx = (view.obj.x + 0.5) * CELL_PX;
+  const cy = (view.obj.y + 0.5) * CELL_PX;
+  g!.setPosition(cx, cy).setRotation(DIR_ANGLE[dir]);
+  shadow!.setPosition(cx + SHADOW_X, cy + SHADOW_Y).setRotation(DIR_ANGLE[dir]);
+}
+
+/** Give the live part the body's frame (after orient). */
+function orientLive(view: View): void {
+  const g = view.parts[1]!;
+  view.live!.setPosition(g.x, g.y).setRotation(g.rotation);
+}
+
+/** A screen-space offset expressed in the local frame of an object turned to `dir`. */
+function localOffset(dir: Dir, x: number, y: number): { x: number; y: number } {
+  const a = DIR_ANGLE[dir];
+  const c = Math.cos(a);
+  const s = Math.sin(a);
+  return { x: x * c + y * s, y: -x * s + y * c };
+}
+
+/** Light diagonal hatching inside a rectangle, like the terrain masses. */
+function hatch(g: Phaser.GameObjects.Graphics, x: number, y: number, w: number, h: number): void {
+  if (w <= 0 || h <= 0) return;
+  g.lineStyle(2, LINE, 1);
+  for (let d = -h; d < w; d += 9) {
+    // The line from (x + d, y + h) up-right to (x + d + h, y), clipped to the rectangle.
+    let sx = x + d;
+    let sy = y + h;
+    if (sx < x) {
+      sy -= x - sx;
+      sx = x;
+    }
+    let ex = x + d + h;
+    let ey = y;
+    if (ex > x + w) {
+      ey += ex - (x + w);
+      ex = x + w;
+    }
+    if (ex > sx) g.lineBetween(sx, sy, ex, ey);
   }
 }
 

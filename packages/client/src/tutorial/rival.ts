@@ -80,7 +80,7 @@ export class ScriptedRival {
       w: m.bodyWidth - 2 * HAZARD_INSET,
       h: m.bodyHeight - 2 * HAZARD_INSET,
     };
-    const killer = findKiller(objects, box, c.vy, t);
+    const killer = findKiller(objects, box, c.vy, t, {}, c.vx);
     if (killer) {
       this.kill();
       return { killer, fell: false };
