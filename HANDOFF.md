@@ -1103,6 +1103,59 @@ Wave A (2026-11-28; two lanes from `5bfc5e9`, each through a skeptic, then integ
   kill at 0.45 of the cell, so a body sinks into the teeth before it dies (cosmetic); the 1 random-play step
   past 5.5 in coop02 (pre-existing).
 
+M5 wave B (2026-11-28; two level lanes from `0415868`, each designed, criticised, fixed and put
+through a skeptic, then integrated):
+
+- coop07 « La BU »: **in** (`b68f017`, `a6b77b3`, `253d518`, `390f8c4` cherry-picked as is, no
+  conflict). One switch state for the whole level: a hit swaps the A and B shelves; a friend jumps
+  on « 3, 2, 1, saute ! » and the hitter hits right after, so the next shelf appears under him;
+  then the climbers hit for the ones still in the alcove, Ruben last; a key's shelf (B) and an exit
+  footbridge (A) over a deadly pit. 32 x 13. Plays as « Niveau 6 » because coop06 is out (the HUD
+  numbers by position in `COOP_LEVELS`). Sheet: `docs/coop-levels/coop07.md`; critic fixes summed
+  up in `docs/coop-levels.md`, part 2.
+- Engine (props.ts, types in levelFormat.ts; only acts when a level sets it; `coopProps.test.ts`):
+  shelf `spareHeads` (a shelf cell also waits while a head is within `PROPS.shelfHeadroom` 0.5
+  under it, so it never appears on a head) and plate `latch` (once active, active until the
+  restart; saved in snapshots). rope.ts, coopController.ts and world.ts untouched.
+  `COOP_PROTOCOL_VERSION` 8 -> 9 (a level was added and two rules: an older tab is refused).
+- Accepted shortcuts (sheet, "Accepted"): the first hit through the alcove (only L2 -> L3 stays
+  timed; the skeptic's `a_alcove_first` wins at 2-5 in 13.4 / 16.4 / 19.3 / 22.5 s), a 3-tower at
+  the rim's end onto L2, Ruben hitting for everyone, the climb with the roles reversed at 2 players.
+  9 shortcuts fail in their ATTEMPT phase at 2-5 players, 4 recoveries finish.
+- Skeptic points left open (not refuted, severity low): the rope partner's spot in beat 2 is more
+  forgiving than the sheet says (fine); an idle room member can slide out onto L3 in B (the sheet
+  now says so; harmless); weakened plan elements, all listed under the sheet's deviations: beat 2
+  has no stakes (dip, not pit), beat 4 has no timing and no decision, « au plus deux en l'air »
+  holds trivially, at 4-5 players Ruben hitting is a convention. Random play (1200 runs): 0 deaths
+  in beats 1-3, 3 deaths in beat 4's listed deadly moment, the slowest pose settles in about 20 s
+  (no endless bob).
+- coop06 « Le RU »: **left out.** Its commits stay on the branch `worktree-wf_fd3dd6f5-ae8-1`
+  (`07478ae` movers `waits`, `e96da8c`, `2c4d221`, `6519e2e`). Its last skeptic refuted it (high):
+  the "lintel lock". The lift is kinematic and keeps dragging Ruben up the shaft when the rope is
+  at its stop; if his neighbour, waiting at the queue spot (x 28.5-28.6, beside the lintel at x 29),
+  jumps while Ruben rides up, the neighbour freezes in mid-air (x 28.60, feet 13.45, link 6.86,
+  27 % past the 5.4 stop) with Ruben on the grille, and only a restart clears it (49 of 49 input
+  combinations, 40 s idle, the others pulling at 3-5 players). One jump 1.65-1.80 s after Ruben
+  starts for the lift: 12 / 9 / 12 / 15 of 183 timings at 2 / 3 / 4 / 5 players; random play
+  4 / 15 / 11 / 9 of 300 seeds end in it, and the longest link reaches 7.7-8.7 (the sheet claimed
+  5.91). Its two earlier refuted points (the endless bob, the 2-player haul skipped) were fixed.
+  Next try: the lift stops or turns back while its rider's link is past the stop, or the lintel
+  corner by the queue spot goes. Probes: `waveB/coop06/rprobes/` and `waveB/coop06/r-*.log` in the
+  session scratchpad.
+- Checks on the integrated tree: `npm test` 749 passed (56 files), typecheck and build pass,
+  `check-coop-level --all` all good (coop01-05 lines identical to `0415868` apart from ms timings),
+  `check-level --all` identical to `0415868` apart from timings (race mode unchanged). Browser
+  (server 2655, Vite 5655): coop07 by the dev route at 2 and 5 players; an online game with 3
+  contexts (lobby, join by link and by lower-case code, intro skipped), level 1 cleared by replaying
+  the bot's recorded inputs through each player's own link (26 s, first try), then the host picked
+  « Niveau 6 · La BU » from the end-of-level list: the 3 screens show coop07 with the same names,
+  seats and bodies. No console errors. Harness: `waveB/integ/h/` in the session scratchpad.
+- Bot times (2 / 3 / 4 / 5 players): coop01 25.4 / 26.0 / 27.2 / 28.4 s, coop02 14.5 / 25.6 /
+  30.7 / 35.9 s, coop03 16.2 / 17.9 / 19.2 / 21.9 s, coop04 20.9 / 22.8 / 24.1 / 26.8 s, coop05
+  15.7 / 17.5 / 20.2 / 23.5 s, coop07 12.9 / 16.2 / 19.0 / 22.2 s.
+- Open: coop06 (above); the wall bob (still open, not touched); coop07 is the shortest level of the
+  campaign so far at 2 players.
+
 Status at the end of M4 (2026-11-26):
 
 - Done: step B is wired into the online screen (opt-in, `?predict=1`; step A stays the default because the

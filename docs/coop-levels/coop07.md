@@ -243,7 +243,10 @@ Two, both in beat 4 and both readable before they happen:
 
 Beats 1-3 cannot kill: the airlock is a corridor, and every fall in the climb or the swap lands on
 a lower shelf, on the rim or in the dip one under it (the stack has no pit under it). The room's
-hitter never leaves the room: the mouth is shut behind every A hit.
+hitter never leaves the room through its own hit: the mouth is shut behind every A hit. In B (the
+mouth open) an idle room member can still slide out onto L3 when his neighbour hangs below the
+alcove (wave B skeptic, random play at 4 players: x 24.49 to 27.40 over about 20 s); harmless, and
+he walks back in.
 
 ## Ruben's active moment
 

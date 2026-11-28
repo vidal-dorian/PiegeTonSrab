@@ -215,6 +215,38 @@ closed and accepted, deadly moments, Ruben's moment, communication moment.
 | 3 | L'Amphi | [coop03.md](coop-levels/coop03.md) |
 | 4 | La Salle de TP | [coop04.md](coop-levels/coop04.md) |
 | 5 | La Salle | [coop05.md](coop-levels/coop05.md) |
+| 6 | La BU (`coop07`; plays 6th while `coop06` is out of the campaign) | [coop07.md](coop-levels/coop07.md) |
+
+### What the designer of La BU returned (critic fixes, M5 wave B, 2026-11-28)
+
+All six critic findings were reproduced on the pre-fix map, then:
+
+- **Early hit dropped the climber (high), fixed.** Shelf option `spareHeads` (`PROPS.shelfHeadroom`
+  0.5): L2 and L3 never appear over a head, and a climber whose shelf went a moment before his jump
+  (within the coyote time) still lands on the next one. The sign became « 3, 2, 1, saute ! » puis
+  frappe: the hitter reacts to the jump. Windows (every size): L1->L2 -0.108 to +0.558 s; L2->L3
+  -0.108 to +0.400 s at 2 players, +0.550 s from 3; swap round 1 -0.108 to +0.542..0.558 s.
+  `coop07Bu.test.ts` pins hits at -0.1 to +0.375 s landing and -0.2 / +0.67 s failing.
+- **Haul then untimed hit at 4-5 players (high), fixed.** A turnstile (gate `o`) and a latched mat
+  (plate `t`, need W, `standing`, `latch`) keep the reading room 4 deep until the whole team has
+  stood on the mat; the haul then stops at feet 6.38 (Ruben 6.55), under L3's top (5). With the
+  turnstile removed the haul gets in at 4-5 players (the test keeps that control): the turnstile, not
+  the rope, closes it.
+- **Ruben in the pit, idle team dies (high), fixed.** The 14-deep catch pit and its planks became a
+  dip one cell under the rim (floor top 12); idle team alive 30 s at 2-5 players. New recovery
+  "Ruben misses L1".
+- **Room hitter slid out through the mouth (high), fixed.** The room's switch moved from x 25 to 24,
+  so every body that can hit it is clear of the mouth `m` (rule above). New recovery "the alcove walks
+  off its floor".
+- **Broken planks stalled the early-hit recovery (medium):** gone with the planks.
+- **Beat 4 has no timing and no decision (low): kept** as a calm ending (4.2-4.3 s); its only rule is
+  the deadly one, nobody hits once someone is on the footbridge.
+
+Integration (wave B skeptic, not refuted, severity low): the alcove-first route (the first hit
+untimed, only L2->L3 timed) wins at 2-5 players and is the sheet's accepted "first hit through the
+alcove"; the rope partner's spot in beat 2 is more forgiving than the sheet says (Ruben anywhere
+from x 24.7 to 26.2 at 2 players); random play (1200 runs) gave 0 deaths in beats 1-3 and no
+endless bob (the slowest pose settles in about 20 s, sub-pixel after).
 
 ### What the designers of levels 2-4 returned (redesign for the wrapped rope, 2026-11-27)
 
