@@ -11,7 +11,8 @@
  * towards the edge and sets him down. Each next one does the same, lowered by the one behind him;
  * the one before him waits at the floor's end and makes way. F0, last, has nobody behind him: he
  * drops below the slot's floor (onto the fragile tile across the shaft, if nobody hauls him before)
- * and the one before him hauls him up over its end.
+ * and the one before him hauls him up over its end. The lip's cell is a non-slip floor: an anchor
+ * who stands still slides towards the lip only until his centre is over it, never over its corner.
  * Beat 2 (shaft B, left): Ruben entered first, so he is nearest shaft B. With 2 players F0 stops
  * about 3 cells from the edge and Ruben steps off: he hangs against the wall at the key, one row
  * above the stripped cables. With 3 or more, Ruben's neighbour lowers him first, then steps off
@@ -29,7 +30,10 @@ import type { CoopWorld } from "../world";
 
 /** Feet of a body standing in the server room (and on the slot's floor). */
 const ROOM = 10;
-/** Shaft A: the lip of the raised floor (its right edge, the corner the rope runs over: (25, 6)). */
+/**
+ * Shaft A: the lip of the raised floor (its right edge, the corner the rope runs over: (25, 6)).
+ * The lip's cell (x 24) is a non-slip floor: an idle anchor's slide stops once his centre is over it.
+ */
 const EDGE_A = 25;
 /** The slot's floor ends at x = 24, one cell short of the lip (the recess under it). */
 const SLOT_FLOOR_X = 24;
@@ -665,6 +669,12 @@ export const shortcuts: Record<string, CoopSolution> = {
 // below him: with nothing under that friend, he was pulled off the floor's end about 1.1 s after the
 // step and both fell out of the level. The fragile tile 4 below the slot's floor takes the last one's
 // weight (he stands on it, nobody hangs), so a slow hauler costs time, never the level.
+//
+// The same slide on the raised floor: an anchor who stands still while the one he lowered hangs
+// straight below the lip (not leaning in) slides towards the lip. The lip's cell is a non-slip floor
+// (`g`), so his slide stops once his centre is over it, short of the corner (before it, he slid over
+// the corner, the wrap was let go and he crept on until he lost the floor). The team-does-nothing
+// sweep is in packages/client/src/coop/coop02IdleAnchor.test.ts.
 
 /** The solution, with the last one of beat 1 leaving the lip as `lastOne` says. */
 function withLastOne(lastOne: LastOne): CoopSolution {

@@ -14,6 +14,8 @@
  *    left to hold him, steps off and is hauled up by the one in the slot. A fragile tile across the
  *    shaft, 4 below the slot's floor, catches him if that one is slow to haul (an idle anchor slides
  *    towards the friend hanging below him, and off the floor's end); it breaks under Ruben or two.
+ *    The lip's own cell is a non-slip floor, so an anchor who stands still on the raised floor never
+ *    slides off the lip (his slide stops once his centre is over it).
  * 2. Les câbles dénudés (left): Ruben's key hangs on the near wall of a second shaft, stripped
  *    cables right below it and on the far wall, spikes at the bottom (deeper than the rope). Whoever
  *    entered the server room first (Ruben) is nearest it and goes down; the rope runs over the
@@ -36,7 +38,7 @@ export const coop02: CoopLevelDef = {
     "##############........########",
     "##############........########",
     "##############..S...........##",
-    "#########################...##",
+    "########################g...##",
     "#...........................##",
     "#...........D...............##",
     "#...........D...............##",
@@ -71,6 +73,10 @@ export const coop02: CoopLevelDef = {
     // one down, who steps off with nobody left to hold him and drops below the one waiting in the
     // slot) and breaks under Ruben or two bodies, so the pit stays a catch pit for everyone else.
     f: { kind: "fragile" },
+    // The lip's cell is a non-slip floor: an idle anchor slides towards the edge until his centre
+    // is over it, then holds. Without it, an anchor who stood still while the one he held hung
+    // straight below the lip (not leaning in) slid over the lip's corner and off it, and both fell.
+    g: { kind: "grip" },
   },
   cells: {
     // The key: on the near wall with 2 players (one row above the cables: a narrow window), deeper

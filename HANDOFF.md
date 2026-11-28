@@ -930,7 +930,7 @@ ways into the duct.
 
 Open after the integration's skeptic round (not fixed; each is in the level's notes, marked "Open"):
 
-- coop02, beat 1 can kill an idle team: Ruben steps off without leaning and his anchor stands still; the
+- coop02, beat 1 can kill an idle team (**fixed** 2026-11-28, see below): Ruben steps off without leaning and his anchor stands still; the
   anchor slides to the lip's corner and then off it (8 of 156 probed runs at 2 players, 18-27 s after the
   step; 4 of 156 at 3; none at 4-5). This breaks "the first beats never kill" for a team that does nothing
   for 18 s. Fix idea: a raised end on the lip (moves the pivot and every depth of the beat).
@@ -977,6 +977,12 @@ integrated on one branch):
 - Bot times (2 / 3 / 4 / 5 players): coop01 25.4 / 26.0 / 27.2 / 28.4 s, coop02 14.5 / 25.6 / 30.7 / 35.9 s,
   coop03 16.2 / 17.9 / 19.2 / 21.9 s, coop04 20.9 / 22.8 / 24.1 / 26.8 s, coop05 15.7 / 17.5 / 20.2 / 23.5 s.
 - Still open from before: coop02's idle-team kill in beat 1 (above); coop02 is redesigned next.
+- coop02 fix (2026-11-28): the lip's cell is a non-slip floor, a new terrain kind `grip` (legend `g`; solid like
+  `#`, the rope wraps it; an idle anchor whose centre is over it, or whose feet are on it past the floor's end,
+  does not slide). Only coop02 uses it, so nothing else moves (pinned values, other levels, `check-level`).
+  Idle team in beat 1: 8 / 4 / 0 / 0 deaths of 156 at 2 / 3 / 4 / 5 players before, 0 after (wider sweeps too;
+  `coop02IdleAnchor.test.ts`). The catcher-in-the-slot deaths (Ruben last, two leaving together) stay, re-measured
+  (haul within 2.0 / 2.5 s). Bot times 14.5 / 25.5 / 30.7 / 35.9 s. Details: coop02.md, "Deadly moments".
 
 Status at the end of M4 (2026-11-26):
 

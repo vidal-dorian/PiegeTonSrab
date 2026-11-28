@@ -50,7 +50,7 @@
  *   and no faster than what the body lifts: whoever hangs below it on taut links or stands on it.
  *   A body's own upward speed (a jump, a catapult) is kept.
  * - An anchor that does not brace (push away) slowly slides towards the friends hanging from it,
- *   faster the more hang below it.
+ *   faster the more hang below it, but not on a non-slip floor (a level's `grip` cells).
  */
 import type { CoopController } from "./coopController";
 import { COOP, COOP_MOVEMENT, ROPE_MAX_LENGTH } from "./coopTuning";
@@ -78,6 +78,11 @@ export interface RopeHost {
   solidCell(cx: number, cy: number): boolean;
   /** Whether a cell is fixed scenery (terrain, "=" placed blocks, springs): the rope wraps around its corners. */
   ropeSolid(cx: number, cy: number): boolean;
+  /**
+   * Body i stands on a non-slip floor (the level's `grip` cells): under its centre, or under its
+   * feet once its centre is past its floor's end. An idle anchor there does not slide.
+   */
+  grips?(i: number): boolean;
   /** The rope moved body i by (dx, dy) towards body `by` (the referee's blame, the mantle). */
   onPull?(i: number, by: number, dx: number, dy: number): void;
 }
@@ -943,6 +948,7 @@ export function solveRope(host: RopeHost, chain: readonly number[], wraps: reado
       if (m.len < REST - TAUT_SLACK) continue;
       const side = Math.sign((aIsA ? m.pax : m.pbx) - A.cx);
       if (side === 0 || host.inputDir(ia) === -side) continue; // bracing: pushing away holds
+      if (host.grips?.(ia)) continue; // a non-slip floor holds an idle anchor
       // The whole hanging part of the chain below this anchor weighs on it.
       let mass = 0;
       for (let j = k + (dirStep > 0 ? 1 : 0); j >= 0 && j <= chain.length - 1; j += dirStep) {

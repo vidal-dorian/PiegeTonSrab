@@ -88,7 +88,14 @@ export type ThingDef =
   /** Spikes pointing `dir` (the race's "^" are floor spikes): touching them kills. */
   | { kind: "spikes"; dir: SpikeDir; players?: PlayersSpec }
   /** Solid terrain only with some team sizes (same as `cells`, but drawn as a dashed block). */
-  | { kind: "wall"; players?: PlayersSpec };
+  | { kind: "wall"; players?: PlayersSpec }
+  /**
+   * A non-slip floor: solid terrain like "#" (bodies stand on it, the rope wraps its corners), on
+   * which an idle anchor does not slide (rope.ts). Put on a floor's last cell, it keeps a team that
+   * stands still from sliding off that floor's end. Drawn as a striped band on its top. `players`:
+   * the team sizes it grips for (it is solid terrain at every size).
+   */
+  | { kind: "grip"; players?: PlayersSpec };
 
 export type ThingKind = ThingDef["kind"];
 
@@ -147,6 +154,8 @@ export interface CoopLevel {
   door: { x: number; y: number; w: number; h: number } | null;
   /** Glass cells (y * width + x), solid, drawn as windows. */
   glass: Set<number>;
+  /** Non-slip floor cells (y * width + x): solid terrain on which an idle anchor does not slide. */
+  grip: Set<number>;
   /** Deadly pit bottom cells (y * width + x). */
   voids: Set<number>;
   /** Spawn cells, left to right (index = place in the rope chain). */
@@ -198,6 +207,7 @@ export function parseCoopLevel(def: CoopLevelDef, players: number = COOP.maxPlay
   const height = def.rows.length;
   const width = def.rows[0]?.length ?? 0;
   const glass = new Set<number>();
+  const grip = new Set<number>();
   const voids = new Set<number>();
   const stops = new Set<number>();
   const cellsOf = new Map<string, Array<[number, number]>>();
@@ -233,6 +243,12 @@ export function parseCoopLevel(def: CoopLevelDef, players: number = COOP.maxPlay
       } else {
         const thing = def.legend?.[c];
         if (!thing) throw new Error(`Level "${def.name}": unknown cell "${c}" at (${x}, ${y})`);
+        if (thing.kind === "grip") {
+          // Terrain with a non-slip top: not a thing (no collider), the rope wraps it like "#".
+          if (playersMatch(thing.players, players)) grip.add(at);
+          out += "#";
+          continue;
+        }
         if (playersMatch(thing.players, players)) {
           if (thing.kind === "wall") extraSolid.add(at);
           else {
@@ -297,6 +313,7 @@ export function parseCoopLevel(def: CoopLevelDef, players: number = COOP.maxPlay
     key,
     door: doorCells.length > 0 ? box(doorCells) : null,
     glass,
+    grip,
     voids,
     spawns,
     killY: height + 1,

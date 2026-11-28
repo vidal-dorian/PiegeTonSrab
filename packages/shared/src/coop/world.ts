@@ -297,6 +297,21 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
     return isSolidCell(this.level.collision, cx, cy);
   }
 
+  grips(i: number): boolean {
+    const grip = this.level.grip;
+    if (grip.size === 0) return false;
+    const b = this.bodies[i]!;
+    if (!b.grounded || b.support?.kind !== "terrain") return false;
+    const w = this.level.width;
+    const row = Math.round(b.y + b.height);
+    const has = (cx: number) => cx >= 0 && cx < w && grip.has(row * w + cx);
+    // The floor cell under its centre; past the end of its floor, any cell under its feet.
+    const c = Math.floor(b.cx);
+    if (this.solidCell(c, row)) return has(c);
+    for (let cx = Math.floor(b.x); cx <= Math.floor(b.x + b.width - 1e-6); cx++) if (has(cx)) return true;
+    return false;
+  }
+
   moveStack(i: number, dx: number, dy: number): { dx: number; dy: number } {
     // The base never rises further than its riders can follow (CoopController.moveY asks riderRoom),
     // so moving the base first, then whoever stands on it by what it achieved, never overlaps them.

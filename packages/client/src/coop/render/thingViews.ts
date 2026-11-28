@@ -79,6 +79,8 @@ const DEADLINE_EDGE = 46;
 const TERMINAL_FLASH_MS = 700;
 /** A switch block jumps this long when it is hit, ms. */
 const BUMP_MS = 160;
+/** Height of the striped band drawn on top of a non-slip floor, pixels. */
+const GRIP_BAND = 9;
 
 /** Terrain as drawn by the level view: glass and team-size walls are drawn by the things instead. */
 export function drawableTerrain(level: CoopLevel): Level {
@@ -557,6 +559,10 @@ export class ThingViews {
     cellGroups(walls, level.width).forEach((g, i) => {
       a.add(`wall-${i}`, g.x * C - 2, g.y * C - 2, g.w * C + 8, g.h * C + 10, (ctx) => drawVariantWall(ctx, g.cells, walls, level.width));
     });
+    // Non-slip floors (an idle anchor does not slide on them): a striped band on their top.
+    cellGroups(level.grip, level.width).forEach((g, i) => {
+      a.add(`grip-${i}`, g.x * C - 2, g.y * C - 2, g.w * C + 4, GRIP_BAND + 4, (ctx) => drawGrip(ctx, g.cells, level.width));
+    });
 
     // Ruben's USB key.
     if (level.key) a.add("key", -24, -10, 48, 24, drawKey);
@@ -647,6 +653,7 @@ export class ThingViews {
     for (let i = 0; this.atlas.has(`glass-${i}`); i++) this.img(`glass-${i}`, 0, 0, DEPTH.over);
     for (let i = 0; this.atlas.has(`stop-${i}`); i++) this.img(`stop-${i}`, 0, 0, DEPTH.under);
     for (let i = 0; this.atlas.has(`wall-${i}`); i++) this.img(`wall-${i}`, 0, 0, DEPTH.under);
+    for (let i = 0; this.atlas.has(`grip-${i}`); i++) this.img(`grip-${i}`, 0, 0, DEPTH.under);
     if (level.key) this.key = this.img("key", 0, 0, DEPTH.keyHome);
     if (level.door) {
       const d = level.door;
@@ -1392,6 +1399,20 @@ function drawVariantWall(ctx: CanvasRenderingContext2D, cells: readonly number[]
   }
   ctx.stroke();
   ctx.restore();
+}
+
+/** A non-slip floor: an orange band with ink stripes along the top of its cells (it helps: orange). */
+function drawGrip(ctx: CanvasRenderingContext2D, cells: readonly number[], width: number): void {
+  for (const c of cells) {
+    const x = (c % width) * C;
+    const y = Math.floor(c / width) * C;
+    ctx.fillStyle = ORANGE_CSS;
+    ctx.fillRect(x, y, C, GRIP_BAND);
+    hatch(ctx, x, y, C, GRIP_BAND, 10, INK_CSS, 3);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = INK_CSS;
+    ctx.strokeRect(x + 1, y + 1, C - 2, GRIP_BAND - 1);
+  }
 }
 
 /** Ruben's USB key, around (0, 0): an orange stick, its metal plug, a key ring. */

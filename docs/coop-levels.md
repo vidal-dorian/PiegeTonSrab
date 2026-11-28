@@ -68,7 +68,7 @@ Units are cells and seconds. A body is 0.8 wide and 0.9 high.
 | Carrying | whoever carries someone (or a crate) cannot jump; nobody jumps off a base that is in the air |
 | Walls | no wall jump, no wall slide |
 | Hauling | walking away from a friend who hangs below hauls them up at most 2.5 cells/s (Ruben 1.2): about 2 to 3 s for a 3-cell wall; a hauled body climbs over a lip once its feet are within 0.6 of the top (0.9 when the rope wraps that lip), unless the rope pulls it down more steeply than about 27°. A pull passes through friends standing still in the middle of the chain; a friend who has Ruben hanging below rises at Ruben's speed. A walker held by the rope never outruns it, not even with a friend right behind it or on its head |
-| Anchoring | an idle anchor slides towards the corner its friend hangs over (or towards him) at 0.15 cells/s per hanging mass (a friend 1, Ruben 2); walking away holds (and hauls). An idle anchor at a floor's end whose friend hangs against the wall below it slides off that end (past the corner it aims at the friend, half a body beyond the edge, where it loses its footing): only an overhang (the friend under the corner) or something under the friend stops it, so a lone catcher hauling a last one up from below must haul at once (Le Labo Réseau puts a fragile tile under him). Over a block (a pulley: the rope over its two top corners) two friends on either side hold each other and settle (a little friction round the corners); a body the rope presses against a wall is braked along it |
+| Anchoring | an idle anchor slides towards the corner its friend hangs over (or towards him) at 0.15 cells/s per hanging mass (a friend 1, Ruben 2); walking away holds (and hauls). An idle anchor at a floor's end whose friend hangs against the wall below it slides off that end (past the corner it aims at the friend, half a body beyond the edge, where it loses its footing): a friend hanging right under the corner does not stop it either (they creep on together); only a friend well under an overhang, something under the friend, or a non-slip floor (`grip`) stops it, so a lone catcher hauling a last one up from below must haul at once (Le Labo Réseau puts a fragile tile under him). On a `grip` cell an idle anchor does not slide at all (his centre over it, or past his floor's end with his feet on it). Over a block (a pulley: the rope over its two top corners) two friends on either side hold each other and settle (a little friction round the corners); a body the rope presses against a wall is braked along it |
 | Swinging | left/right pumps a hanging swing, at most 70° from vertical; an idle swing dies down |
 | Riders | whoever stands on a body moves with it: nobody walks out from under a friend |
 
@@ -87,6 +87,7 @@ Units are cells and seconds. A body is 0.8 wide and 0.9 high.
 | `fragile` | Breaks under a weight of 2 or more (Ruben, or two friends), back at the restart. |
 | `spikes` | `dir` up/down/left/right: a deadly strip 0.45 deep at the base of their cell. |
 | `wall` | Terrain present only for some team sizes (with `players`). |
+| `grip` | A non-slip floor: solid terrain like `#` (the rope wraps it), on which an idle anchor does not slide; drawn as an orange striped band on top. Put it on a floor's last cell where an idle team could stand with somebody hanging over that end (Le Labo Réseau's lip). Not a thing: no collider, nothing switches it. |
 | key / door | The key is picked up on contact; ↓ next to its carrier takes it. The carrier opens the door by touching it. ↓ in the open door enters (a fixed point of the rope), ↓ again comes out. Everybody inside: the level is won. |
 
 A death restarts the whole level for everyone, things included.
@@ -134,9 +135,10 @@ the consequences for a map.
 - **Idle anchors slide, and slide off ends.** An anchor who does nothing slides towards his friend
   at 0.15 cells/s per hanging mass, and at a floor's end the wrap is let go once his centre passes
   the corner: he goes over. Any beat where an idle team could stand with somebody hanging needs a
-  stop (an overhang over the hanging one, something under him, a fragile tile like Le Labo
-  Réseau's), or it kills a team that waits about 20 s. Probe idle teams, with and without the
-  hanging one leaning.
+  stop (an overhang well over the hanging one, something under him, a fragile tile like Le Labo
+  Réseau's, or a non-slip `grip` cell at the floor's end like its lip), or it kills a team that
+  waits about 20 s. A friend hanging right under the corner is no stop: the anchor and he creep
+  over it together. Probe idle teams, with and without the hanging one leaning.
 - **A taut link carries weight.** A body in the air under a taut rope weighs on its holder's
   support (plates, benches). A plate that counts a team needs the longest possible link measured
   from every place a hanging body can start, not just one (L'Amphi's 4-5 finding, since closed by
@@ -208,9 +210,10 @@ closed and accepted, deadly moments, Ruben's moment, communication moment.
   only), a solid pit floor (a 3-tower climbs out at 4-5, and a fallen team is stuck), a crawl over
   the raised floor (spawns need two rows; F0 still got past Ruben in 378 of 648). The last stage's
   hauler starts once the last one hangs or stands below the floor; `patience` (four variants) and
-  `coop02Patience.test.ts` win at 2-5 with 0 deaths, and die at 2 without the tile. Left open by
-  the integration's skeptic: an idle anchor whose friend does not lean in slides off the lip itself
-  (see coop02.md, "Deadly moments").
+  `coop02Patience.test.ts` win at 2-5 with 0 deaths, and die at 2 without the tile. The
+  integration's skeptic then found an idle anchor whose friend does not lean in sliding off the lip
+  itself (8 of 156 runs at 2 players, 4 at 3); fixed in the next fix round by a non-slip `grip`
+  cell on the lip (0 of 156, and 0 in wider sweeps; see coop02.md, "Deadly moments").
 - **L'Amphi.** The critic's "an idle bench sitter is dragged to the lip and one jump drops him
   through the trapdoor" was real (won in 15.4 s at 2 players). Fixed by gate m at the bench's end
   (x 33, row 9), inverted on the bench's link: shut (a step) while the bench holds W-1, open (a
