@@ -53,6 +53,11 @@ export const PROPS = {
   moverSpeed: 2.5,
   /** A switch block cannot be hit again within this long, seconds. */
   switchCooldown: 0.3,
+  /**
+   * A `spareHeads` shelf cell waits while a head is this close under it, cells: a friend standing
+   * 0.1 under it whose floor vanished falls 0.3 in the coyote time (0.1 s), so 0.5 covers it.
+   */
+  shelfHeadroom: 0.5,
   /** Terminals used "together" must all be used within this long, seconds. */
   togetherWindow: 1,
   /** ↓ takes the key from its carrier within this distance (centre to centre), cells. */
@@ -135,6 +140,8 @@ export interface PlateState {
   active: boolean;
   /** Weight on it after the last step. */
   load: number;
+  /** Once active, stays active until the restart. */
+  latch: boolean;
   /** Bodies standing on it after the last step (the referee's blame; not saved). */
   on: number[];
 }
@@ -194,6 +201,8 @@ export interface ShelfCell {
   collider: BoxCollider;
   /** Solid now (its group is active and it was free when it became so). */
   solid: boolean;
+  /** Also waits while a head is right under it (ThingDef `spareHeads`). */
+  spare: boolean;
 }
 
 export interface TerminalState {
@@ -328,6 +337,7 @@ export class CoopProps {
             need: resolveWeight(d.need, players),
             exact: d.exact === true,
             standing: d.standing === true,
+            latch: d.latch === true,
             link: d.link,
             hold: 0,
             active: false,
@@ -387,7 +397,7 @@ export class CoopProps {
               const solid = d.group === "A";
               const c = make(x, y, 1, 1, "solid");
               c.off = !solid;
-              this.shelves.push({ thing: t, group: d.group, collider: c, solid });
+              this.shelves.push({ thing: t, group: d.group, collider: c, solid, spare: d.spareHeads === true });
             }
           }
           break;
@@ -727,7 +737,7 @@ export class CoopProps {
       const was = p.active;
       if (pressed) p.hold = PROPS.plateHold;
       else p.hold = Math.max(0, p.hold - COOP_DT);
-      p.active = pressed || p.hold > 0;
+      p.active = pressed || p.hold > 0 || (p.latch && was);
       // This plate turns its link on: whoever just stepped on is remembered for the blame.
       if (!was && p.active && this.signals.get(p.link) !== true) this.pressedBy.set(p.link, newcomer);
       if (was !== p.active) host.emit({ kind: "plate", thing: p.thing.index, active: p.active, body: p.active ? (on[0] ?? -1) : (this.releasedBy.get(p.link) ?? -1) });
@@ -778,7 +788,7 @@ export class CoopProps {
     for (const s of this.shelves) {
       if (s.group === this.active && !s.solid) {
         const c = s.collider;
-        s.solid = !this.boxOccupied(host, c.x, c.y, c.w, c.h);
+        s.solid = !this.boxOccupied(host, c.x, c.y, c.w, c.h + (s.spare ? PROPS.shelfHeadroom : 0));
       }
       s.collider.off = !s.solid;
     }

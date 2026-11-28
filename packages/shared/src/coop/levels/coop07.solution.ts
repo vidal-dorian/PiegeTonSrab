@@ -10,6 +10,7 @@
  */
 import { BIT_DOWN, BIT_DOWN_PRESS, BIT_JUMP, BIT_JUMP_PRESS, BIT_LEFT, BIT_RIGHT } from "../inputBits";
 import { cond, enter, friends, hold, jumpTo, mount, roleIndex, seq, wait, walk, when, type CoopSolution, type Goal, type Phase, type Role } from "../bots";
+import { COOP_DT } from "../coopTuning";
 import type { CoopWorld } from "../world";
 
 // --- Helpers ---------------------------------------------------------------------------------
@@ -20,6 +21,14 @@ const feetOf = (w: CoopWorld, r: Role) => body(w, r).y + body(w, r).height;
 const airAbove = (r: Role, y: number) => (w: CoopWorld) => !body(w, r).grounded && feetOf(w, r) < y;
 const active = (g: "A" | "B") => (w: CoopWorld) => w.props.active === g;
 const never = { jump: "never" as const };
+/** True once the phase has run for `s` seconds (a fresh timer per phase that uses it). */
+function timer(s: number): (w: CoopWorld) => boolean {
+  let t0 = -1;
+  return (w) => {
+    if (t0 < 0) t0 = w.tick;
+    return w.tick - t0 >= Math.round(s / COOP_DT);
+  };
+}
 
 /** Jump straight up now (a full jump, no steering); done once landed again. Hits a switch block overhead. */
 export function hop(holdSteps = 50): Goal {
@@ -69,8 +78,12 @@ const L2_X = 28.4;
 /** The alcove (x 23-26, floor top 8): its front, and Ruben's spot under his switch (x 25 at 2 players, x 23 from 3). */
 const ALCOVE_FRONT = 26.3;
 const hitSpot = (n: number) => (n === 2 ? 25.4 : 23.4);
-/** The reading room (floor top 5, x 14-26): under its switch h (x 26), and its left end by the key's shelf. */
-const UNDER_H = 25.8;
+/**
+ * The reading room (floor top 5, x 14-26): under its switch h (x 25), clear of the mouth m (x 26)
+ * so that m shuts behind the hitter's hit; and its left end by the key's shelf. Until the whole
+ * team stood on the mat (x 23-25) the turnstile o (x 22) keeps everyone in its last 4 cells.
+ */
+const UNDER_H = 25.4;
 /** Beat 4: under the switch r (x 15); the key's shelf q (x 11-13, top 4); the door (x 2). */
 const UNDER_R = 15.4;
 const Q_X = 12.4;
@@ -177,8 +190,16 @@ function intoRoom(): Phase[] {
   return [{ name: "3. F0 into the reading room, under its switch", do: { F0: walk(UNDER_H, never) }, until: cond.all(cond.near("F0", UNDER_H, 0.2), cond.standsAbove("F0", 5)), timeout: 6 }];
 }
 
-/** Where the ones already in the reading room wait while c[j] climbs (the hitter is c[j-1], under h). */
-const roomSpot = (k: number, j: number) => 24.7 - 0.9 * (j - 1 - k);
+/**
+ * Where the ones already in the reading room wait while c[j] climbs (the hitter is c[j-1], under
+ * h): on the mat, left of the hitter; the third one back (5 players, Ruben's round) stands on the
+ * second one's head (the room is 3 high there).
+ */
+const ROOM_SLOTS = [24.5, 23.6];
+/** In the mouth (x 26) with 0.2 of the body over the mat's last cell. */
+const MAT_EDGE = 26.2;
+const roomSpot = (k: number, j: number) => ROOM_SLOTS[Math.min(j - 1 - k, 1)]!;
+const onHead = (k: number, j: number) => j - 1 - k >= 2;
 
 /**
  * Beat 3, l'inversion: the climb again, for the alcove, front first and Ruben last, with the
@@ -196,7 +217,7 @@ function swap(n: number, from = 1): Phase[] {
     const nextUp = c[j + 1];
     const next: Phase["do"] = nextUp ? { [nextUp]: when((w) => body(w, r).cx > 27.1, walk(ALCOVE_FRONT, never)) } : {};
     const stay: Phase["do"] = {};
-    for (let k = 0; k < j - 1; k++) stay[c[k]!] = walk(roomSpot(k, j - 1), never);
+    for (let k = 0; k < j - 1; k++) if (!onHead(k, j - 1)) stay[c[k]!] = walk(roomSpot(k, j - 1), never);
     phases.push(
       { name: `3. ${hitter} hits h: L2 (A) comes back, the room's mouth shuts`, do: { ...stay, [hitter]: hop() }, until: active("A"), timeout: 3 },
       { name: `3. ${r} runs out of the alcove and jumps onto L2`, do: { [r]: runJump(26.9, L2_X), ...next }, until: cond.all(cond.standsAbove(r, 7), cond.near(r, L2_X, 0.6)), timeout: 4 },
@@ -208,11 +229,23 @@ function swap(n: number, from = 1): Phase[] {
         timeout: 4,
       },
     );
-    // The hitter and the ones before him step back; the newcomer walks in under h.
+    if (j === c.length - 1) {
+      // Ruben, the last one up, stops in the mouth with a foot on the mat: the whole team is on it,
+      // the turnstile opens for good.
+      phases.push({ name: `3. ${r} into the mouth, on the mat's edge: the turnstile opens`, do: { [r]: walk(MAT_EDGE, { ...never, tol: 0.1 }) }, until: cond.all(cond.near(r, MAT_EDGE, 0.15), cond.gateOpen("o")), timeout: 6 });
+      break;
+    }
+    // The hitter and the ones before him step back; the newcomer walks in under h. With three
+    // waiting (5 players, Ruben's round), the deepest one first climbs onto his neighbour's head.
+    const rider = [...Array(j).keys()].find((k) => onHead(k, j));
+    if (rider !== undefined) {
+      const base = c[rider + 1]!;
+      phases.push({ name: `3. ${c[rider]} climbs onto ${base}'s head`, do: { [base]: walk(roomSpot(rider + 1, j - 1), { ...never, tol: 0.1 }), [c[rider]!]: mount(base, { side: -1 }) }, until: cond.on(c[rider]!, base), timeout: 8 });
+    }
     const back: Phase["do"] = {};
-    for (let k = 0; k < j; k++) back[c[k]!] = walk(roomSpot(k, j), { ...never, tol: 0.15 });
+    for (let k = 0; k < j; k++) if (k !== rider) back[c[k]!] = walk(roomSpot(k, j), { ...never, tol: 0.15 });
     phases.push(
-      { name: `3. ${hitter} steps back`, do: back, until: cond.all(...[...Array(j).keys()].map((k) => cond.near(c[k]!, roomSpot(k, j), 0.25))), timeout: 6 },
+      { name: `3. ${hitter} steps back`, do: back, until: cond.all(...[...Array(j).keys()].filter((k) => k !== rider).map((k) => cond.near(c[k]!, roomSpot(k, j), 0.25))), timeout: 6 },
       { name: `3. ${r} into the reading room, under h`, do: { [r]: walk(UNDER_H, never) }, until: cond.all(cond.near(r, UNDER_H, 0.2), cond.standsAbove(r, 5)), timeout: 6 },
     );
   }
@@ -403,6 +436,49 @@ export const shortcuts: Record<string, CoopSolution> = {
     ];
   },
 
+  /**
+   * Beat 3 by hauling, the hit at leisure: the alcove's front one waits on L2 (A), F0 walks off as
+   * far as the turnstile lets him and holds, and someone else hits whenever (Ruben from the
+   * alcove's back; at 2 players nobody else is left, so F0 goes back to h). The room in front of
+   * the shut turnstile is 4 cells deep: at most 4.0 of rope from the mouth's outside, short of the
+   * 4.5 that holds a body up there, so the climber hangs under the mouth's sill and L3 never comes
+   * under his feet.
+   */
+  "a haul from L2, then a hit whenever": (n) => {
+    const r = chain(n)[1]!;
+    const hitWhenever: Phase["do"] = n === 2 ? { F0: seq(wait(1), walk(UNDER_H, never), hop()) } : { F0: hold(-1), R: seq(wait(1), hop()) };
+    return [
+      ...sas(n),
+      ...escalier(n),
+      ...intoRoom(),
+      ...frontOntoL2(n),
+      { name: `F0 walks off with ${r} on L2 and holds`, do: { F0: hold(-1) }, until: timer(4), timeout: 5 },
+      { name: `ATTEMPT: a hit whenever (B), then ${r} walks in`, do: { ...hitWhenever, [r]: seq(wait(2.5), walk(24, never)) }, until: cond.all(cond.standsAbove(r, 5), (w) => body(w, r).cx < 26.5), timeout: 8 },
+      ...swap(n, 2),
+      ...reserve(n),
+    ];
+  },
+
+  /**
+   * The same from L1 in B, two hits at leisure: right after the climb the alcove's front one drops
+   * onto L1, F0 walks off and holds; a hit (A) frees the climber from under L3, a second one (B)
+   * would put L3 under him by the mouth. The room is as short in B.
+   */
+  "a haul from L1, then two hits whenever": (n) => {
+    const r = chain(n)[1]!;
+    const hits: Phase["do"] = n === 2 ? { F0: seq(wait(1), walk(UNDER_H, never), hop(), wait(1.5), hop()) } : { F0: hold(-1), R: seq(wait(1), hop(), wait(1.5), hop()) };
+    return [
+      ...sas(n),
+      ...escalier(n),
+      ...intoRoom(),
+      { name: `${r} runs out of the alcove onto L1 (F0 steps into the mouth for slack)`, do: { F0: walk(26.1, { ...never, tol: 0.1 }), [r]: runJump(26.9, L2_X) }, until: cond.all(cond.standsAbove(r, 9), (w) => feetOf(w, r) > 8.9), timeout: 4 },
+      { name: `F0 walks off with ${r} on L1 and holds`, do: { F0: hold(-1) }, until: timer(4), timeout: 5 },
+      { name: `ATTEMPT: two hits whenever (A, then B), then ${r} walks in`, do: { ...hits, [r]: seq(wait(4.5), walk(24, never)) }, until: cond.all(cond.standsAbove(r, 5), (w) => body(w, r).cx < 26.5), timeout: 9 },
+      ...swap(n, 2),
+      ...reserve(n),
+    ];
+  },
+
   /** Beat 4 without the cage open: in A (the footbridge there) F0 jumps for the key through its bars, under it and on both sides. */
   "the key through the bars": (n) => {
     const hitter: Role = n === 2 ? "R" : "F1";
@@ -469,8 +545,8 @@ export const recoveries: Record<string, CoopSolution> = {
       ...swap(n).slice(0, 3),
       { name: `MISTAKE: F0 hits h before ${r} jumps: L2 goes`, do: { F0: hop() }, until: active("B"), timeout: 3 },
       {
-        name: `${r} drops and swings onto L1`,
-        do: { [r]: seq(wait(0.6), hold(1)) },
+        name: `${r} drops and swings onto L1 (F0 steps into the mouth to let him down)`,
+        do: { F0: walk(26.1, { ...never, tol: 0.1 }), [r]: seq(wait(0.6), hold(1)) },
         until: cond.all(cond.standsAbove(r, 9), (w) => feetOf(w, r) > 8.9),
         timeout: 5,
       },

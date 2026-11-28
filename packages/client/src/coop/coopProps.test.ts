@@ -106,6 +106,32 @@ describe("plates and gates", () => {
     expect(gate.open).toBe(false);
   });
 
+  it("a latching plate stays on once the whole team stood on it, until the restart", () => {
+    const w = world(def(rows, { a: { kind: "plate", need: "W", standing: true, latch: true, link: "L" }, g: { kind: "gate", link: "L" } }), 2, 1);
+    const gate = w.props.gates[0]!;
+    const plate = w.props.plates[0]!;
+    stand(w, 0, 10.1, 10);
+    stand(w, 1, 5, 10);
+    run(w, sec(0.5));
+    expect(plate.active).toBe(false); // a friend alone: 1 of 3
+    stand(w, 1, 11.1, 10);
+    run(w, 2);
+    expect(plate.active).toBe(true);
+    stand(w, 0, 5, 10);
+    stand(w, 1, 7, 10);
+    run(w, sec(1));
+    expect(plate.load).toBe(0);
+    expect(plate.active).toBe(true);
+    expect(gate.open).toBe(true);
+    // The snapshot keeps it on.
+    const copy = world(def(rows, { a: { kind: "plate", need: "W", standing: true, latch: true, link: "L" }, g: { kind: "gate", link: "L" } }), 2, 1);
+    copy.props.load(w.props.save(), 0);
+    expect(copy.props.plates[0]!.active).toBe(true);
+    w.restart();
+    expect(w.props.plates[0]!.active).toBe(false);
+    expect(w.props.gates[0]!.open).toBe(false);
+  });
+
   it("an exact plate '= 1' opens for a friend, not for Ruben (2) nor for both", () => {
     const w = world(def(rows, { a: { kind: "plate", need: 1, exact: true, link: "L" }, g: { kind: "gate", link: "L" } }), 2, 1);
     const gate = w.props.gates[0]!;
@@ -351,6 +377,29 @@ describe("platforms, switch blocks, fragile floors", () => {
     expect(solidOf("B")).toEqual([false, true]); // the cell friend 1 is in waits for him
     run(w, sec(0.5), () => [0, BIT_LEFT]);
     expect(solidOf("B")).toEqual([true, true]);
+  });
+
+  it("a 'spareHeads' shelf never appears on a head: it waits while one is right under it", () => {
+    // Switch at (10, 6); B cells 0.1 over a standing head: "b" (spareHeads) at x 12-13, "c" (plain) at x 16, row 8.
+    const rows = room(32, 12, (set) => {
+      set(10, 6, "k");
+      set(12, 8, "b");
+      set(13, 8, "b");
+      set(16, 8, "c");
+    });
+    const w = world(def(rows, { k: { kind: "switch" }, b: { kind: "shelf", group: "B", spareHeads: true }, c: { kind: "shelf", group: "B" } }), 3);
+    const solid = () => w.props.shelves.map((s) => s.solid);
+    stand(w, 0, 10.1, 10);
+    stand(w, 1, 12.1, 10); // under the first spareHeads cell, head 0.1 under it
+    stand(w, 2, 16.1, 10); // under the plain cell
+    run(w, sec(0.5), (s) => [s === 0 ? BIT_JUMP | BIT_JUMP_PRESS : BIT_JUMP, 0, 0]);
+    expect(w.props.active).toBe("B");
+    expect(solid()).toEqual([false, true, true]); // the plain cell shut over friend 2's head
+    // Friend 1 jumps: the cell waits while he rises through it and turns solid under him.
+    run(w, sec(0.25), (s) => [0, s === 0 ? BIT_JUMP | BIT_JUMP_PRESS : BIT_JUMP, 0]);
+    run(w, sec(1));
+    expect(solid()).toEqual([true, true, true]);
+    expect(w.bodies[1]!.y + H).toBeCloseTo(8, 3); // he stands on it
   });
 
   it("a fragile floor holds a friend and breaks under Ruben", () => {

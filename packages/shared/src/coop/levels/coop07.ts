@@ -32,28 +32,17 @@ export const coop07: CoopLevelDef = {
   rows: [
     "################################",
     "################################",
-    "##.........uKv...........###.###",
-    "##D.........w..r.........h##.###",
-    "##D........qqq............m..###",
-    "##eeeeeeeeeeee#############33..#",
+    "##.........uKv........o..###.###",
+    "##D.........w..r......o..h##.###",
+    "##D........qqq........o...m..###",
+    "##eeeeeeeeeeee#########ttt#33..#",
     "##............#########b.f.....#",
     "##~~~~~~~~~~~~#########.....22.#",
     "##########################g....#",
     "#......z..s...a.............111#",
     "#S.....z......a................#",
     "############################...#",
-    "############################xxx#",
-    "############################...#",
-    "############################...#",
-    "############################...#",
-    "############################...#",
-    "############################...#",
-    "############################...#",
-    "############################...#",
-    "############################...#",
-    "############################...#",
-    "############################...#",
-    "############################...#",
+    "################################",
   ],
   legend: {
     // 1. Le sas: A wall ahead, B wall behind, the switch between them.
@@ -63,18 +52,21 @@ export const coop07: CoopLevelDef = {
     // 2. L'escalier: the alcove's switch (x 25 at 2 players, at its back from 3) and the shelves L1, L2, L3.
     f: { kind: "switch", players: "2" },
     b: { kind: "switch", players: "3+" },
+    // L2 and L3 never appear on a head: a hit a moment before the climber's jump (within the
+    // coyote time) still lands him on them.
     "1": { kind: "shelf", group: "B" },
-    "2": { kind: "shelf", group: "A" },
-    "3": { kind: "shelf", group: "B" },
+    "2": { kind: "shelf", group: "A", spareHeads: true },
+    "3": { kind: "shelf", group: "B", spareHeads: true },
     // The alcove's floor end: an idle hitter holding a fallen climber never slides off it.
     g: { kind: "grip" },
-    // Across the pit, 1 under the rim: a climber whose shelf goes too early lands on it and climbs
-    // back out; it breaks under Ruben (or two), and the pit under it is a catch pit.
-    x: { kind: "fragile" },
     // The reading room's mouth: shut while L2 is there (A), so nobody jumps from L2 into the room.
     m: { kind: "shelf", group: "A" },
     // 3. L'inversion: the reading room's switch, for the ones still in the alcove.
     h: { kind: "switch" },
+    // The room's turnstile: shut until the whole team stood on the mat t in front of it (then for
+    // good). Until then the room is 4 cells deep: too short to haul a climber up to the mouth.
+    t: { kind: "plate", need: "W", standing: true, latch: true, link: "portique" },
+    o: { kind: "gate", link: "portique" },
     // 4. La réserve: the footbridge to the exit (A), the key's shelf (B), its bars (A), its switch.
     e: { kind: "shelf", group: "A" },
     q: { kind: "shelf", group: "B" },
@@ -90,7 +82,6 @@ export const coop07: CoopLevelDef = {
     // 2. L'escalier.
     { x: 18.5, y: 6.45, text: "Alcôve : Ruben frappe" },
     { x: 18.5, y: 7.45, text: "« 3, 2, 1, frappe ! »" },
-    { x: 22, y: 12.6, text: "Planches : pas Ruben !" },
     // 3. L'inversion.
     { x: 19.5, y: 2.55, text: "Salle de lecture", print: true },
     { x: 18.5, y: 8.45, text: "Puis la salle frappe pour l'alcôve" },

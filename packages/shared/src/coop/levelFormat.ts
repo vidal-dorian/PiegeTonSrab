@@ -39,9 +39,10 @@ export type ThingDef =
   /**
    * A floor plate (its cells replace the floor): active while it carries `need` (exactly, with
    * `exact`). `standing`: only what stands on it counts (the bodies and crates on it and on each
-   * other's heads), not the friends hanging from them on the rope.
+   * other's heads), not the friends hanging from them on the rope. `latch`: once active, it stays
+   * active until the restart (a turnstile that lets the whole team through once it was all on it).
    */
-  | { kind: "plate"; need: WeightSpec; exact?: boolean; standing?: boolean; link: string; players?: PlayersSpec }
+  | { kind: "plate"; need: WeightSpec; exact?: boolean; standing?: boolean; latch?: boolean; link: string; players?: PlayersSpec }
   /** A gate: solid unless its link is on (inverted: the other way round). Never closes on anyone. */
   | { kind: "gate"; link: string; inverted?: boolean; players?: PlayersSpec }
   /**
@@ -80,8 +81,13 @@ export type ThingDef =
     }
   /** A switch block: hitting it from below swaps the A and B shelves. */
   | { kind: "switch"; players?: PlayersSpec }
-  /** A shelf: solid while its group is the active one (A at the start). A cell turns solid only once free. */
-  | { kind: "shelf"; group: "A" | "B"; players?: PlayersSpec }
+  /**
+   * A shelf: solid while its group is the active one (A at the start). A cell turns solid only once
+   * free. `spareHeads`: also only once no head is right under it (within PROPS.shelfHeadroom), so it
+   * never appears on a head: a climber whose own shelf went a moment early still jumps through
+   * (within the coyote time) and lands on it.
+   */
+  | { kind: "shelf"; group: "A" | "B"; spareHeads?: boolean; players?: PlayersSpec }
   /**
    * A "Claude" terminal: ↓ in front of it sets `link` on (or off). Ruben's prompts do the
    * opposite. Terminals with the same `together` act only if all are used within a second.
