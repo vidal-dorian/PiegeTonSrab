@@ -979,10 +979,20 @@ integrated on one branch):
 - Still open from before: coop02's idle-team kill in beat 1 (above); coop02 is redesigned next.
 - coop02 fix (2026-11-28): the lip's cell is a non-slip floor, a new terrain kind `grip` (legend `g`; solid like
   `#`, the rope wraps it; an idle anchor whose centre is over it, or whose feet are on it past the floor's end,
-  does not slide). Only coop02 uses it, so nothing else moves (pinned values, other levels, `check-level`).
+  does not slide; superseded by the second fix below). Only coop02 uses it, so nothing else moves (pinned values, other levels, `check-level`).
   Idle team in beat 1: 8 / 4 / 0 / 0 deaths of 156 at 2 / 3 / 4 / 5 players before, 0 after (wider sweeps too;
   `coop02IdleAnchor.test.ts`). The catcher-in-the-slot deaths (Ruben last, two leaving together) stay, re-measured
   (haul within 2.0 / 2.5 s). Bot times 14.5 / 25.5 / 30.7 / 35.9 s. Details: coop02.md, "Deadly moments".
+- coop02 second fix (2026-11-28, after its skeptic and the whole-tree skeptic): the first grip held the anchor
+  as soon as his centre was over the lip's cell (24.0), so a friend leaning in hung 0.1 above the slot's floor for
+  good (trains landed 0 / 120 at 3 players, 114 on `219ffed`) and a friend left swinging in the slot's mouth
+  swung for 30-45 s (64 bot poses still moving at 28-30 s, 41 on `0fa5e90`). `grip` is now a non-slip floor's
+  end: the slide runs as before and is only cut so that 0.1 of the anchor's feet stay on the cell (centre 25.30;
+  `CoopWorld.slideRoom`). Landings, poses and bot runs are those of `219ffed` again (bot times 14.5 / 25.6 /
+  30.7 / 35.9 s, `check-coop-level` identical), lip-slide deaths stay 0 at 2-5 (0 / 159 / 15 / 0 before in the
+  placed sweep). Idle deaths left in beat 1 are the slot catcher's (1 / 3 / 3 / 0 of 400 random runs at 2-5,
+  also dead on `219ffed`, which had 12 / 40 / 47 / 39). coop03's Open trapdoor route is unchanged by this
+  (still worse than `0fa5e90` at 3-4 players for some leavers, better for others; see its Open entry).
 
 Status at the end of M4 (2026-11-26):
 

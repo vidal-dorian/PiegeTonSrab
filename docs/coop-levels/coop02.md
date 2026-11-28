@@ -78,7 +78,7 @@ hangs deep.
 | shaft A | catch pit, bottomless (under the tile) | x 25-27 from the duct down, plus x 24 (the recess) under the lip |
 | `f` | fragile tile (`fragile`): holds one friend, breaks under a weight of 2 (Ruben, or two), back at the restart | x 24-27, row 14: across shaft A, 4 below the slot's floor |
 | the lip | the raised floor's right end, 1 cell thick | x 24, row 6; its corners (25, 6) and (25, 7) are the ones the rope wraps |
-| `g` | the lip's cell is a non-slip floor (`grip`): solid terrain like `#` (the rope wraps it), on which an idle anchor does not slide; drawn as an orange striped band | x 24, row 6 |
+| `g` | the lip's cell is a non-slip floor's end (`grip`): solid terrain like `#` (the rope wraps it); an idle anchor's slide never takes him off it (it stops with 0.1 of his feet on it, centre 25.30); drawn as an orange striped band | x 24, row 6 |
 | the slot | the server room's mouth, 3 rows high | rows 7-9; its floor (row 10) ends at x = 24, one cell short of the lip |
 | `D` | door | x 12, rows 8-9, in the server room |
 | shaft B | 3 wide, near rim x = 4 | x 1-3, rows 7-20 |
@@ -115,12 +115,15 @@ and his anchor slides fast).
 - **The idle anchor and the non-slip lip (beat 1).** The same slide on the raised floor: an anchor
   who stands still while the one he lowered hangs straight below the lip (not leaning in) slides
   towards the lip's corner, and the one below hangs right under it (x 25.0). Without a stop, once
-  the anchor's centre passed the corner the wrap was let go, both crept on over the void together
-  and the anchor lost the floor at x 25.40. The lip's cell (x 24) is a non-slip floor (`grip`): the
-  slide stops once the anchor's centre is over it (x 24.0), 1 cell short of the corner, and he
-  holds there (Ruben then hangs at feet 10.17 under the lip, 0.17 below the slot floor's top:
-  « Recule ! » brings him up). Walking is unchanged on it, so the lowering and every depth are the
-  same.
+  the anchor's centre passed the corner the wrap was let go, and when the one below hung a little
+  past the corner both crept on over the void together and the anchor lost the floor at x 25.40.
+  The lip's cell (x 24) is a non-slip floor's end (`grip`): the anchor slides on it as anywhere,
+  past the corner too, but the slide stops with 0.1 of his feet still on the cell (centre 25.30),
+  so he never loses the floor. Up to there nothing changes: a friend leaning in is still set down
+  on the slot's floor by the slide (it needs the anchor at about 24.45-24.6 for a friend), and the
+  slide past the corner and back still calms a friend left swinging in the slot's mouth. Mostly the
+  anchor ends with his centre on the corner (25.00), the one below right under him at feet 10.82;
+  now and then he creeps to 25.2-25.3 and holds there. « Recule ! » brings the one below up.
 - **The rim's corner sets the depth (beat 2).** Same rule over shaft B's rim: depth is linear in
   the anchor's distance, hence the narrow, honest window.
 
@@ -195,14 +198,14 @@ not computed, unless marked.
   Held still, an anchor never sets him down: the rope keeps him above the floor until the anchor
   comes closer to the edge (Ruben lands with the anchor at about 23.9-24.3).
 - **Beat 1, doing nothing.** An anchor who stands still slides towards the edge (0.3 cells/s with
-  Ruben) until his centre is over the lip's non-slip cell (x 24.0), then holds. Ruben leaning in
-  lands by himself from an anchor at 21.75 to 23.5, within 2.6 to 8.7 s (3.9 to 10.1 s stepping off
-  at 0.8 cells/s; the same with or without the non-slip cell: he lands before the anchor gets
-  there). From 21.5 or further back he slides down the lip's face and ends below the floor's top,
-  against its side (feet 10.11 with the anchor held at 24.0; 10.77 before, the anchor at 25.0).
-  Ruben not leaning in ends hanging under the lip's lower corner, x 25.00, feet 10.17, the anchor
-  at 24.00, from any place 20.0-23.5: a standoff that walking back undoes (before: the anchor went
-  on over the corner, see "Deadly moments").
+  Ruben). Ruben leaning in lands by himself from an anchor at 21.75 to 23.5, within 2.6 to 8.7 s
+  (3.9 to 10.1 s stepping off at 0.8 cells/s). From 21.5 or further back he slides down the lip's
+  face and ends below the floor's top, against its side (feet 10.77, the anchor at 25.0). Ruben
+  not leaning in ends hanging right under his anchor, feet 10.82: the anchor's centre at 25.00 (22
+  of 26 runs from 20.0-23.8, both speeds) or at 25.21-25.29 (4), never further than 25.30, the
+  lip's non-slip end (before it, 2 of 26 ended at 25.31-25.32 and the walked runs of "Deadly
+  moments" went on to 25.40 and fell). A friend lowered by an idle Ruben, not leaning in: the same
+  end, the anchor at 25.00 (26 of 26). These are standoffs that walking back undoes.
 - **Beat 1, too deep.** An anchor who follows Ruben to the edge leaves him against the side of the
   slot's floor, feet 10.57 (deepest 11.1): that never resolves by itself (the slide only takes him
   deeper). Walking back brings him up, and he climbs onto the floor's end as soon as his feet clear
@@ -301,47 +304,65 @@ not computed, unless marked.
 
 Beat 1 does not kill in the order the team stands in, even if the team does nothing. While
 somebody stands on the raised floor, the one lowered hangs safely in the catch pit (too deep or too
-high) and his anchor fixes it, or stands still for ever: an idle anchor's slide stops on the lip's
-non-slip cell. The last one, who steps off with nobody left up there, lands on the tile if the one
+high) and his anchor fixes it, or stands still for ever: an idle anchor's slide never takes him off
+the lip's non-slip end. The last one, who steps off with nobody left up there, lands on the tile if the one
 in the slot is slow to haul. What still kills in beat 1:
 
 - the whole team going into shaft A at once (nobody holds; the tile breaks under two);
 - a lone body in the slot standing still while a weight of 2 hangs below him, since that weight
   breaks the tile: Ruben as the last one at 2 players (the other order, a friend having jumped over
-  him first), or the last two stepping off together at 3 players. Re-measured (2026-11-28, the
-  hauler waiting w seconds after the step, then walking in): Ruben, stepping, running or leaning
-  off, comes in if F0 hauls within 2.0 s (F0 waiting at 23.3 or 23.75; 1.5 s if he waits at the
-  floor's very end, 24.0), and both fall at 2.5 s (2.0 s); the pair comes in if Ruben hauls within
-  2.5 s (3.0 s from 23.3), and falls at 3.0 s (3.5-4.0 s from 23.3). Without the tile that window
-  was 2.0 s for Ruben. Not changed: the catcher slides off the slot floor's end towards the one
-  below him, and a non-slip end there would make the tile pointless for the last one (it would also
-  break `coop02Patience.test.ts`'s check that the tile is what saves him), so these stay the
-  documented price of the other order and of two leaving together (both accepted moves).
+  him first), or the last two stepping off together at 3 players (or at 4, the catcher alone in
+  the slot's front with the others too far in to hold him). Re-measured (2026-11-28, the hauler
+  waiting w seconds after the step, then walking in): Ruben, stepping, running or leaning off,
+  comes in if F0 hauls within 2.0 s (F0 waiting at 23.3 or 23.75; 1.5 s if he waits at the floor's
+  very end, 24.0), and both fall at 2.5 s (2.0 s); the pair comes in if Ruben hauls within 2.5 s
+  (3.0 s from 23.3), and falls at 3.0 s (3.5-4.0 s from 23.3). Without the tile that window was
+  2.0 s for Ruben. In random play followed by 40 s of nobody pressing anything (400 runs per team
+  size), these are the only deaths left 3 s or more into the wait: 1 / 3 / 3 / 0 at 2 / 3 / 4 / 5
+  players (the 4-player ones 5.7, 28.9 and 36.0 s in, two of them the last two hanging together),
+  every one a catcher sliding off the slot floor's end, and every one also dies without the grip.
+  Not changed: the catcher slides off the slot floor's end towards the one below him, and a
+  non-slip end there would make the tile pointless for the last one (it would also break
+  `coop02Patience.test.ts`'s check that the tile is what saves him), so these stay the documented
+  price of the other order and of two leaving together (both accepted moves).
 - **Fixed (2026-11-28): an anchor who does nothing while the one lowered does not lean in.** Found
   by the integration skeptic: Ruben steps off shaft A without leaning (a newcomer) and F0 stands
   still anywhere on the raised floor. F0 slid at 0.3 cells/s to the lip's corner (25.00, about
   11 s); Ruben hangs right under it (x 25.0), so the wrap was let go and both crept on over the
   void until F0's centre reached 25.40 and he lost the floor; both fell, Ruben's 2 broke the tile.
-  The lip's cell is now a non-slip floor (`g`, `grip`): the slide stops once the anchor's centre is
-  over it (x 24.0). Measured, before / after:
+  The lip's cell is now a non-slip floor's end (`g`, `grip`): an idle anchor's slide stops with 0.1
+  of his feet on it (centre 25.30), so he never loses the floor. A first version (`73ac9d7`) held
+  the anchor still as soon as his centre was over the cell (x 24.0); its skeptic found two things it
+  broke: a friend leaning in, his anchor standing still, was no longer set down (he hung 0.11-0.13
+  above the slot floor's end for 60 s and more: the train landed 114 / 120 at 3 players on
+  `219ffed`, 0 / 120 with it), and a friend left swinging in the slot's mouth swung for 30-45 s
+  (the anchor's slide past the corner and back is what calmed him). The slide now runs as before up
+  to the lip's end, so both are back. Measured, before (`219ffed`) / first version / now:
   - the skeptic's probe (2 players, Ruben walked to 24.4, F0 to 20.0-23.8, 4 step-off speeds, 60 s):
-    8 / 0 deaths of 156 (18-27 s after the step); 3 players (F0 behind F1): 4 / 0 (31-34 s); 4-5
-    players: 0 / 0; Ruben leaning in: 0 / 0 at every size;
-  - the wider sweep (bodies placed, stepper at 24.2-24.55, anchor at 20.0-23.8 by 0.1, 4 speeds,
-    not leaning, leaning 0.5 s or all the way, everyone else idle 60 s; Ruben first or a friend
-    first; 1320 runs per size and order): 0 / 0 deaths, but before, 607 runs at 2 players and 581
-    at 3-5 with Ruben first, and 462 at 2 players with a friend first, ended with the anchor's
-    centre past the corner (up to 25.35, a hair from falling; with a friend first at 3-5 two
-    anchors share him and neither got past 23.7); after, none (the anchor's centre never beyond
-    24.002);
-  - the anchor walking up to the lip or past its corner (23.9-25.3) once the one below hangs, then
-    standing still (108 runs per size and order): 15 / 0 deaths at 2 and 3 players (Ruben first),
-    9 / 0 at 2 (a friend first), 0 / 0 otherwise; after stopping, slides of up to 0.83 / none;
-  - the train (2-5 players, the next one stepping off with or without leaning, his anchor at
-    20.4-23.8, the one in the slot waiting at 23.3-24.0, 3 speeds, everyone idle 60 s; 24 / 420 /
-    816 / 1212 runs): 0 / 0 deaths.
-  `coop02IdleAnchor.test.ts` sweeps it (2-5 players, both orders, 3 places, 3 speeds) and checks
-  that without the non-slip cell the skeptic's runs die and the anchor passes the corner.
+    8 / 0 / 0 deaths of 156 (18-27 s after the step); 3 players (F0 behind F1): 4 / 0 / 0
+    (31-34 s); 4-5 players: 0;
+  - every chain seat stepping off, or two together, both line-up orders, anchors 14.5-23.8, 3
+    speeds, leaning or not, everyone else idle 40 s (372 / 1632 / 2856 / 3180 runs at 2-5): deaths
+    0 / 159 / 15 / 0 before, 0 after (both versions); the anchor's centre at most 25.40 before (where
+    he falls), 24.004 with the first version, 25.300 now;
+  - a friend leaning in, his anchor idle, the ones before already in the slot (the catcher at
+    19.5-22.7; 120 / 240 / 360 runs at 3 / 4 / 5): lands 114 / 225 / 336 before, 0 with the first
+    version, 114 / 225 / 336 now (the same runs); at 2 players a friend first, Ruben anchoring
+    (stepping off with or without leaning, waiting 0-60 s, then leaning in or walking back): 72 of
+    128 land before, 28 with the first version, 72 now;
+  - random play, then 40 s of nobody pressing anything (400 runs per size): deaths 3 s or more into
+    the wait 12 / 40 / 47 / 39 before at 2 / 3 / 4 / 5 players, 1 / 3 / 3 / 0 now (the catcher in the
+    slot, above; none dies now that lived before);
+  - poses of the bots' run (every 0.5 s, everyone letting go for 30 s, 209 poses at 2-5): 41 still
+    moving back and forth at 28-30 s before, 64 with the first version, 41 now, none of them new.
+    Random play then 20 s released (12 seeds per size, after 5 / 8 / 12 s of play): 1 / 3 / 3 still
+    moving before, 1 / 4 / 3 now (the extra one, 2 players seed 9 after 8 s, moves 0.011 against
+    0.009 at the same pose; at rest by 45 s on both).
+  Bot times are those of `219ffed` (14.5 / 25.6 / 30.7 / 35.9 s; the bots' runs are the same step
+  for step). `coop02IdleAnchor.test.ts` sweeps it (2-5 players, both orders, 3 places, 3 speeds),
+  checks that without the non-slip end the skeptic's runs die, that a friend leaning in is set
+  down by an idle anchor at 2 and 3 players, and that Ruben left swinging in the slot's mouth by
+  the bots (2 players) is still within 30 s.
 
 ## Ruben's active moments
 
@@ -403,8 +424,8 @@ walls).
 - Another order (a friend jumps over Ruben in the raised floor's high part and goes first): the
   depths are the same, only the slides change; Ruben then ends up an anchor or the last one down.
 - An anchor who does nothing in beat 1 (from 21.75 to 23.5 his slide sets Ruben down within 2.6
-  to 10.1 s, if Ruben leans in; it stops on the lip's non-slip cell): the slide is the lowering,
-  slowly.
+  to 10.1 s, if Ruben leans in; it never takes him off the lip's non-slip end): the slide is the
+  lowering, slowly.
 - In the train, the one waiting in the slot hauling the next one in instead of his anchor setting
   him down: the same crossing, the role turned around.
 - The last one dropping onto the tile on purpose (or a friend stepping off with somebody in the
@@ -492,13 +513,23 @@ walls).
   35.9 s; every shortcut still fails in its attempt; `coop02IdleAnchor.test.ts` added. Browser
   (`?coopLocal=2&level=coop02`, Playwright, no console error): the band draws on the lip's top; F0
   idle while Ruben hangs without leaning stops on it.
+- Second fix round (2026-11-28): that grip stopped the slide with the anchor's centre over the lip's
+  cell (x 24.0), too early: a friend leaning in, his anchor standing still, hung 0.1 above the slot
+  floor's end for good (0 of 120 trains landed at 3 players, 114 before), and a friend left
+  swinging in the slot's mouth swung for 30-45 s (64 poses still moving at 28-30 s, 41 before).
+  The grip now only keeps the slide from taking the anchor off the lip (it stops with 0.1 of his
+  feet on the cell, centre 25.30); up to there the slide is the one of `219ffed`, so the bots'
+  runs, the landings and the calmed swings are those of `219ffed` again, and the lip-slide deaths
+  stay at 0 (numbers in "Deadly moments").
 
 ## Engine notes
 
-- One engine addition (2026-11-28): a non-slip floor, legend kind `grip` (`levelFormat.ts`):
-  solid terrain like `#` (bodies stand on it, the rope wraps it), listed in `CoopLevel.grip`; an
-  anchor whose centre stands over a grip cell, or who stands on one with his centre past his floor's
-  end, does not slide (`CoopWorld.grips`, checked in the slide of `rope.ts`). Walking, bracing, the
+- One engine addition (2026-11-28): a non-slip floor's end, legend kind `grip` (`levelFormat.ts`):
+  solid terrain like `#` (bodies stand on it, the rope wraps it), listed in `CoopLevel.grip`. When
+  the floor cell furthest towards an idle anchor's slide under his feet is a grip cell and the
+  floor ends there, the slide is cut so that 0.1 of his feet stay on it (`CoopWorld.slideRoom`,
+  called by the slide in `rope.ts`; `GRIP_FOOTING` in `world.ts`): his centre at most 0.3 past the
+  corner, and up to there he slides exactly as on any floor. Walking, bracing, the
   hard stop and its `anchorGive`, the haul and everything else are unchanged on it, and no other
   level has a grip cell, so nothing else moves (pinned rope values, the other levels' bots and
   shortcuts, `check-level --all`: identical). Drawn as an orange striped band on the cell's top.
@@ -507,7 +538,7 @@ walls).
   corner, and then it aims at the friend, half a body past the edge, exactly where it loses its
   footing. A friend hanging right under the corner (x equal to the corner's, as under this level's
   lip when he does not lean in) does not stop it either: anchor and friend creep on together. Only
-  a friend well under an overhang, something under the friend, or a non-slip floor stops it. Any
+  a friend well under an overhang, something under the friend, or a non-slip floor's end stops it. Any
   level that hauls a last one up from below with a single catcher meets this.
 - The fragile floor appears here first; by the plan's rule its family has to come back in another
   level.

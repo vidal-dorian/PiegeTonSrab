@@ -121,6 +121,8 @@ const ROPE_BLAME_CELLS = 0.3;
 const MANTLE_MAX_DROP = 0.5;
 /** Hanging at least this long, then standing again, counts as a catch for the anchor, seconds. */
 const CATCH_MIN_S = 0.4;
+/** On a non-slip floor's end, an idle anchor's slide stops with this much of its feet still on it, cells. */
+const GRIP_FOOTING = 0.1;
 
 export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
   readonly bodies: CoopController[] = [];
@@ -297,19 +299,29 @@ export class CoopWorld implements CoopSpace, RopeHost, PropsHost {
     return isSolidCell(this.level.collision, cx, cy);
   }
 
-  grips(i: number): boolean {
+  slideRoom(i: number, dx: number): number {
     const grip = this.level.grip;
-    if (grip.size === 0) return false;
+    if (grip.size === 0 || dx === 0) return dx;
     const b = this.bodies[i]!;
-    if (!b.grounded || b.support?.kind !== "terrain") return false;
+    if (!b.grounded || b.support?.kind !== "terrain") return dx;
     const w = this.level.width;
     const row = Math.round(b.y + b.height);
-    const has = (cx: number) => cx >= 0 && cx < w && grip.has(row * w + cx);
-    // The floor cell under its centre; past the end of its floor, any cell under its feet.
-    const c = Math.floor(b.cx);
-    if (this.solidCell(c, row)) return has(c);
-    for (let cx = Math.floor(b.x); cx <= Math.floor(b.x + b.width - 1e-6); cx++) if (has(cx)) return true;
-    return false;
+    const side = dx > 0 ? 1 : -1;
+    // The floor cell furthest towards the slide under its feet: is it a non-slip floor's end?
+    const lead = Math.floor(side > 0 ? b.x + b.width - 1e-6 : b.x);
+    const tail = Math.floor(side > 0 ? b.x : b.x + b.width - 1e-6);
+    let end = -1;
+    for (let cx = lead; cx !== tail - side; cx -= side) {
+      if (this.solidCell(cx, row)) {
+        end = cx;
+        break;
+      }
+    }
+    if (end < 0 || end >= w || !grip.has(row * w + end) || this.solidCell(end + side, row)) return dx;
+    // It slides on until only GRIP_FOOTING of its feet are left on that end, never further.
+    const limit = (side > 0 ? end + 1 : end) + side * (b.width / 2 - GRIP_FOOTING);
+    const room = Math.max(0, (limit - b.cx) * side);
+    return side * Math.min(Math.abs(dx), room);
   }
 
   moveStack(i: number, dx: number, dy: number): { dx: number; dy: number } {

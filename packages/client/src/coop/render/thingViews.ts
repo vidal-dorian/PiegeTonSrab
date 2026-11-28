@@ -559,7 +559,7 @@ export class ThingViews {
     cellGroups(walls, level.width).forEach((g, i) => {
       a.add(`wall-${i}`, g.x * C - 2, g.y * C - 2, g.w * C + 8, g.h * C + 10, (ctx) => drawVariantWall(ctx, g.cells, walls, level.width));
     });
-    // Non-slip floors (an idle anchor does not slide on them): a striped band on their top.
+    // Non-slip floor ends (an idle anchor never slides off them): a striped band on their top.
     cellGroups(level.grip, level.width).forEach((g, i) => {
       a.add(`grip-${i}`, g.x * C - 2, g.y * C - 2, g.w * C + 4, GRIP_BAND + 4, (ctx) => drawGrip(ctx, g.cells, level.width));
     });

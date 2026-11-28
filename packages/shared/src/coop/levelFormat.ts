@@ -90,10 +90,11 @@ export type ThingDef =
   /** Solid terrain only with some team sizes (same as `cells`, but drawn as a dashed block). */
   | { kind: "wall"; players?: PlayersSpec }
   /**
-   * A non-slip floor: solid terrain like "#" (bodies stand on it, the rope wraps its corners), on
-   * which an idle anchor does not slide (rope.ts). Put on a floor's last cell, it keeps a team that
-   * stands still from sliding off that floor's end. Drawn as a striped band on its top. `players`:
-   * the team sizes it grips for (it is solid terrain at every size).
+   * A non-slip floor's end: solid terrain like "#" (bodies stand on it, the rope wraps its corners).
+   * When it is a floor's last cell, an idle anchor's slide (rope.ts) never takes him off that end:
+   * it stops with 0.1 of his feet still on the cell (his centre 0.3 past the corner), and up to
+   * there he slides as on any floor. Walking off is unchanged. Drawn as a striped band on its top.
+   * `players`: the team sizes it grips for (it is solid terrain at every size).
    */
   | { kind: "grip"; players?: PlayersSpec };
 
@@ -154,7 +155,7 @@ export interface CoopLevel {
   door: { x: number; y: number; w: number; h: number } | null;
   /** Glass cells (y * width + x), solid, drawn as windows. */
   glass: Set<number>;
-  /** Non-slip floor cells (y * width + x): solid terrain on which an idle anchor does not slide. */
+  /** Non-slip floor-end cells (y * width + x): solid terrain an idle anchor never slides off. */
   grip: Set<number>;
   /** Deadly pit bottom cells (y * width + x). */
   voids: Set<number>;
